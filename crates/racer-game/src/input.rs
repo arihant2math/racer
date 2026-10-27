@@ -18,7 +18,8 @@ impl Plugin for InputPlugin {
             .init_resource::<DriverSettings>()
             .add_systems(PreUpdate, read_devices.after(bevy::input::InputSystems))
             .add_systems(FixedUpdate, apply_to_car.in_set(ControlSystems))
-            .add_systems(FixedPostUpdate, force_feedback);
+            .add_systems(FixedPostUpdate, force_feedback)
+            .add_systems(PostUpdate, release_force_while_paused);
         if !app.world().contains_resource::<Wheel>() {
             app.insert_resource(Wheel(default_wheel()));
         }
@@ -102,6 +103,7 @@ pub fn filter_steering(
 }
 
 fn read_devices(
+    time: Res<Time<Virtual>>,
     keys: Res<ButtonInput<KeyCode>>,
     gamepads: Query<&Gamepad>,
     mut wheel: ResMut<Wheel>,
@@ -126,16 +128,22 @@ fn read_devices(
         shift_down: input.shift_down || keys.just_pressed(KeyCode::KeyQ),
     };
     for pad in &gamepads {
+        // `Gamepad` holds raw values (Bevy's axis settings only filter its
+        // change events), so this is the one deadzone.
         let stick = pad.left_stick().x;
         let (rt, lt) = (
             pad.get(GamepadButton::RightTrigger2).unwrap_or(0.0),
             pad.get(GamepadButton::LeftTrigger2).unwrap_or(0.0),
         );
         if stick.abs() > 0.08 || rt > 0.05 || lt > 0.05 {
-            next.device = Device::Gamepad;
-            // Deadzone and a mild curve for fine control around centre.
+            // Deadzone and a mild curve for fine control around centre. The
+            // stronger steering wins, so keyboard steering works with pad pedals.
             let s = ((stick.abs() - 0.08) / 0.92).max(0.0);
-            next.steer = stick.signum() * s.powf(1.4);
+            let steer = stick.signum() * s.powf(1.4);
+            if steer.abs() > next.steer.abs() || next.steer == 0.0 {
+                next.device = Device::Gamepad;
+                next.steer = steer;
+            }
             next.throttle = next.throttle.max(rt);
             next.brake = next.brake.max(lt);
         }
@@ -155,6 +163,12 @@ fn read_devices(
         next.clutch = r.clutch;
         next.shift_up |= r.shift_up;
         next.shift_down |= r.shift_down;
+    }
+    // Shifts pressed while paused (time stands still) are dropped, not
+    // latched for when the race resumes.
+    if time.is_paused() {
+        next.shift_up = false;
+        next.shift_down = false;
     }
     *input = next;
 }
@@ -209,6 +223,15 @@ fn force_feedback(mut wheel: ResMut<Wheel>, cars: Query<(&Car, &CarTelemetry), W
         ffb_force(t.telemetry.steering_torque, car.steering_ratio)
     });
     wheel.0.set_force(force);
+}
+
+/// Lets the rim go slack while time stands still (pause menu): the fixed
+/// steps that send the race force do not run then, and the wheel would
+/// otherwise keep playing the last one.
+fn release_force_while_paused(time: Res<Time<Virtual>>, mut wheel: ResMut<Wheel>) {
+    if time.is_paused() {
+        wheel.0.set_force(0.0);
+    }
 }
 
 /// One sample from a steering wheel.

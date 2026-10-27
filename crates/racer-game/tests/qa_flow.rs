@@ -2,7 +2,7 @@
 //!
 //! The whole game runs headless (no window, no GPU): synthetic keyboard and
 //! gamepad messages go through Bevy's input systems and the app is stepped
-//! frame by frame. Tests for open bugs are `#[ignore = "QA-UI-N"]`.
+//! frame by frame. Each QA-UI-N repro is now a regression test.
 
 use std::time::Duration;
 
@@ -218,13 +218,12 @@ fn hud_matches_the_sim_at_the_start() {
 }
 
 // ---------------------------------------------------------------------------
-// Open bugs.
+// QA-UI bugs (fixed; see docs/qa/fixes-game-ui.md).
 
 /// QA-UI-1: Esc (or gamepad East / Backspace) on the main menu quits the
 /// game at once, with no confirmation. Esc twice from the setup screen, or
 /// once more after leaving the results with Esc, closes the game.
 #[test]
-#[ignore = "QA-UI-1"]
 fn back_on_the_main_menu_does_not_quit_the_game() {
     let mut app = game_app(None);
     tap(&mut app, KeyCode::Enter);
@@ -244,7 +243,6 @@ fn back_on_the_main_menu_does_not_quit_the_game() {
 /// QA-UI-2: keys pressed while the pause menu is open act on the car when
 /// the race resumes: R resets the car, Q/E shifts are latched.
 #[test]
-#[ignore = "QA-UI-2"]
 fn reset_and_shift_keys_are_ignored_while_paused() {
     let mut app = game_app(Some(quick_setup()));
     to_green(&mut app);
@@ -272,7 +270,6 @@ fn reset_and_shift_keys_are_ignored_while_paused() {
 /// QA-UI-3: force feedback is not released while the game is paused (or
 /// while time stands still): the last race force keeps pulling the rim.
 #[test]
-#[ignore = "QA-UI-3"]
 fn force_feedback_is_released_while_paused() {
     let forces = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     let mut app = game_app(None);
@@ -309,7 +306,6 @@ fn force_feedback_is_released_while_paused() {
 /// QA-UI-4: holding a gamepad trigger (or nudging the stick) throws away
 /// the keyboard's steering: keyboard + pad cannot be combined.
 #[test]
-#[ignore = "QA-UI-4"]
 fn keyboard_steering_survives_a_gamepad_trigger() {
     let mut app = game_app(None);
     let pad = connect_pad(&mut app);
@@ -325,7 +321,6 @@ fn keyboard_steering_survives_a_gamepad_trigger() {
 /// racing line and gearbox (PLAN.md section 3: assists are shown in the
 /// results so times stay comparable) are missing.
 #[test]
-#[ignore = "QA-UI-5"]
 fn results_show_steering_assist_and_racing_line() {
     let mut app = game_app(Some(RaceSetup {
         abs: false,
@@ -348,7 +343,6 @@ fn results_show_steering_assist_and_racing_line() {
 /// QA-UI-6: `lap_time` rounds the seconds field to 60.000 instead of
 /// carrying into the minutes (59.9996 s shows as 0:60.000).
 #[test]
-#[ignore = "QA-UI-6"]
 fn lap_time_carries_rounding_into_minutes() {
     use racer_game::flow::lap_time;
     assert_eq!(lap_time(59.9996), "1:00.000");
@@ -358,7 +352,6 @@ fn lap_time_carries_rounding_into_minutes() {
 /// QA-UI-7: the chase camera is not snapped when the car is teleported: on
 /// a restart (and on a reset) it flies from the old spot across the city.
 #[test]
-#[ignore = "QA-UI-7"]
 fn chase_camera_starts_behind_the_car_after_a_restart() {
     use racer_game::greybox::SceneCamera;
     let mut app = game_app(Some(quick_setup()));
@@ -391,7 +384,6 @@ fn chase_camera_starts_behind_the_car_after_a_restart() {
 /// QA-UI-8: a gamepad-only player cannot reset the car or switch camera
 /// (R and V are keyboard only; no pad button maps to them).
 #[test]
-#[ignore = "QA-UI-8"]
 fn some_gamepad_button_resets_the_car() {
     let mut app = game_app(Some(quick_setup()));
     let pad = connect_pad(&mut app);
@@ -419,10 +411,74 @@ fn some_gamepad_button_resets_the_car() {
     );
 }
 
+/// QA-UI-7, reset case: after a reset the camera starts behind the car on
+/// the track instead of flying there from where the car was.
+#[test]
+fn chase_camera_snaps_behind_the_car_after_a_reset() {
+    use racer_game::greybox::SceneCamera;
+    let mut app = game_app(Some(quick_setup()));
+    to_green(&mut app);
+    frames(&mut app, 30);
+    // Far off the track, where a reset brings the car back from.
+    let me = player(&mut app);
+    for _ in 0..30 {
+        app.world_mut()
+            .get_mut::<Transform>(me)
+            .unwrap()
+            .translation = Vec3::new(300.0, 0.0, 300.0);
+        app.update();
+    }
+    tap(&mut app, KeyCode::KeyR);
+    frames(&mut app, 2);
+    assert_eq!(app.world().get::<Racer>(me).unwrap().resets.len(), 1);
+    let car = app.world().get::<Transform>(me).unwrap().translation;
+    let mut cams = app
+        .world_mut()
+        .query_filtered::<&Transform, With<SceneCamera>>();
+    let d = cams.single(app.world()).unwrap().translation.distance(car);
+    assert!(d < 15.0, "camera {d:.0} m from the car after a reset");
+}
+
+/// QA-UI-8: the gamepad's north button resets, select switches camera.
+#[test]
+fn gamepad_reset_and_camera_buttons() {
+    use racer_game::driving::CameraMode;
+    let mut app = game_app(Some(quick_setup()));
+    let pad = connect_pad(&mut app);
+    to_green(&mut app);
+    frames(&mut app, 30);
+    pad_tap(&mut app, pad, GamepadButton::North);
+    frames(&mut app, 2);
+    let me = player(&mut app);
+    assert_eq!(app.world().get::<Racer>(me).unwrap().resets.len(), 1);
+    assert_eq!(*app.world().resource::<CameraMode>(), CameraMode::Chase);
+    pad_tap(&mut app, pad, GamepadButton::Select);
+    assert_eq!(*app.world().resource::<CameraMode>(), CameraMode::Hood);
+    // Not while paused.
+    pad_tap(&mut app, pad, GamepadButton::Start);
+    assert!(paused(&app));
+    pad_tap(&mut app, pad, GamepadButton::North);
+    pad_tap(&mut app, pad, GamepadButton::Start);
+    assert!(!paused(&app));
+    frames(&mut app, 5);
+    assert_eq!(app.world().get::<Racer>(me).unwrap().resets.len(), 1);
+}
+
+/// QA-UI-1 with the pad: East (back) on the main menu does not quit.
+#[test]
+fn pad_back_on_the_main_menu_does_not_quit_the_game() {
+    let mut app = game_app(None);
+    let pad = connect_pad(&mut app);
+    pad_tap(&mut app, pad, GamepadButton::East);
+    key(&mut app, KeyCode::Backspace, ButtonState::Pressed);
+    frames(&mut app, 2);
+    assert!(app.should_exit().is_none());
+    assert_eq!(state(&app), AppState::MainMenu);
+}
+
 /// QA-UI-9: a gamepad that disconnects mid-race does not pause the game;
 /// the car coasts on with nobody driving it.
 #[test]
-#[ignore = "QA-UI-9"]
 fn gamepad_disconnect_pauses_the_race() {
     let mut app = game_app(Some(quick_setup()));
     let pad = connect_pad(&mut app);
@@ -437,14 +493,18 @@ fn gamepad_disconnect_pauses_the_race() {
     assert!(paused(&app), "pad unplugged at speed: race keeps running");
 }
 
-/// QA-UI-10: the stick deadzone is applied twice (Bevy's default 0.05 axis
-/// deadzone rescales the value, then `read_devices` cuts another 0.08):
-/// the first ~12.6 % of stick travel does nothing.
+/// QA-UI-10 (not a bug): the report took the stick deadzone to be applied
+/// twice. In Bevy 0.19 `Gamepad` holds the raw axis value (the axis
+/// settings only filter change events), so the game's 8 % is the only one:
+/// 12 % steers, stick noise at 6 % does not.
 #[test]
-#[ignore = "QA-UI-10"]
 fn small_stick_deflection_steers() {
     let mut app = game_app(None);
     let pad = connect_pad(&mut app);
+    pad_axis(&mut app, pad, GamepadAxis::LeftStickX, 0.06);
+    frames(&mut app, 2);
+    let input = *app.world().resource::<DriverInput>();
+    assert_eq!(input.steer, 0.0, "stick at 6 %: {input:?}");
     pad_axis(&mut app, pad, GamepadAxis::LeftStickX, 0.12);
     frames(&mut app, 2);
     let input = *app.world().resource::<DriverInput>();
@@ -455,7 +515,6 @@ fn small_stick_deflection_steers() {
 /// the pause menu and pauses time; the results screen then shows a frozen
 /// race (the others never finish, no DNF) with the game still paused.
 #[test]
-#[ignore = "QA-UI-12"]
 fn pause_on_the_frame_the_results_come_up_does_not_stick() {
     let mut stuck = None;
     for wait in 176..186 {
@@ -539,7 +598,7 @@ fn key_mashing_in_every_state_does_not_panic_or_stick() {
         GamepadButton::DPadDown,
         GamepadButton::DPadRight,
     ];
-    // A cheap deterministic sequence; never Esc on the main menu (quits).
+    // A cheap deterministic sequence; the main menu is left with Enter.
     let mut seed = 12345u32;
     let mut seen = std::collections::HashSet::new();
     for _ in 0..1500 {

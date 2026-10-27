@@ -1,9 +1,11 @@
 //! Steering wheel input and constant-force feedback through SDL3.
 //!
 //! SDL handles are not `Send`, so a dedicated thread owns SDL, polls the
-//! first wheel-like joystick and plays the force the game last requested.
-//! Axis mapping follows Logitech-style wheels: axis 0 steering, axes 1-3
-//! throttle/brake/clutch (released = +32767), buttons 4/5 the paddles.
+//! first steering wheel (a joystick SDL types as a wheel; gamepads are left
+//! to Bevy) and plays the force the game last requested. Axis mapping
+//! follows Logitech-style wheels: axis 0 steering, axes 1-3
+//! throttle/brake/clutch, buttons 4/5 the paddles. A pedal rests at +32767
+//! unless SDL reports a negative resting value for it, then at -32768.
 
 use std::{
     sync::{
@@ -15,7 +17,7 @@ use std::{
     time::Duration,
 };
 
-use sdl3::sys::haptic as h;
+use sdl3::sys::{haptic as h, joystick as js};
 
 use crate::input::{WheelDevice, WheelReading};
 
@@ -82,6 +84,19 @@ impl WheelDevice for SdlWheel {
 struct Open {
     joystick: sdl3::joystick::Joystick,
     haptic: Option<(sdl3::haptic::Haptic, h::SDL_HapticEffectID)>,
+    /// Per axis: the pedal rests at -1 (pressed towards +1) instead of +1.
+    rests_low: [bool; 4],
+}
+
+fn is_wheel(id: sdl3::joystick::JoystickId) -> bool {
+    // SAFETY: a plain query on an id SDL has just listed.
+    unsafe { js::SDL_GetJoystickTypeForID(id.into()) == js::SDL_JOYSTICK_TYPE_WHEEL }
+}
+
+/// Pedal travel 0..=1 from a raw axis -1..=1.
+fn pedal(axis: f32, rests_low: bool) -> f32 {
+    let pressed = if rests_low { 1.0 + axis } else { 1.0 - axis };
+    (pressed / 2.0).clamp(0.0, 1.0)
 }
 
 fn constant_effect(level: f32) -> h::SDL_HapticEffect {
@@ -100,11 +115,22 @@ fn constant_effect(level: f32) -> h::SDL_HapticEffect {
 }
 
 fn open(joysticks: &sdl3::JoystickSubsystem, haptics: &sdl3::HapticSubsystem) -> Option<Open> {
-    let id = joysticks.joysticks().ok()?.into_iter().next()?;
+    let id = joysticks
+        .joysticks()
+        .ok()?
+        .into_iter()
+        .find(|&id| is_wheel(id))?;
     let joystick = joysticks.open(id).ok()?;
     if joystick.num_axes() < 2 {
         return None;
     }
+    let rests_low = std::array::from_fn(|i| {
+        let mut rest = 0i16;
+        // SAFETY: `joystick` is open; SDL writes `rest` only if it has a value.
+        let known =
+            unsafe { js::SDL_GetJoystickAxisInitialState(joystick.raw(), i as i32, &mut rest) };
+        known && rest < 0
+    });
     // SAFETY: `joystick` is open.
     let instance = unsafe { sdl3::sys::joystick::SDL_GetJoystickID(joystick.raw()) };
     let haptic = haptics
@@ -126,7 +152,11 @@ fn open(joysticks: &sdl3::JoystickSubsystem, haptics: &sdl3::HapticSubsystem) ->
             };
             Some((haptic, effect))
         });
-    Some(Open { joystick, haptic })
+    Some(Open {
+        joystick,
+        haptic,
+        rests_low,
+    })
 }
 
 fn run(
@@ -169,7 +199,7 @@ fn run(
         }
         if let Some(w) = &wheel {
             let axis = |i| w.joystick.axis(i).map_or(0.0, |v| f32::from(v) / 32767.0);
-            let pedal = |i| ((1.0 - axis(i)) / 2.0).clamp(0.0, 1.0);
+            let travel = |i: u32| pedal(axis(i), w.rests_low[i as usize]);
             let pressed = |b| w.joystick.button(b).unwrap_or(false);
             let now = (pressed(4), pressed(5));
             let mut latest = reading.lock().unwrap();
@@ -177,10 +207,10 @@ fn run(
             let pending = latest.map_or((false, false), |r| (r.shift_up, r.shift_down));
             *latest = Some(WheelReading {
                 steer: axis(0),
-                throttle: pedal(1),
-                brake: pedal(2),
+                throttle: travel(1),
+                brake: travel(2),
                 clutch: if w.joystick.num_axes() > 3 {
-                    pedal(3)
+                    travel(3)
                 } else {
                     0.0
                 },
@@ -213,6 +243,15 @@ mod tests {
         thread::sleep(Duration::from_millis(50));
         assert_eq!(wheel.read(), None);
         wheel.set_force(0.5);
+    }
+
+    #[test]
+    fn pedals_rest_at_either_end() {
+        assert_eq!(pedal(1.0, false), 0.0);
+        assert_eq!(pedal(-1.0, false), 1.0);
+        assert_eq!(pedal(-1.0, true), 0.0);
+        assert_eq!(pedal(1.0, true), 1.0);
+        assert_eq!(pedal(0.0, true), 0.5);
     }
 
     #[test]
