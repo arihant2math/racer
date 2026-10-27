@@ -697,6 +697,7 @@ fn collision_checks(model: &Model, t: &Thresholds, g: &mut Gate, lod0: crate::mo
     let mut pieces = 0usize;
     let mut worst_out = 0.0f32;
     let mut worst_tris = 0usize;
+    let mut concave: Vec<String> = Vec::new();
     let mut open = 0.0f32;
     for &i in &nodes {
         let w = Welded::new(&model.nodes[i].prims);
@@ -711,6 +712,7 @@ fn collision_checks(model: &Model, t: &Thresholds, g: &mut Gate, lod0: crate::mo
                 v.dedup();
                 v.into_iter().map(|k| w.positions[k as usize]).collect()
             };
+            let mut piece_out = 0.0f32;
             for &k in &comp {
                 let [a, b, c] = w.tri(&w.tris[k]);
                 let n = (b - a).cross(c - a);
@@ -719,8 +721,20 @@ fn collision_checks(model: &Model, t: &Thresholds, g: &mut Gate, lod0: crate::mo
                 }
                 let n = n.normalize() * sign;
                 for v in &verts {
-                    worst_out = worst_out.max(n.dot(*v - a));
+                    piece_out = piece_out.max(n.dot(*v - a));
                 }
+            }
+            worst_out = worst_out.max(piece_out);
+            if piece_out > t.collision_convex_tolerance {
+                let mut b = crate::model::Aabb::EMPTY;
+                verts.iter().for_each(|v| b.add(*v));
+                concave.push(format!(
+                    "{} triangles, z {:.2}..{:.2}: {:.3} m",
+                    comp.len(),
+                    b.min.z,
+                    b.max.z,
+                    piece_out
+                ));
             }
         }
     }
@@ -734,7 +748,11 @@ fn collision_checks(model: &Model, t: &Thresholds, g: &mut Gate, lod0: crate::mo
     g.check(
         "collision_convex",
         "largest distance of a hull vertex outside a face plane of its own piece",
-        format!("{worst_out:.4} m"),
+        if concave.is_empty() {
+            format!("{worst_out:.4} m")
+        } else {
+            format!("{worst_out:.4} m; concave pieces: {}", concave.join("; "))
+        },
         format!("≤ {} m", t.collision_convex_tolerance),
         worst_out <= t.collision_convex_tolerance,
     );
@@ -751,6 +769,13 @@ fn collision_checks(model: &Model, t: &Thresholds, g: &mut Gate, lod0: crate::mo
         format!("{open:.3} m"),
     );
     let cb = model.bounds(nodes.iter().copied());
+    g.check(
+        "collision_ground",
+        "lowest collision point vs the ground (y = 0)",
+        format!("{:.3} m", cb.min.y),
+        format!("≥ −{} m", t.ground),
+        cb.min.y >= -t.ground,
+    );
     let ratio = cb.size() / lod0.size().max(Vec3::splat(1e-6));
     let (lo, hi) = t.collision_coverage;
     g.check(

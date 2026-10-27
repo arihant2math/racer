@@ -1,0 +1,631 @@
+{
+  "car_id": "porsche-911-carrera-s-992",
+  "car_name": "Porsche 911 Carrera S (992)",
+  "glb": "assets/cars/porsche-911-carrera-s-992/car.glb + assets/cars/porsche-911-carrera-s-992/car_lod1.glb + assets/cars/porsche-911-carrera-s-992/car_lod2.glb",
+  "glb_bytes": 13233308,
+  "generator": null,
+  "verdict": "fail",
+  "gates": [
+    {
+      "number": 1,
+      "name": "Structure and conventions",
+      "status": "pass",
+      "checks": [
+        {
+          "id": "nodes",
+          "what": "required LOD0 nodes present once",
+          "value": "all 17 present",
+          "threshold": "all present, unique",
+          "status": "pass"
+        },
+        {
+          "id": "sockets",
+          "what": "required socket empties present once",
+          "value": "all 8 present",
+          "threshold": "all present, unique",
+          "status": "pass"
+        },
+        {
+          "id": "light_sockets",
+          "what": "socket_light_* empties (front = z < 0)",
+          "value": "7 (2 front, 5 rear): socket_light_brake, socket_light_headlight_l, socket_light_headlight_r, socket_light_reverse_l, socket_light_reverse_r, socket_light_tail_l, socket_light_tail_r",
+          "threshold": "≥ 2, ≥ 1 front and rear",
+          "status": "pass"
+        },
+        {
+          "id": "materials",
+          "what": "required materials present",
+          "value": "all present",
+          "threshold": "car_paint, glass, rubber, rim, chrome, light_emissive_front, light_emissive_rear, trim_black, interior",
+          "status": "pass"
+        },
+        {
+          "id": "materials_extra",
+          "what": "other materials",
+          "value": "brake_caliper",
+          "threshold": "",
+          "status": "info"
+        },
+        {
+          "id": "material_assigned",
+          "what": "render primitives without a material (collision exempt)",
+          "value": "0",
+          "threshold": "0",
+          "status": "pass"
+        },
+        {
+          "id": "units",
+          "what": "LOD0 length (Z extent) in metres",
+          "value": "4.519 m",
+          "threshold": "2.5 – 7 m",
+          "status": "pass"
+        },
+        {
+          "id": "up_axis",
+          "what": "+Y up: height is the smallest extent, length (Z) the largest",
+          "value": "x 1.990, y 1.303, z 4.519 m",
+          "threshold": "y < x < z",
+          "status": "pass"
+        },
+        {
+          "id": "ground",
+          "what": "lowest LOD0 point on the ground (y = 0)",
+          "value": "0.000 m",
+          "threshold": "|y| ≤ 0.03",
+          "status": "pass"
+        },
+        {
+          "id": "mirrored",
+          "what": "mesh nodes with a mirroring (negative determinant) transform",
+          "value": "none",
+          "threshold": "none",
+          "status": "pass"
+        },
+        {
+          "id": "facing",
+          "what": "front wheels at −Z, left wheels at −X",
+          "value": "front axle z -1.225, rear 1.225; left x -0.794/-0.779, right 0.794/0.779",
+          "threshold": "front z < rear z, left x < 0 < right x",
+          "status": "pass"
+        },
+        {
+          "id": "origin",
+          "what": "origin at the wheelbase midpoint on the centreline",
+          "value": "axle midpoint z 0.000, wheel centre x 0.000",
+          "threshold": "|z|, |x| ≤ 0.02",
+          "status": "pass"
+        },
+        {
+          "id": "hub_origin",
+          "what": "wheel node origin at the centre of its geometry",
+          "value": "worst wheel_rr: 0.0000 m",
+          "threshold": "≤ 0.01",
+          "status": "pass"
+        },
+        {
+          "id": "wheel_positions",
+          "what": "wheel hubs vs car.toml wheelbase, tracks and tyre radius",
+          "value": "fl Δ(0.000, 0.000, 0.000); fr Δ(0.000, 0.000, 0.000); rl Δ(0.000, 0.000, 0.000); rr Δ(0.000, 0.000, 0.000)",
+          "threshold": "each axis ≤ 0.02",
+          "status": "pass"
+        },
+        {
+          "id": "socket_wheels",
+          "what": "socket_wheel_* at the wheel hubs",
+          "value": "worst rr: 0.0000 m",
+          "threshold": "≤ 0.02",
+          "status": "pass"
+        },
+        {
+          "id": "placement",
+          "what": "left/right and front/rear parts and sockets on the right side",
+          "value": "all consistent",
+          "threshold": "consistent with +Y up, −Z forward, +X right",
+          "status": "pass"
+        }
+      ],
+      "notes": [],
+      "images": []
+    },
+    {
+      "number": 2,
+      "name": "Dimensions",
+      "status": "pass",
+      "checks": [
+        {
+          "id": "length",
+          "what": "overall length (Z extent)",
+          "value": "4.519 m (+0.00 %)",
+          "threshold": "4.519 m ± 1.5 %",
+          "status": "pass"
+        },
+        {
+          "id": "width",
+          "what": "width without mirrors (X extent)",
+          "value": "1.862 m (+0.54 %)",
+          "threshold": "1.852 m ± 1.5 %",
+          "status": "pass"
+        },
+        {
+          "id": "height",
+          "what": "height (ground to roof)",
+          "value": "1.303 m (+0.24 %)",
+          "threshold": "1.300 m ± 1.5 %",
+          "status": "pass"
+        },
+        {
+          "id": "width_mirrors",
+          "what": "width with mirrors",
+          "value": "1.990 m",
+          "threshold": "",
+          "status": "info"
+        },
+        {
+          "id": "wheelbase",
+          "what": "wheelbase (hub Z distance)",
+          "value": "2.450 m (+0.000)",
+          "threshold": "2.450 ± 0.02 m",
+          "status": "pass"
+        },
+        {
+          "id": "track_front",
+          "what": "front track (hub X distance)",
+          "value": "1.589 m (+0.000)",
+          "threshold": "1.589 ± 0.02 m",
+          "status": "pass"
+        },
+        {
+          "id": "track_rear",
+          "what": "rear track (hub X distance)",
+          "value": "1.557 m (+0.000)",
+          "threshold": "1.557 ± 0.02 m",
+          "status": "pass"
+        },
+        {
+          "id": "radius_fl",
+          "what": "wheel_fl radius",
+          "value": "0.3397 m (-0.00 %)",
+          "threshold": "0.3397 m ± 2 %",
+          "status": "pass"
+        },
+        {
+          "id": "tyre_width_fl",
+          "what": "wheel_fl width (X extent)",
+          "value": "0.245 m (+0.0 %)",
+          "threshold": "0.245 m ± 15 %",
+          "status": "pass"
+        },
+        {
+          "id": "radius_fr",
+          "what": "wheel_fr radius",
+          "value": "0.3397 m (-0.00 %)",
+          "threshold": "0.3397 m ± 2 %",
+          "status": "pass"
+        },
+        {
+          "id": "tyre_width_fr",
+          "what": "wheel_fr width (X extent)",
+          "value": "0.245 m (+0.0 %)",
+          "threshold": "0.245 m ± 15 %",
+          "status": "pass"
+        },
+        {
+          "id": "radius_rl",
+          "what": "wheel_rl radius",
+          "value": "0.3582 m (-0.00 %)",
+          "threshold": "0.3582 m ± 2 %",
+          "status": "pass"
+        },
+        {
+          "id": "tyre_width_rl",
+          "what": "wheel_rl width (X extent)",
+          "value": "0.305 m (-0.0 %)",
+          "threshold": "0.305 m ± 15 %",
+          "status": "pass"
+        },
+        {
+          "id": "radius_rr",
+          "what": "wheel_rr radius",
+          "value": "0.3582 m (-0.00 %)",
+          "threshold": "0.3582 m ± 2 %",
+          "status": "pass"
+        },
+        {
+          "id": "tyre_width_rr",
+          "what": "wheel_rr width (X extent)",
+          "value": "0.305 m (-0.0 %)",
+          "threshold": "0.305 m ± 15 %",
+          "status": "pass"
+        }
+      ],
+      "notes": [],
+      "images": []
+    },
+    {
+      "number": 3,
+      "name": "Mesh hygiene",
+      "status": "fail",
+      "checks": [
+        {
+          "id": "lod0_budget",
+          "what": "LOD0 triangles",
+          "value": "363874",
+          "threshold": "150000 – 500000",
+          "status": "pass"
+        },
+        {
+          "id": "lod1_ratio",
+          "what": "LOD1 triangles / LOD0",
+          "value": "109148 (0.300)",
+          "threshold": "present, 0.1 – 0.6",
+          "status": "pass"
+        },
+        {
+          "id": "lod1_silhouette",
+          "what": "LOD1 side silhouette IoU vs LOD0",
+          "value": "1.0000",
+          "threshold": "≥ 0.95",
+          "status": "pass"
+        },
+        {
+          "id": "lod2_ratio",
+          "what": "LOD2 triangles / LOD1",
+          "value": "37271 (0.341)",
+          "threshold": "present, 0.1 – 0.6",
+          "status": "pass"
+        },
+        {
+          "id": "lod2_silhouette",
+          "what": "LOD2 side silhouette IoU vs LOD0",
+          "value": "0.9984",
+          "threshold": "≥ 0.95",
+          "status": "pass"
+        },
+        {
+          "id": "non_manifold",
+          "what": "LOD0 edges shared by > 2 triangles",
+          "value": "0 of 550314 (0.000 %) ",
+          "threshold": "≤ 0.010 %",
+          "status": "pass"
+        },
+        {
+          "id": "open_edges",
+          "what": "LOD0 open (boundary) edges, all parts",
+          "value": "11298 edges, 160.54 m [body 63.46 m, brake_fl 0.63 m, brake_fr 0.63 m, brake_rl 0.63 m, brake_rr 0.63 m, bumper_front 5.91 m, bumper_rear 6.12 m, door_l 4.73 m, …]",
+          "threshold": "",
+          "status": "info"
+        },
+        {
+          "id": "winding_inconsistent",
+          "what": "LOD0 manifold edges whose triangles disagree on winding",
+          "value": "618 [body 442, bumper_rear 80, lights_front 96]",
+          "threshold": "",
+          "status": "info"
+        },
+        {
+          "id": "closed_parts",
+          "what": "closed parts watertight and wound outwards (positive volume)",
+          "value": "collision: open 0.000 m, non-manifold 0, volume +6.5848 m³",
+          "threshold": "open edges ≤ 0.05 m, 0 non-manifold, volume > 0",
+          "status": "pass"
+        },
+        {
+          "id": "degenerate",
+          "what": "LOD0 triangles with area < 1e-8 m² or collapsed",
+          "value": "832 (0.229 %) [lights_front 432, mirror_l 80, mirror_r 80, interior 77, brake_fl 32, brake_fr 32, brake_rl 32, brake_rr 32, …]",
+          "threshold": "≤ 0.100 %",
+          "status": "fail"
+        },
+        {
+          "id": "loose",
+          "what": "LOD0 triangles in pieces of ≤ 4 triangles",
+          "value": "0 (0.000 %) ",
+          "threshold": "≤ 0.050 %",
+          "status": "pass"
+        },
+        {
+          "id": "normals_vs_winding",
+          "what": "LOD0 area whose stored normals point against the winding",
+          "value": "0.005 %",
+          "threshold": "≤ 1.000 %",
+          "status": "pass"
+        },
+        {
+          "id": "backfaces",
+          "what": "visible pixels showing a single-sided back face (worst of front, rear, sides, top; bottom reported)",
+          "value": "front 0.000 %, rear 0.000 %, side 0.000 %, side-right 0.000 %, top 0.000 %, bottom 0.000 %",
+          "threshold": "≤ 2.000 %",
+          "status": "pass"
+        },
+        {
+          "id": "uv_present",
+          "what": "render primitives (all LODs) with TEXCOORD_0",
+          "value": "all",
+          "threshold": "all",
+          "status": "pass"
+        },
+        {
+          "id": "uv_degenerate",
+          "what": "LOD0 area mapped to zero UV area",
+          "value": "2.088 %",
+          "threshold": "≤ 5.000 %",
+          "status": "pass"
+        },
+        {
+          "id": "uv_stretch",
+          "what": "LOD0 area with UV stretch σmax/σmin > 4",
+          "value": "12.333 % largest parts, % of LOD0 area: [body 6.4, bumper_front 1.4, bumper_rear 0.9, wheel_rl 0.6, wheel_rr 0.6, wheel_fl 0.5, wheel_fr 0.5, lights_front 0.5, …]",
+          "threshold": "≤ 5.000 %",
+          "status": "fail"
+        },
+        {
+          "id": "texel_density",
+          "what": "LOD0 area whose texel density is outside ×1/4…×4 of its material's median",
+          "value": "11.021 % largest parts, % of LOD0 area: [interior 5.6, body 1.7, brake_rr 0.5, brake_fr 0.5, bumper_front 0.3, wheel_rl 0.3, wheel_fl 0.3, wheel_fr 0.3, …] (medians, UV units per metre: brake_caliper 2.000/m, car_paint 0.199/m, chrome 4.320/m, glass 0.196/m, interior 0.981/m, light_emissive_front 17.913/m, light_emissive_rear 3.426/m, rim 1.596/m, rubber 1.936/m, trim_black 0.200/m)",
+          "threshold": "≤ 5.000 %",
+          "status": "fail"
+        },
+        {
+          "id": "collision_pieces",
+          "what": "collision pieces (connected components)",
+          "value": "4",
+          "threshold": "1 – 16",
+          "status": "pass"
+        },
+        {
+          "id": "collision_convex",
+          "what": "largest distance of a hull vertex outside a face plane of its own piece",
+          "value": "2.3019 m; concave pieces: 276 triangles, z -1.58..1.65: 2.302 m",
+          "threshold": "≤ 0.005 m",
+          "status": "fail"
+        },
+        {
+          "id": "collision_triangles",
+          "what": "triangles in the largest collision piece",
+          "value": "276",
+          "threshold": "≤ 1024",
+          "status": "pass"
+        },
+        {
+          "id": "collision_open",
+          "what": "collision open-edge length",
+          "value": "0.000 m",
+          "threshold": "",
+          "status": "info"
+        },
+        {
+          "id": "collision_ground",
+          "what": "lowest collision point vs the ground (y = 0)",
+          "value": "-0.096 m",
+          "threshold": "≥ −0.03 m",
+          "status": "fail"
+        },
+        {
+          "id": "collision_coverage",
+          "what": "collision bounding box / LOD0 bounding box per axis",
+          "value": "x 0.930, y 1.074, z 0.997 (collision y -0.096..1.303, x ±0.926; LOD0 y 0.000..1.303, x ±0.995)",
+          "threshold": "0.85 – 1.05",
+          "status": "fail"
+        }
+      ],
+      "notes": [],
+      "images": []
+    },
+    {
+      "number": 4,
+      "name": "Silhouette accuracy",
+      "status": "fail",
+      "checks": [
+        {
+          "id": "the-blueprints:side",
+          "what": "side view vs the-blueprints",
+          "value": "IoU 0.974, outline mean 10.0 mm, p95 26.1 mm, max 78 mm",
+          "threshold": "IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm",
+          "status": "pass"
+        },
+        {
+          "id": "the-blueprints:side:holes",
+          "what": "see-through gaps and seams inside the side silhouette (filled by the closing)",
+          "value": "298 px = 101.6 cm²",
+          "threshold": "",
+          "status": "info"
+        },
+        {
+          "id": "the-blueprints:front",
+          "what": "front view vs the-blueprints",
+          "value": "IoU 0.949, outline mean 15.9 mm, p95 52.6 mm, max 92 mm",
+          "threshold": "IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm",
+          "status": "pass"
+        },
+        {
+          "id": "the-blueprints:front:holes",
+          "what": "see-through gaps and seams inside the front silhouette (filled by the closing)",
+          "value": "46 px = 15.7 cm²",
+          "threshold": "",
+          "status": "info"
+        },
+        {
+          "id": "the-blueprints:rear",
+          "what": "rear view vs the-blueprints",
+          "value": "IoU 0.958, outline mean 13.4 mm, p95 52.9 mm, max 89 mm",
+          "threshold": "IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm",
+          "status": "pass"
+        },
+        {
+          "id": "the-blueprints:rear:holes",
+          "what": "see-through gaps and seams inside the rear silhouette (filled by the closing)",
+          "value": "46 px = 15.7 cm²",
+          "threshold": "",
+          "status": "info"
+        },
+        {
+          "id": "the-blueprints:top",
+          "what": "top view vs the-blueprints",
+          "value": "IoU 0.972, outline mean 18.2 mm, p95 49.9 mm, max 140 mm",
+          "threshold": "IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm",
+          "status": "pass"
+        },
+        {
+          "id": "the-blueprints:top:holes",
+          "what": "see-through gaps and seams inside the top silhouette (filled by the closing)",
+          "value": "132 px = 45.0 cm²",
+          "threshold": "",
+          "status": "info"
+        },
+        {
+          "id": "dimensions-com:side",
+          "what": "side view vs dimensions-com",
+          "value": "IoU 0.969, outline mean 11.9 mm, p95 31.9 mm, max 64 mm",
+          "threshold": "IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm",
+          "status": "pass"
+        },
+        {
+          "id": "dimensions-com:side:holes",
+          "what": "see-through gaps and seams inside the side silhouette (filled by the closing)",
+          "value": "664 px = 103.7 cm²",
+          "threshold": "",
+          "status": "info"
+        },
+        {
+          "id": "dimensions-com:front",
+          "what": "front view vs dimensions-com",
+          "value": "IoU 0.955, outline mean 14.0 mm, p95 59.3 mm, max 100 mm",
+          "threshold": "IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm",
+          "status": "pass"
+        },
+        {
+          "id": "dimensions-com:front:holes",
+          "what": "see-through gaps and seams inside the front silhouette (filled by the closing)",
+          "value": "346 px = 54.0 cm²",
+          "threshold": "",
+          "status": "info"
+        },
+        {
+          "id": "dimensions-com:rear",
+          "what": "rear view vs dimensions-com",
+          "value": "IoU 0.956, outline mean 13.6 mm, p95 59.4 mm, max 100 mm",
+          "threshold": "IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm",
+          "status": "pass"
+        },
+        {
+          "id": "dimensions-com:rear:holes",
+          "what": "see-through gaps and seams inside the rear silhouette (filled by the closing)",
+          "value": "46 px = 7.2 cm²",
+          "threshold": "",
+          "status": "info"
+        },
+        {
+          "id": "dimensions-com:top",
+          "what": "top view vs dimensions-com",
+          "value": "IoU 0.968, outline mean 20.6 mm, p95 64.3 mm, max 142 mm",
+          "threshold": "IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm",
+          "status": "fail"
+        },
+        {
+          "id": "dimensions-com:top:holes",
+          "what": "see-through gaps and seams inside the top silhouette (filled by the closing)",
+          "value": "474 px = 74.0 cm²",
+          "threshold": "",
+          "status": "info"
+        }
+      ],
+      "notes": [
+        "Overlays: dark grey = both, red = model only, blue = reference only. References are scaled by the wheelbase and aligned on the ground line (see `data/cars/<id>/refs/refs.toml`)."
+      ],
+      "images": [
+        "silhouette-the-blueprints-side.png",
+        "silhouette-the-blueprints-front.png",
+        "silhouette-the-blueprints-rear.png",
+        "silhouette-the-blueprints-top.png",
+        "silhouette-dimensions-com-side.png",
+        "silhouette-dimensions-com-front.png",
+        "silhouette-dimensions-com-rear.png",
+        "silhouette-dimensions-com-top.png"
+      ]
+    },
+    {
+      "number": 5,
+      "name": "Visual review pack",
+      "status": "review",
+      "checks": [
+        {
+          "id": "renders",
+          "what": "beauty renders from the fixed cameras",
+          "value": "12 renders",
+          "threshold": "front-three-quarter, rear-three-quarter, side, front, rear, top, front-low",
+          "status": "pass"
+        },
+        {
+          "id": "blender_stats",
+          "what": "scene as Blender imports it",
+          "value": "LOD0 363874 triangles, per LOD {\"0\":363874}, 22 mesh objects, import 1.1 s",
+          "threshold": "",
+          "status": "info"
+        }
+      ],
+      "notes": [
+        "The renders and side-by-sides need a reviewer: score them with `rubric.md` (left = render, right = reference in every side-by-side)."
+      ],
+      "images": [
+        "render-front-low.png",
+        "render-front-three-quarter.png",
+        "render-front.png",
+        "render-interior.png",
+        "render-lights-front.png",
+        "render-lights-rear.png",
+        "render-rear-three-quarter.png",
+        "render-rear.png",
+        "render-side.png",
+        "render-top.png",
+        "render-wheel-front-left.png",
+        "render-wheel-rear-left.png",
+        "compare-blueprint-the-blueprints-side.png",
+        "compare-blueprint-the-blueprints-front.png",
+        "compare-blueprint-the-blueprints-rear.png",
+        "compare-blueprint-the-blueprints-top.png",
+        "compare-blueprint-dimensions-com-side.png",
+        "compare-blueprint-dimensions-com-front.png",
+        "compare-blueprint-dimensions-com-rear.png",
+        "compare-blueprint-dimensions-com-top.png",
+        "compare-photo-front-three-quarter-vauxford-2019-911-carrera-s-front.png",
+        "compare-photo-rear-three-quarter-vauxford-2019-911-carrera-s-rear.png",
+        "compare-photo-side-bretwa-911-carrera-s-side.png"
+      ]
+    },
+    {
+      "number": 6,
+      "name": "In-engine smoke test (Bevy, lavapipe)",
+      "status": "pass",
+      "checks": [
+        {
+          "id": "loads",
+          "what": "GLB loads in Bevy (glTF loader, all dependencies)",
+          "value": "loaded; 48 mesh entities, 12 materials, 45 frames in 11 s",
+          "threshold": "loads without error",
+          "status": "pass"
+        },
+        {
+          "id": "log_errors",
+          "what": "ERROR lines or panics in the Bevy log",
+          "value": "none",
+          "threshold": "none",
+          "status": "pass"
+        },
+        {
+          "id": "non_blank",
+          "what": "frame not blank: car coverage and luma spread",
+          "value": "coverage 8.8 %, luma stddev 14.1",
+          "threshold": "coverage ≥ 2 %, stddev ≥ 4",
+          "status": "pass"
+        }
+      ],
+      "notes": [
+        "Full log: `smoke.log` in the report directory."
+      ],
+      "images": [
+        "smoke.png"
+      ]
+    }
+  ],
+  "load_warnings": []
+}

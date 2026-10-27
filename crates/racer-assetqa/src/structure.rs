@@ -202,7 +202,7 @@ pub fn structure(model: &Model, spec: &CarSpec, t: &Thresholds) -> Gate {
     let unassigned: Vec<String> = model
         .nodes
         .iter()
-        .filter(|n| n.prims.iter().any(|p| p.material.is_none()))
+        .filter(|n| !n.collision && n.prims.iter().any(|p| p.material.is_none()))
         .map(|n| {
             let k = n.prims.iter().filter(|p| p.material.is_none()).count();
             let tris: usize = n
@@ -219,7 +219,7 @@ pub fn structure(model: &Model, spec: &CarSpec, t: &Thresholds) -> Gate {
         .collect();
     g.check(
         "material_assigned",
-        "primitives without a material",
+        "render primitives without a material (collision exempt)",
         if unassigned.is_empty() {
             "0".to_string()
         } else {

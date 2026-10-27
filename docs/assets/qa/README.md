@@ -1,5 +1,7 @@
 # Car asset QA (`racer-assetqa`)
 
+Evaluations: [Porsche 911 Carrera S (992)](porsche-911-carrera-s-992.md).
+
 The automated accuracy gate from PLAN.md section 7: every generated car runs through it
 before it ships, and a car that fails is regenerated or fixed by the pipeline. It is a Rust
 CLI (`crates/racer-assetqa`) plus one headless Blender script
@@ -33,7 +35,10 @@ wheelbase midpoint. Named LOD0 nodes `body`, `hood`, `bumper_front`, `bumper_rea
 `light_emissive_front`, `light_emissive_rear`, `trim_black`, `interior`. LOD0 150–500k
 triangles plus LOD1 and LOD2, a convex `collision` node, UVs on every render mesh.
 
-How the checker reads a GLB: the default scene is flattened to world space. A node's LOD
+How the checker reads a GLB: LODs may be in the same file or in sibling files
+`car_lod1.glb`, `car_lod2.glb` next to `car.glb` (every node of such a file counts as that
+LOD; its collision is ignored, the LOD0 file owns collision). The default scene is
+flattened to world space. A node's LOD
 is the `lodN` token in its own or an ancestor's name (`body_LOD1`, a parent `LOD2`), else
 0; `_LODn` suffixes are stripped before matching required names. A node whose own or an
 ancestor's name starts with `collision` is collision geometry. A part's geometry is its
@@ -49,7 +54,7 @@ All numbers live in `crates/racer-assetqa/src/thresholds.rs`.
 |---|---|
 | `nodes`, `sockets` | Every required node (LOD0) and socket present exactly once. `body.001`-style Blender duplicates are named in the failure. |
 | `light_sockets` | ≥ 2 `socket_light_*`, at least one front (z < 0) and one rear. |
-| `materials`, `material_assigned` | All nine materials exist; every primitive has a material. |
+| `materials`, `material_assigned` | All nine materials exist; every render primitive has a material (collision exempt). |
 | `units` | LOD0 length 2.5–7 m (catches cm/mm/inch exports). |
 | `up_axis` | Extents y < x < z (+Y up, length along Z). |
 | `ground` | Lowest LOD0 point within ±3 cm of y = 0. |
@@ -90,6 +95,7 @@ All numbers live in `crates/racer-assetqa/src/thresholds.rs`.
 | `collision_pieces` | 1 – 16 connected pieces |
 | `collision_convex` | no hull vertex more than 5 mm outside a face plane of its own piece |
 | `collision_triangles` | ≤ 1024 triangles per piece |
+| `collision_ground` | lowest collision point ≥ −3 cm (a hull below the road makes the car ride on it) |
 | `collision_coverage` | collision bounding box 0.85–1.05 × the LOD0 bounding box on every axis |
 
 Reported only: open-edge length per part (bodies split into panels are legitimately open),
@@ -98,7 +104,9 @@ manifold edges with inconsistent winding.
 ### 4. Silhouette accuracy
 
 The LOD0 triangles are rasterised orthographically (exact coverage at pixel centres) into
-the pixel grid of each reference view, holes are filled (the gate compares outer outlines;
+the pixel grid of each reference view, closed with the same 2 px morphological closing as
+the reference (so hairline panel seams open to the outside don't count as notches), holes
+are filled (the gate compares outer outlines;
 see-through gaps inside the silhouette, e.g. open panel seams, are reported as
 `<sheet>:<view>:holes` in cm²), and compared with the reference silhouette:
 

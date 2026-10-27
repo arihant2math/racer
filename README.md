@@ -15,6 +15,7 @@ the full plan and [`docs/milestones/`](docs/milestones/) for milestone handoff n
 | `racer-backend` | axum backend service (`GET /health`). |
 | `racer-trackc` | City/track compiler (CLI skeleton). |
 | `racer-capture` | Headless screenshot and telemetry harness, image checks and golden diffs. |
+| `racer-assetqa` | Quality gate for generated car assets: structure, dimensions, mesh hygiene, blueprint silhouettes, Blender review pack, Bevy smoke test ([docs](docs/assets/qa/README.md)). |
 
 Car data lives in `data/cars/<id>/car.toml`: published specs with sources, estimated
 parameters under `[estimated]` and the reference performance figures the tests check.
