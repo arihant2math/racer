@@ -6,7 +6,7 @@
 //! racer-capture diff <actual> <golden> [--pixel N] [--max-fraction F] [--max-mean E]
 //! racer-capture telemetry <out-dir> [car-id...]
 //! racer-capture ai-laps <out-dir> [--laps N] [--car ID]
-//! racer-capture ai-races <out-dir> [--races N] [--laps N]
+//! racer-capture ai-races <out-dir> [--races N] [--laps N] [--first I]
 //! ```
 //! `diff` takes two files or two directories; with directories every PNG in the
 //! golden directory must have a matching file in the actual directory.
@@ -30,7 +30,7 @@ const USAGE: &str = "usage:
   racer-capture diff <actual> <golden> [--pixel N] [--max-fraction F] [--max-mean E]
   racer-capture telemetry <out-dir> [car-id...]
   racer-capture ai-laps <out-dir> [--laps N] [--car ID]
-  racer-capture ai-races <out-dir> [--races N] [--laps N]";
+  racer-capture ai-races <out-dir> [--races N] [--laps N] [--first I]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -293,7 +293,7 @@ fn ai_laps(args: &[String]) -> Result<ExitCode, String> {
 
 /// 8-car mixed AI races with full contact on the city track.
 fn ai_races(args: &[String]) -> Result<ExitCode, String> {
-    let (pos, flags) = parse(args, &["races", "laps"])?;
+    let (pos, flags) = parse(args, &["races", "laps", "first"])?;
     let [out_dir] = pos[..] else {
         return Err(USAGE.into());
     };
@@ -303,7 +303,8 @@ fn ai_races(args: &[String]) -> Result<ExitCode, String> {
     std::fs::create_dir_all(out_dir).map_err(|e| format!("{}: {e}", out_dir.display()))?;
     let track = std::sync::Arc::new(racer_trackc::load("downtown-loop")?);
     let started = std::time::Instant::now();
-    let jobs: Vec<usize> = (0..races).collect();
+    let first: usize = flag(&flags, "first", 0)?;
+    let jobs: Vec<usize> = (first..first + races).collect();
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
     let results = race::parallel(&jobs, threads, |&i| race::mixed(track.clone(), i, laps))
         .into_iter()

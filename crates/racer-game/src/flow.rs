@@ -553,14 +553,14 @@ fn draw_menu(
 struct ResultCell(usize, usize);
 
 const RESULT_COLUMNS: [(&str, f32); 8] = [
-    ("Pos", 46.0),
-    ("Driver", 150.0),
-    ("Car", 230.0),
+    ("Pos", 44.0),
+    ("Driver", 170.0),
+    ("Car", 290.0),
     ("Time", 100.0),
-    ("Gap", 90.0),
+    ("Gap", 100.0),
     ("Best lap", 100.0),
-    ("Resets", 64.0),
-    ("Assists", 150.0),
+    ("Resets", 70.0),
+    ("Assists", 130.0),
 ];
 
 fn spawn_results(mut commands: Commands, mut cursor: ResMut<MenuCursor>, racers: Query<&Racer>) {
@@ -575,7 +575,8 @@ fn spawn_results(mut commands: Commands, mut cursor: ResMut<MenuCursor>, racers:
                 width: percent(100),
                 height: percent(100),
                 justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
+                align_items: AlignItems::Start,
+                padding: UiRect::top(px(40)),
                 ..default()
             },
         ))
@@ -599,6 +600,7 @@ fn spawn_results(mut commands: Commands, mut cursor: ResMut<MenuCursor>, racers:
                     panel
                         .spawn(Node {
                             flex_direction: FlexDirection::Row,
+                            height: px(26),
                             ..default()
                         })
                         .with_children(|line| {
@@ -606,7 +608,8 @@ fn spawn_results(mut commands: Commands, mut cursor: ResMut<MenuCursor>, racers:
                                 line.spawn((
                                     ResultCell(row, col),
                                     Text::new(if row == 0 { *name } else { "" }),
-                                    TextFont::from_font_size(17.0),
+                                    TextLayout::no_wrap(),
+                                    TextFont::from_font_size(16.0),
                                     TextColor(if row == 0 {
                                         Color::srgb(0.7, 0.7, 0.72)
                                     } else {

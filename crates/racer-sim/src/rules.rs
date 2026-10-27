@@ -13,7 +13,7 @@
 //! takes its credit back, so a lap counts only when the car has driven all
 //! of it forwards.
 
-use bevy::math::{Quat, Vec3};
+use bevy::math::Vec3;
 use racer_trackc::{Geometry, Pose, geometry::interpolate};
 
 /// Seconds a car may stay flipped, stuck or off the track before it is reset.
@@ -462,14 +462,13 @@ pub fn standings(cars: &[(Status, Progress)]) -> Vec<usize> {
     order
 }
 
-/// Rotation of a pose about the vertical, for tests and tools.
-pub fn heading(rotation: Quat) -> Vec3 {
-    rotation * Vec3::NEG_Z
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn heading(rotation: bevy::math::Quat) -> Vec3 {
+        rotation * Vec3::NEG_Z
+    }
 
     fn track() -> Geometry {
         racer_trackc::build(&racer_trackc::tracks_dir().join("downtown-loop")).unwrap()

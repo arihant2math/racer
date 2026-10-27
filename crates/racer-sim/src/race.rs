@@ -170,6 +170,10 @@ pub struct Race {
     pub time: f32,
     /// Finish time of the winner.
     pub winner: Option<f32>,
+    /// The clock in f64 seconds since the countdown began (an f32 sum of
+    /// 1/240 s steps drifts by percent after a couple of hours).
+    elapsed: f64,
+    countdown: f64,
 }
 
 impl Race {
@@ -178,6 +182,8 @@ impl Race {
             phase: RacePhase::Countdown,
             time: -config.countdown,
             winner: None,
+            elapsed: 0.0,
+            countdown: f64::from(config.countdown),
         }
     }
 }
@@ -270,11 +276,11 @@ pub fn spawn_racer(
 }
 
 fn clock(time: Res<Time>, mut race: ResMut<Race>, racers: Query<&Racer>) {
-    let dt = time.delta_secs();
     if race.phase == RacePhase::Finished {
         return;
     }
-    race.time += dt;
+    race.elapsed += time.delta_secs_f64();
+    race.time = (race.elapsed - race.countdown) as f32;
     if race.phase == RacePhase::Countdown && race.time >= 0.0 {
         race.phase = RacePhase::Running;
     }

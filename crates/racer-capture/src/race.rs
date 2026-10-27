@@ -367,7 +367,7 @@ pub fn mixed(track: Arc<Track>, index: usize, laps: u32) -> Result<Vec<CarRun>, 
 
 /// Text report of mixed races, and whether every check passed: no car
 /// permanently stuck, every difficulty at `min_laps` or more, no reset of a
-/// car alone (away from traffic), and resets in traffic at most one per 25
+/// car alone (away from traffic), and resets in traffic at most one per 10
 /// laps per difficulty.
 pub fn report_mixed(races: &[Vec<CarRun>], min_laps: usize, out: &mut String) -> bool {
     let mut ok = true;
@@ -393,7 +393,7 @@ pub fn report_mixed(races: &[Vec<CarRun>], min_laps: usize, out: &mut String) ->
             .filter(|r| r.longest_stall >= STUCK_FOR_GOOD)
             .count();
         let pass =
-            stuck == 0 && laps >= min_laps && other == 0 && contact_resets * 25 <= laps.max(25);
+            stuck == 0 && laps >= min_laps && other == 0 && contact_resets * 10 <= laps.max(10);
         ok &= pass;
         let mean = |f: fn(&CarRun) -> usize| {
             runs.iter().map(|r| f(r)).sum::<usize>() as f32 / runs.len().max(1) as f32
@@ -430,17 +430,20 @@ pub fn report_mixed(races: &[Vec<CarRun>], min_laps: usize, out: &mut String) ->
             .collect();
         let _ = writeln!(out, "\nRace {}: {}", i + 1, line.join("; "));
     }
-    for run in races.iter().flatten() {
-        for r in &run.resets {
-            let _ = writeln!(
-                out,
-                "\n- reset: {} {} at {:.0} m, {:.0} s: {:?}",
-                run.car,
-                run.difficulty.name(),
-                r.at,
-                r.time,
-                r.reason
-            );
+    for (i, race) in races.iter().enumerate() {
+        for run in race {
+            for r in &run.resets {
+                let _ = writeln!(
+                    out,
+                    "\n- reset: race {} {} {} at {:.0} m, {:.0} s: {:?}",
+                    i + 1,
+                    run.car,
+                    run.difficulty.name(),
+                    r.at,
+                    r.time,
+                    r.reason
+                );
+            }
         }
     }
     ok

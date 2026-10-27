@@ -101,8 +101,8 @@ pub fn add_scene(app: &mut App, name: &str) -> Option<Vec<Pose>> {
                 let track = &world.resource::<RaceTrack>().0.geometry;
                 let front = track.grid[0];
                 let ahead = front.rotation * Vec3::NEG_Z;
-                Transform::from_translation(front.position + ahead * 22.0 + Vec3::Y * 12.0)
-                    .looking_at(front.position - ahead * 24.0, Vec3::Y)
+                Transform::from_translation(front.position + ahead * 16.0 + Vec3::Y * 22.0)
+                    .looking_at(front.position - ahead * 26.0, Vec3::Y)
             };
             Some(vec![
                 Pose {

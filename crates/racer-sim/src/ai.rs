@@ -251,6 +251,8 @@ pub struct AiDriver {
     since_shift: f32,
     /// Seconds spent stuck behind a slower car.
     held_up: f32,
+    /// Race clock at the last step.
+    clock: f32,
     /// Usable offset range at the car, and the direction of the next corner
     /// (1 right, -1 left, 0 none close).
     bounds: (f32, f32),
@@ -263,7 +265,8 @@ pub struct AiDriver {
     mistake: Option<(Mistake, f32)>,
     brake_offset: f32,
     approaching: bool,
-    overtaking: Option<(Entity, f32, f32)>,
+    /// Car being passed, side (1 right), seconds left and lateral gap.
+    overtaking: Option<(Entity, f32, f32, f32)>,
     defending: f32,
     stuck_time: f32,
     recoveries: u32,
@@ -295,6 +298,7 @@ impl AiDriver {
             steer_cut: 0.0,
             since_shift: 0.0,
             held_up: 0.0,
+            clock: 0.0,
             bounds: (0.0, 0.0),
             next_turn: 0.0,
             clear: (f32::MIN, f32::MAX),
@@ -360,9 +364,9 @@ impl AiDriver {
         dt: f32,
     ) -> Controls {
         let p = self.params.clone();
+        self.clock = time;
         let n = line.points.len();
         let forward = car.rotation * Vec3::NEG_Z;
-        let right_car = car.rotation * Vec3::X;
         let v = car.velocity.dot(forward);
         let speed = car.velocity.length();
         let front = car.position + forward * p.front_axle;
@@ -521,7 +525,6 @@ impl AiDriver {
             sideslip,
             speed,
             v,
-            right_car,
             time,
             dt,
         );
@@ -612,17 +615,23 @@ impl AiDriver {
 
         // Overtaking: hold a line beside the car being passed until clear;
         // give up if still behind it when the braking for a corner starts.
-        if let Some((entity, side, left)) = self.overtaking {
+        if let Some((entity, side, left, gap)) = self.overtaking {
             let other = others.iter().find(|o| o.entity == entity);
             let passed = other.is_none_or(|o| rel(o) < -(CAR_LENGTH + 2.0));
             let behind = other.is_some_and(|o| rel(o) > CAR_LENGTH * 0.6);
             if passed || left <= 0.0 || (self.approaching && behind) {
                 self.overtaking = None;
             } else {
-                self.overtaking = Some((entity, side, left - dt));
+                self.overtaking = Some((entity, side, left - dt, gap));
                 if let Some(o) = others.iter().find(|o| o.entity == entity) {
-                    let want = o.lateral + side * (CAR_WIDTH + 0.9);
-                    target = (want.clamp(lo, hi)) - my_line;
+                    let want = o.lateral + side * (CAR_WIDTH + gap);
+                    if (lo - 0.2..=hi + 0.2).contains(&want) {
+                        target = want - my_line;
+                    } else {
+                        // The car being passed took the room away (it moved
+                        // to its apex): back off and follow instead.
+                        self.overtaking = None;
+                    }
                 }
             }
         }
@@ -648,7 +657,7 @@ impl AiDriver {
         // Keep clear of cars alongside: they bound where the path may go
         // (absolute offsets, since the racing line itself sweeps across).
         let me = car.lateral;
-        let sep = CAR_WIDTH + 0.5 - 0.4 * self.skill.contact;
+        let sep = CAR_WIDTH + 0.6 - 0.3 * self.skill.contact;
         self.clear = (lo, hi);
         for o in others
             .iter()
@@ -727,8 +736,9 @@ impl AiDriver {
         // Held up by a slower car: after a while (shorter for aggressive
         // drivers) go for the inside of the next corner, or the other side
         // if there is no room there.
-        let held =
-            blocker.is_some_and(|(o, d)| cap < want - 0.5 && d < 35.0 && want > o.speed + 0.5);
+        // The pack is still forming in the first seconds: no passing yet.
+        let held = self.clock > 5.0
+            && blocker.is_some_and(|(o, d)| cap < want - 0.5 && d < 35.0 && want > o.speed + 0.5);
         // A car stopped in the way is an obstacle: go round it at once.
         let obstacle = blocker.is_some_and(|(o, d)| o.speed < 3.0 && d < 20.0);
         self.held_up = if held {
@@ -740,25 +750,33 @@ impl AiDriver {
             && self.overtaking.is_none()
             && (self.held_up > 2.5 - 2.0 * self.skill.aggression || obstacle)
         {
+            // A lane beside the blocker, inside the road and clear of every
+            // other car in the next 35 m.
             let (lo, hi) = self.bounds;
-            let room = |side: f32| {
-                if side > 0.0 {
-                    hi - (o.lateral + CAR_WIDTH / 2.0)
-                } else {
-                    (o.lateral - CAR_WIDTH / 2.0) - lo
-                }
+            let gap = 0.9;
+            let lane = |side: f32| {
+                let at = o.lateral + side * (CAR_WIDTH + gap);
+                let free = others
+                    .iter()
+                    .filter(|x| x.solid && x.entity != o.entity)
+                    .all(|x| {
+                        let d = (x.s - car.s).rem_euclid(track_length);
+                        d > 35.0 || (x.lateral - at).abs() > CAR_WIDTH + 0.3
+                    });
+                (lo + 0.3..=hi - 0.3).contains(&at) && free
             };
-            let roomier = if room(1.0) > room(-1.0) { 1.0 } else { -1.0 };
-            let inside = if self.next_turn != 0.0 && !obstacle {
+            let roomier = if hi - o.lateral > o.lateral - lo {
+                1.0
+            } else {
+                -1.0
+            };
+            let first = if self.next_turn != 0.0 && !obstacle {
                 self.next_turn
             } else {
                 roomier
             };
-            let side = [inside, -inside]
-                .into_iter()
-                .find(|&s| room(s) > CAR_WIDTH + 0.4);
-            if let Some(side) = side {
-                self.overtaking = Some((o.entity, side, 8.0));
+            if let Some(side) = [first, -first].into_iter().find(|&s| lane(s)) {
+                self.overtaking = Some((o.entity, side, 8.0, gap));
             }
             self.held_up = 0.0;
         }
@@ -775,7 +793,6 @@ impl AiDriver {
         sideslip: f32,
         speed: f32,
         v: f32,
-        _right: Vec3,
         time: f32,
         dt: f32,
     ) {
