@@ -136,7 +136,56 @@ The frame time is dominated by lavapipe rasterising and shading on the CPU; the 
 that matters for the game (entities, draws, triangles, lights) is in the budgets above and is
 kept low by static batching and LOD bands.
 
-SCREENSHOTS
+## Screenshots
+
+All captured headlessly on lavapipe at 1280×720 with `tools/capture.sh downtown-kit[-golden|-night|-wet|-procedural]`
+(7 scripted poses each; the dry night skips the overhead drone pose, which is almost black and
+fails the harness's image check). Every image was inspected while tuning; the selection below
+is the final pass. Scanned textures unless noted.
+
+### Day
+![Start/finish gantry with start lights, chequered line, catch fences with scrims, shopfronts.](track-kit/day-start-straight.jpg)
+*Start/finish gantry with start lights, chequered line, catch fences with scrims, shopfronts.*
+![Braking zone: crosswalk, 50 m board, signal mast, grandstand with crowd at the corner, landmark tower closing the view.](track-kit/day-braking-zone.jpg)
+*Braking zone: crosswalk, 50 m board, signal mast, grandstand with crowd at the corner, landmark tower closing the view.*
+![Apex of the 90° right-hander: red/white curb, jersey barrier and fence, inner-corner building following the arc.](track-kit/day-corner-apex.jpg)
+*Apex of the 90° right-hander: red/white curb, jersey barrier and fence, inner-corner building following the arc.*
+![Sidewalk: lamps, trees, bins, bench, awnings and pilasters; scanned pavers, brick and concrete.](track-kit/day-sidewalk.jpg)
+*Sidewalk: lamps, trees, bins, bench, awnings and pilasters; scanned pavers, brick and concrete.*
+![Drone view down the first straight: assembled blocks with secondary façades, rooftops with water towers and AC units.](track-kit/day-drone.jpg)
+*Drone view down the first straight: assembled blocks with secondary façades, rooftops with water towers and AC units.*
+
+### Golden hour
+![Golden hour on the second straight (sun 7° down the street axis, warm grade).](track-kit/golden-exit-straight.jpg)
+*Golden hour on the second straight (sun 7° down the street axis, warm grade).*
+![Looking west into the low sun past Armco and shopfronts.](track-kit/golden-into-sun.jpg)
+*Looking west into the low sun past Armco and shopfronts.*
+![Golden hour from above.](track-kit/golden-drone.jpg)
+*Golden hour from above.*
+
+### Night
+![Night: LED street lights pooling on the road, lit windows, shop signs, red start lights, sky-glow dome.](track-kit/night-start-straight.jpg)
+*Night: LED street lights pooling on the road, lit windows, shop signs, red start lights, sky-glow dome.*
+![Night braking zone.](track-kit/night-braking-zone.jpg)
+*Night braking zone.*
+![Night apex.](track-kit/night-corner-apex.jpg)
+*Night apex.*
+![Night exit straight with signals.](track-kit/night-exit-straight.jpg)
+*Night exit straight with signals.*
+
+### Wet (night, deferred + SSR + TAA)
+![Wet: puddles in the gutters and wheel tracks mirror shopfronts, signs and the start lights.](track-kit/wet-start-straight.jpg)
+*Wet: puddles in the gutters and wheel tracks mirror shopfronts, signs and the start lights.*
+![Wet exit straight.](track-kit/wet-exit-straight.jpg)
+*Wet exit straight.*
+![Wet apex: wet curb paint and kerbs.](track-kit/wet-corner-apex.jpg)
+*Wet apex: wet curb paint and kerbs.*
+![Wet street canyon from above.](track-kit/wet-drone.jpg)
+*Wet street canyon from above.*
+
+### Procedural fallback (no downloaded textures)
+![Same view as the day braking zone with the procedural texture set only.](track-kit/procedural-braking-zone.jpg)
+*Same view as the day braking zone with the procedural texture set only.*
 
 ## Honest assessment against the PLAN's bar (GTA V/VI quality)
 

@@ -15,6 +15,7 @@ the full plan and [`docs/milestones/`](docs/milestones/) for milestone handoff n
 | `racer-backend` | axum backend service (`GET /health`). |
 | `racer-trackc` | City/track compiler (CLI skeleton). |
 | `racer-capture` | Headless screenshot and telemetry harness, image checks and golden diffs. |
+| `racer-citykit` | Procedural track-side asset kit (roads, racing and street furniture, buildings, textures, validator) and the `downtown-kit` showcase; see [`docs/assets/track-kit.md`](docs/assets/track-kit.md). |
 
 Car data lives in `data/cars/<id>/car.toml`: published specs with sources, estimated
 parameters under `[estimated]` and the reference performance figures the tests check.
