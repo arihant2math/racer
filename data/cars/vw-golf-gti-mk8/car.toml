@@ -97,7 +97,7 @@ shift_time_s = 0.12
 upshift_rpm = [6500.0, 2500.0]
 downshift_rpm = 1400.0
 clutch_max_torque_nm = 600.0
-efficiency = 0.90
+efficiency = 0.88
 
 [estimated.differentials]
 front = { kind = "lsd", preload_nm = 40.0, power_ramp = 0.3, coast_ramp = 0.1 }
@@ -134,7 +134,7 @@ anti_roll_n_per_m = 14000.0
 roll_center_height_m = 0.10
 
 [estimated.tires.front]
-mu_long = 1.18
+mu_long = 1.12
 mu_lat = 1.17
 reference_load_n = 4000.0
 load_sensitivity = 0.12
@@ -150,7 +150,7 @@ pneumatic_trail_m = 0.035
 inertia_kgm2 = 1.1
 
 [estimated.tires.rear]
-mu_long = 1.15
+mu_long = 1.10
 mu_lat = 1.17
 reference_load_n = 4000.0
 load_sensitivity = 0.12

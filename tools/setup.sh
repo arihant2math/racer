@@ -36,6 +36,8 @@ APT_PACKAGES=(
   libx11-dev libxcursor-dev libxrandr-dev libxi-dev
   # Toolchain bootstrap.
   build-essential curl ca-certificates xz-utils
+  # Telemetry plots (tools/plot_telemetry.py) and the optional SDL3 wheel build.
+  python3-matplotlib cmake
 )
 if [ "$WITH_BLENDER" -eq 1 ]; then
   # Shared libraries the official Blender tarball needs in background mode.

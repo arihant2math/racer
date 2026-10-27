@@ -24,7 +24,8 @@ impl Autopilot {
             .map(|i| {
                 let (a, b, c) = (at(i + n - 5), at(i), at(i + 5));
                 let area2 = (b - a).cross(c - a).length();
-                let radius = (a.distance(b) * b.distance(c) * c.distance(a)) / (2.0 * area2).max(1e-6);
+                let radius =
+                    (a.distance(b) * b.distance(c) * c.distance(a)) / (2.0 * area2).max(1e-6);
                 (grip * radius).sqrt().min(top)
             })
             .collect();
@@ -54,27 +55,39 @@ impl Autopilot {
 
     /// Controls for a car at `transform` moving at `velocity`, given its
     /// wheelbase and maximum road-wheel angle (rad).
-    pub fn drive(&self, transform: &Transform, velocity: Vec3, wheelbase: f32, max_steer: f32) -> Controls {
+    pub fn drive(
+        &self,
+        transform: &Transform,
+        velocity: Vec3,
+        wheelbase: f32,
+        max_steer: f32,
+    ) -> Controls {
         let n = self.points.len();
         let speed = velocity.dot(*transform.forward());
         let i = self.nearest(transform.translation);
         // Look ahead about 0.8 s, at least 8 m.
         let lookahead = (0.8 * speed.abs()).max(8.0);
         let mut j = i;
-        while self.points[j].distance(transform.translation) < lookahead && (j + n - i) % n < n / 2 {
+        while self.points[j].distance(transform.translation) < lookahead && (j + n - i) % n < n / 2
+        {
             j = (j + 1) % n;
         }
         let local = transform.rotation.inverse() * (self.points[j] - transform.translation);
         let alpha = (-local.x).atan2(-local.z);
         let delta = (2.0 * wheelbase * alpha.sin() / lookahead).atan();
-        // Brake early enough: look at the slowest target over the next 1.5 s.
-        let horizon = (1.5 * speed.abs() / 2.0) as usize + 1;
-        let target = (0..horizon).map(|k| self.speeds[(i + k) % n]).fold(f32::MAX, f32::min).min(self.speeds[i]);
-        let e = target - speed;
-        let (throttle, brake) = if e >= 0.0 {
-            ((0.2 + 0.4 * e).min(1.0), 0.0)
+        // Longitudinal: the deceleration needed to meet the slowest target
+        // within the next ~1 s (at least 10 m), as pedal feed-forward.
+        let horizon = (speed.abs().max(10.0) / 2.0) as usize + 1;
+        let (mut accel, mut dist) = (f32::MAX, 0.0);
+        for k in 1..horizon {
+            dist += self.points[(i + k - 1) % n].distance(self.points[(i + k) % n]);
+            let v = self.speeds[(i + k) % n];
+            accel = accel.min((v * v - speed * speed) / (2.0 * dist));
+        }
+        let (throttle, brake) = if accel >= -0.5 {
+            ((0.3 + accel / 3.0).clamp(0.0, 1.0), 0.0)
         } else {
-            (0.0, (-0.25 * e).min(1.0))
+            (0.0, (-accel / 10.0).clamp(0.0, 1.0))
         };
         Controls {
             throttle: throttle as f64,

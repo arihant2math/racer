@@ -37,13 +37,8 @@ mod tests {
     /// Headless app with physics that advances exactly one tick per update.
     fn physics_app() -> App {
         let mut app = App::new();
-        app.add_plugins((
-            MinimalPlugins,
-            TransformPlugin,
-            SimPlugin,
-            VehiclePlugin,
-        ))
-        .insert_resource(TimeUpdateStrategy::ManualDuration(tick_duration()));
+        app.add_plugins((MinimalPlugins, TransformPlugin, SimPlugin, VehiclePlugin))
+            .insert_resource(TimeUpdateStrategy::ManualDuration(tick_duration()));
         app.finish();
         app.cleanup();
         app
@@ -65,7 +60,11 @@ mod tests {
         for k in 0..960 {
             app.update();
             if k >= 720 {
-                let v = app.world().get::<avian3d::prelude::LinearVelocity>(car).unwrap().0;
+                let v = app
+                    .world()
+                    .get::<avian3d::prelude::LinearVelocity>(car)
+                    .unwrap()
+                    .0;
                 max_speed = max_speed.max(v.length());
             }
         }
@@ -75,9 +74,16 @@ mod tests {
         assert!(t.wheels.iter().all(|w| w.contact), "{t:?}");
         assert!((0.4..0.6).contains(&ride), "ride height {ride}");
         let weight: f64 = t.wheels.iter().map(|w| w.load).sum();
-        assert!((weight / (1810.0 * 9.81) - 1.0).abs() < 0.03, "wheel loads {weight}");
+        assert!(
+            (weight / (1810.0 * 9.81) - 1.0).abs() < 0.03,
+            "wheel loads {weight}"
+        );
 
-        app.world_mut().get_mut::<CarControls>(car).unwrap().0.throttle = 1.0;
+        app.world_mut()
+            .get_mut::<CarControls>(car)
+            .unwrap()
+            .0
+            .throttle = 1.0;
         for _ in 0..480 {
             app.update();
         }

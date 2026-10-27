@@ -7,6 +7,12 @@ rust-version.workspace = true
 publish.workspace = true
 
 [dependencies]
-bevy = { workspace = true, features = ["3d", "free_camera"] }
+bevy = { workspace = true, features = ["3d", "ui", "free_camera"] }
+racer-dynamics.workspace = true
+sdl3 = { workspace = true, optional = true }
 racer-render.workspace = true
 racer-sim.workspace = true
+
+[features]
+# Steering wheels with force feedback through SDL3 (built from source; needs cmake and a C compiler).
+wheel = ["dep:sdl3"]

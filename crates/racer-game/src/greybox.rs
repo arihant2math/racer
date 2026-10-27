@@ -34,24 +34,14 @@ pub fn default_camera_transform() -> Transform {
     Transform::from_xyz(6.0, 2.2, 7.5).looking_at(Vec3::new(0.0, 0.6, 0.0), Vec3::Y)
 }
 
-fn setup(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut media: ResMut<Assets<ScatteringMedium>>,
-) {
+/// Sky, sun and the scene camera (at `camera`), shared by the greybox scenes.
+pub fn spawn_environment(
+    commands: &mut Commands,
+    media: &mut Assets<ScatteringMedium>,
+    camera: Transform,
+) -> Entity {
     commands.spawn(Atmosphere::earth(
         media.add(ScatteringMedium::earth(256, 256)),
-    ));
-
-    commands.spawn((
-        SceneCamera,
-        Camera3d::default(),
-        default_camera_transform(),
-        AtmosphereSettings::default(),
-        AtmosphereEnvironmentMapLight::default(),
-        Exposure { ev100: 13.0 },
-        Tonemapping::AcesFitted,
     ));
 
     commands.spawn((
@@ -68,6 +58,27 @@ fn setup(
         }
         .build(),
     ));
+
+    commands
+        .spawn((
+            SceneCamera,
+            Camera3d::default(),
+            camera,
+            AtmosphereSettings::default(),
+            AtmosphereEnvironmentMapLight::default(),
+            Exposure { ev100: 13.0 },
+            Tonemapping::AcesFitted,
+        ))
+        .id()
+}
+
+fn setup(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+    mut media: ResMut<Assets<ScatteringMedium>>,
+) {
+    spawn_environment(&mut commands, &mut media, default_camera_transform());
 
     // Ground: matte asphalt-grey plane with lighter lane markings.
     commands.spawn((

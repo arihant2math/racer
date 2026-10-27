@@ -245,8 +245,9 @@ impl Drivetrain {
     ///
     /// `wheel_torque` holds the external torque on each wheel (tire reaction),
     /// `brake` the friction torque that can stop but never reverse a wheel,
-    /// `clutch_pedal` 0 (released) ..= 1 (pressed). `launch` engages launch
-    /// control: clutch open, engine held at the launch speed.
+    /// `torque_limit` the traction-control torque factor, `clutch_pedal` 0
+    /// (released) ..= 1 (pressed). `launch` engages launch control: clutch
+    /// open, engine held at the launch speed.
     #[allow(clippy::too_many_arguments)]
     pub fn substep(
         &self,
@@ -256,6 +257,7 @@ impl Drivetrain {
         mut wheel_torque: [f64; 4],
         brake: &[f64; 4],
         throttle: f64,
+        torque_limit: f64,
         clutch_pedal: f64,
         launch: bool,
         dt: f64,
@@ -274,12 +276,21 @@ impl Drivetrain {
         // gear: ignition cut on upshifts, a throttle blip on downshifts, with
         // the clutch carrying about the engine's torque so drive continues.
         let shifting = state.since_shift < gb.shift_time && g != 0.0;
+        // Pulling away (clutch slipping below the launch speed): traction
+        // control trims the clutch torque while the engine is held near the
+        // launch speed. Otherwise traction control trims the engine.
+        let driveline = g.abs() * out.abs();
+        let pulling_away = driveline < eng.launch && we > driveline + 100.0 * RPM_TO_RAD_S;
         let throttle = if launch {
             ((eng.launch - we) / (300.0 * RPM_TO_RAD_S)).clamp(0.0, throttle)
         } else if shifting {
             if we > g * out { 0.0 } else { 1.0 }
+        } else if pulling_away {
+            throttle.min(
+                ((eng.launch + 300.0 * RPM_TO_RAD_S - we) / (300.0 * RPM_TO_RAD_S)).clamp(0.0, 1.0),
+            )
         } else {
-            throttle
+            throttle * torque_limit
         };
         // Idle governor keeps the engine running; the limiter cuts fuel.
         let idle_throttle = ((eng.idle - we) / (250.0 * RPM_TO_RAD_S)).clamp(0.0, 1.0);
@@ -303,8 +314,8 @@ impl Drivetrain {
         }
         // Below the launch speed the clutch is modulated to carry about the
         // engine's torque, holding engine speed instead of dumping it.
-        if g.abs() * out.abs() < eng.launch {
-            capacity = capacity.min(te.max(0.0) + 0.1 * gb.clutch_max);
+        if pulling_away {
+            capacity = capacity.min(te.max(0.0) * torque_limit + 0.1 * gb.clutch_max);
         }
         if launch {
             capacity = 0.0;

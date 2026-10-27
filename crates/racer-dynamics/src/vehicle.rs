@@ -490,21 +490,18 @@ impl Vehicle {
                 fy_sum[i] += f.fy;
                 mz_sum[i] += f.mz;
                 wheel_torque[i] = -f.fx * r;
-                // ABS works on the relaxed slip; stops intervening near standstill.
+                // ABS and TCS see wheel-speed-sensor slip (kinematic, not the
+                // tire's relaxed slip, which lags more and more at low speed).
+                let sensor_slip = slip_speed * p.vx.signum() / p.vx.abs().max(2.0);
                 if controls.assists.abs && controls.brake > 0.0 && p.vx.abs() > 1.0 {
-                    ws.abs = assists::abs_update(
-                        ws.abs,
-                        ws.slip_ratio * p.vx.signum(),
-                        tire.peak_slip_ratio,
-                        h,
-                    );
+                    ws.abs = assists::abs_update(ws.abs, sensor_slip, tire.peak_slip_ratio, h);
                 } else {
                     ws.abs = 1.0;
                 }
                 let rolling = tire.rolling_resistance * p.drag * load[i] * r;
                 friction[i] = brake[i] * ws.abs + rolling;
                 if drive.weights[i] > 0.0 {
-                    max_driven_slip = max_driven_slip.max(ws.slip_ratio * p.vx.signum());
+                    max_driven_slip = max_driven_slip.max(sensor_slip);
                 }
             }
             if controls.assists.tcs {
@@ -521,7 +518,8 @@ impl Vehicle {
                 &inertia,
                 wheel_torque,
                 &friction,
-                base_throttle * state.tcs,
+                base_throttle,
+                state.tcs,
                 controls.clutch,
                 launch,
                 h,

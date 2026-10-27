@@ -133,7 +133,7 @@ anti_roll_n_per_m = 14000.0
 roll_center_height_m = 0.09
 
 [estimated.tires.front]
-mu_long = 1.38
+mu_long = 1.26
 mu_lat = 1.24
 reference_load_n = 4000.0
 load_sensitivity = 0.12
@@ -149,7 +149,7 @@ pneumatic_trail_m = 0.035
 inertia_kgm2 = 1.2
 
 [estimated.tires.rear]
-mu_long = 1.38
+mu_long = 1.26
 mu_lat = 1.24
 reference_load_n = 4000.0
 load_sensitivity = 0.12

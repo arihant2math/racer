@@ -31,6 +31,9 @@ bevy_egui = "=0.42.0"
 bevy_hanabi = "=0.19.0"
 bevy_kira_audio = "=0.26.0"
 
+# SDL3 for steering wheels and force feedback, compiled from source (static).
+sdl3 = { version = "=0.20.0", features = ["build-from-source-static"] }
+
 axum = "=0.8.9"
 tokio = { version = "=1.54.1", features = ["macros", "rt-multi-thread", "net", "signal"] }
 tower = { version = "=0.5.3", features = ["util"] }

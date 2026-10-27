@@ -18,8 +18,12 @@ pub struct VehiclePlugin;
 
 impl Plugin for VehiclePlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(PhysicsPlugins::default())
-            .add_systems(FixedUpdate, (drive_cars, record_acceleration).chain().in_set(VehicleSystems));
+        app.add_plugins(PhysicsPlugins::default()).add_systems(
+            FixedUpdate,
+            (drive_cars, record_acceleration)
+                .chain()
+                .in_set(VehicleSystems),
+        );
     }
 }
 
@@ -32,6 +36,8 @@ pub struct VehicleSystems;
 pub struct Car {
     pub id: String,
     pub vehicle: Arc<Vehicle>,
+    /// Steering-wheel to road-wheel ratio, for force feedback.
+    pub steering_ratio: f64,
 }
 
 /// Internal state of the vehicle model (wheel spin, slips, gear, ...).
@@ -42,7 +48,8 @@ pub struct CarState(pub VehicleState);
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct CarControls(pub Controls);
 
-/// Output of the last step plus the chassis acceleration (world, without gravity).
+/// Output of the last step plus the chassis accelerometer reading (world frame,
+/// reads 1 g upwards at rest).
 #[derive(Component, Clone, Copy, Debug, Default)]
 pub struct CarTelemetry {
     pub telemetry: Telemetry,
@@ -51,7 +58,11 @@ pub struct CarTelemetry {
 }
 
 /// Spawns a car resting at `transform` (the ground point below its centre of mass).
-pub fn spawn_car(commands: &mut Commands, spec: &CarSpec, transform: Transform) -> Result<Entity, String> {
+pub fn spawn_car(
+    commands: &mut Commands,
+    spec: &CarSpec,
+    transform: Transform,
+) -> Result<Entity, String> {
     let vehicle = Vehicle::from_spec(spec)?;
     let c = &spec.chassis;
     let ride = vehicle.ride_height() as f32;
@@ -63,7 +74,8 @@ pub fn spawn_car(commands: &mut Commands, spec: &CarSpec, transform: Transform) 
     let entity = commands
         .spawn((
             Name::new(spec.name.clone()),
-            Transform::from_translation(transform.translation + transform.up() * ride).with_rotation(transform.rotation),
+            Transform::from_translation(transform.translation + transform.up() * ride)
+                .with_rotation(transform.rotation),
             RigidBody::Dynamic,
             Mass(vehicle.mass as f32),
             AngularInertia::new(i),
@@ -80,6 +92,7 @@ pub fn spawn_car(commands: &mut Commands, spec: &CarSpec, transform: Transform) 
             Car {
                 id: spec.id.clone(),
                 vehicle: Arc::new(vehicle),
+                steering_ratio: spec.steering.ratio,
             },
         ))
         .with_child((
@@ -102,7 +115,15 @@ fn drive_cars(
     time: Res<Time>,
     spatial: SpatialQuery,
     surfaces: Query<&GroundSurface>,
-    mut cars: Query<(Entity, &Car, &mut CarState, &CarControls, &mut CarTelemetry, &Children, Forces)>,
+    mut cars: Query<(
+        Entity,
+        &Car,
+        &mut CarState,
+        &CarControls,
+        &mut CarTelemetry,
+        &Children,
+        Forces,
+    )>,
 ) {
     let dt = time.delta_secs_f64();
     if dt <= 0.0 {
@@ -118,7 +139,9 @@ fn drive_cars(
             linear_velocity: forces.linear_velocity().as_dvec3(),
             angular_velocity: forces.angular_velocity().as_dvec3(),
         };
-        let filter = SpatialQueryFilter::from_excluded_entities(std::iter::once(entity).chain(children.iter()));
+        let filter = SpatialQueryFilter::from_excluded_entities(
+            std::iter::once(entity).chain(children.iter()),
+        );
         let down = Dir3::new(rot * Vec3::NEG_Y).unwrap_or(Dir3::NEG_Y);
         let contacts: [Option<WheelContact>; 4] = std::array::from_fn(|i| {
             let g = v.wheel_geometry(i);
@@ -129,18 +152,25 @@ fn drive_cars(
             let config = ShapeCastConfig::from_max_distance(g.max_distance as f32);
             let hit = spatial.cast_shape(&wheel, origin, shape_rot, down, &config, &filter)?;
             let up = -*down;
-            let (normal, distance) = if hit.distance > 0.0 && hit.normal1.dot(up) > 0.1 {
-                // The cast's time of impact is iterative and noisy at the
-                // millimetre level, which buzzes stiff springs. Re-solve the
-                // distance exactly against the contact plane: the cylinder
-                // touches it when its support point along -n lies on it.
-                let n = hit.normal1;
-                let axle = rot * Vec3::X;
-                let an = axle.dot(n);
-                let extent = g.radius as f32 * (1.0 - an * an).max(0.0).sqrt() + 0.5 * g.width as f32 * an.abs();
-                (n, (n.dot(origin - hit.point1) - extent) / n.dot(up))
-            } else {
-                (up, 0.0)
+            // The cylinder cast finds where the wheel touches, but its normal
+            // is unreliable (rim-edge features tilt it by several degrees on
+            // flat ground). A short ray at the contact point gives the exact
+            // surface normal; the distance is then solved against that plane.
+            let probe = hit.point1 + up * 0.05;
+            let surface = spatial
+                .cast_ray(probe, down, 0.1, true, &filter)
+                .filter(|r| r.normal.dot(up) > 0.1 && hit.distance > 0.0);
+            let (normal, distance) = match surface {
+                Some(ray) => {
+                    let (n, point) = (ray.normal, probe + *down * ray.distance);
+                    let axle = rot * Vec3::X;
+                    let an = axle.dot(n);
+                    // Support extent of the cylinder along -n.
+                    let extent = g.radius as f32 * (1.0 - an * an).max(0.0).sqrt()
+                        + 0.5 * g.width as f32 * an.abs();
+                    (n, (n.dot(origin - point) - extent) / n.dot(up))
+                }
+                None => (up, hit.distance),
             };
             Some(WheelContact {
                 distance: f64::from(distance.clamp(0.0, g.max_distance as f32)),
@@ -155,12 +185,16 @@ fn drive_cars(
     }
 }
 
-/// Chassis acceleration from the velocity change over the physics step.
+/// Chassis acceleration from the velocity change over each physics step,
+/// low-passed like a data logger's accelerometer (single solver steps add
+/// millimetre-per-second blips that are invisible but noisy as acceleration).
 fn record_acceleration(time: Res<Time>, mut cars: Query<(&LinearVelocity, &mut CarTelemetry)>) {
+    const FILTER_TIME: f32 = 0.02;
     let dt = time.delta_secs();
     for (v, mut t) in &mut cars {
         if dt > 0.0 {
-            t.acceleration = (v.0 - t.last_velocity) / dt + Vec3::Y * 9.81;
+            let raw = (v.0 - t.last_velocity) / dt + Vec3::Y * 9.81;
+            t.acceleration = t.acceleration.lerp(raw, (dt / FILTER_TIME).min(1.0));
         }
         t.last_velocity = v.0;
     }

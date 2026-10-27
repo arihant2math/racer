@@ -4,6 +4,7 @@
 //! racer-capture scene <name> <out-dir> [--size WxH] [--timeout SECS]
 //! racer-capture check <png>...
 //! racer-capture diff <actual> <golden> [--pixel N] [--max-fraction F] [--max-mean E]
+//! racer-capture telemetry <out-dir> [car-id...]
 //! ```
 //! `diff` takes two files or two directories; with directories every PNG in the
 //! golden directory must have a matching file in the actual directory.
@@ -18,13 +19,14 @@ use bevy::{prelude::*, window::WindowResolution, winit::WinitSettings};
 use racer_capture::{
     check::{self, Tolerance},
     harness::CapturePlugin,
-    scenes,
+    scenes, telemetry,
 };
 
 const USAGE: &str = "usage:
   racer-capture scene <name> <out-dir> [--size WxH] [--timeout SECS]
   racer-capture check <png>...
-  racer-capture diff <actual> <golden> [--pixel N] [--max-fraction F] [--max-mean E]";
+  racer-capture diff <actual> <golden> [--pixel N] [--max-fraction F] [--max-mean E]
+  racer-capture telemetry <out-dir> [car-id...]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -32,6 +34,7 @@ fn main() -> ExitCode {
         Some("scene") => scene(&args[1..]),
         Some("check") => check_files(&args[1..]),
         Some("diff") => diff(&args[1..]),
+        Some("telemetry") => telemetry(&args[1..]),
         _ => Err(USAGE.into()),
     };
     match result {
@@ -202,4 +205,27 @@ fn diff(args: &[String]) -> Result<ExitCode, String> {
     } else {
         ExitCode::FAILURE
     })
+}
+
+/// Headless scripted maneuvers on the Avian test track, one CSV per car and maneuver.
+fn telemetry(args: &[String]) -> Result<ExitCode, String> {
+    let (pos, _) = parse(args, &[])?;
+    let Some((out_dir, cars)) = pos.split_first() else {
+        return Err(USAGE.into());
+    };
+    let cars: Vec<&str> = if cars.is_empty() {
+        racer_dynamics::spec::CARS.to_vec()
+    } else {
+        cars.to_vec()
+    };
+    for car in cars {
+        match telemetry::run(car, Path::new(out_dir)) {
+            Ok(paths) => paths.iter().for_each(|p| println!("wrote {}", p.display())),
+            Err(e) => {
+                eprintln!("racer-capture: {e}");
+                return Ok(ExitCode::FAILURE);
+            }
+        }
+    }
+    Ok(ExitCode::SUCCESS)
 }

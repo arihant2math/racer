@@ -163,14 +163,7 @@ fn jump_landing_settles() {
     sim.body.position += DVec3::new(10.0, 0.0, 155.0);
     sim.launch_at(25.0);
     let (mut airborne, mut takeoffs, mut was_flying) = (0, 0, false);
-    sim.run(4.0, |s| {
-        let (throttle, brake) = racer_dynamics::testbed::driver::hold_speed(s, 25.0);
-        Controls {
-            throttle,
-            brake,
-            ..auto_controls()
-        }
-    });
+    // 3 s at 25 m/s: over the kicker after 1 s, then onto flat ground.
     sim.run(3.0, |s| {
         if let Some(out) = s.last {
             let flying = out.telemetry.wheels.iter().all(|w| !w.contact);
@@ -178,7 +171,12 @@ fn jump_landing_settles() {
             takeoffs += usize::from(flying && !was_flying);
             was_flying = flying;
         }
-        auto_controls()
+        let (throttle, brake) = racer_dynamics::testbed::driver::hold_speed(s, 25.0);
+        Controls {
+            throttle,
+            brake,
+            ..auto_controls()
+        }
     });
     assert!(airborne > 24, "never left the ground ({airborne} steps)");
     assert!(takeoffs <= 2, "bounced: {takeoffs} separate flights");

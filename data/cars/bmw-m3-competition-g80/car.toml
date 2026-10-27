@@ -102,7 +102,7 @@ rear = { kind = "lsd", preload_nm = 80.0, power_ramp = 0.5, coast_ramp = 0.3 }
 
 [estimated.brakes]
 front_torque_nm = 4200.0
-rear_torque_nm = 2800.0
+rear_torque_nm = 1000.0
 handbrake_torque_nm = 2000.0
 
 [estimated.steering]
@@ -148,7 +148,7 @@ pneumatic_trail_m = 0.035
 inertia_kgm2 = 1.4
 
 [estimated.tires.rear]
-mu_long = 1.55
+mu_long = 1.45
 mu_lat = 1.22
 reference_load_n = 4500.0
 load_sensitivity = 0.12
