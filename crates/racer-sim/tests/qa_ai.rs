@@ -285,7 +285,6 @@ fn qa_ai_3_a_car_turning_solid_ahead_is_not_rammed() {
 /// AI's 12 s progress timeout or a `Stuck` reset ends it; two cars queued
 /// behind are reset as well.
 #[test]
-#[ignore = "QA-AI-4"]
 fn qa_ai_4_a_car_pushing_against_an_obstacle_is_reset_within_a_few_seconds() {
     let entries = mixed_entries(7);
     let (mut app, cars) = race_app(RaceConfig::default(), &entries);

@@ -24,6 +24,11 @@ pub const RESET_AFTER: f32 = 3.0;
 pub const GHOST_AFTER_RESET: f32 = 3.0;
 /// Below this speed (m/s) a racing car counts as stuck.
 const STUCK_SPEED: f32 = 1.0;
+/// A racing car that gains less than [`STUCK_PROGRESS`] metres of progress
+/// in this many seconds is stuck too, however much it rocks back and forth
+/// (pushing against a wall or a car, short reverse manoeuvres).
+const NO_PROGRESS_AFTER: f32 = 5.0;
+const STUCK_PROGRESS: f32 = 10.0;
 /// Samples searched either side of the previous position.
 const WINDOW: usize = 24;
 /// Distance beyond the wall face that still counts as on the track (m).
@@ -234,6 +239,10 @@ pub struct ResetMonitor {
     flipped: f32,
     stuck: f32,
     off_track: f32,
+    /// Seconds since progress last passed `anchor` + [`STUCK_PROGRESS`], and
+    /// that progress (none until the next update after a start or reset).
+    no_progress: f32,
+    anchor: Option<f32>,
     /// Last valid progress distance and lateral offset.
     pub last_valid: (f32, f32),
 }
@@ -244,6 +253,8 @@ impl ResetMonitor {
             flipped: 0.0,
             stuck: 0.0,
             off_track: 0.0,
+            no_progress: 0.0,
+            anchor: None,
             last_valid: (progress.distance, progress.lateral),
         }
     }
@@ -263,6 +274,13 @@ impl ResetMonitor {
         tick(&mut self.flipped, up_y < 0.3);
         tick(&mut self.stuck, racing && speed < STUCK_SPEED);
         tick(&mut self.off_track, !progress.on_track);
+        let anchor = *self.anchor.get_or_insert(progress.distance);
+        if !racing || progress.distance > anchor + STUCK_PROGRESS {
+            self.anchor = Some(progress.distance);
+            self.no_progress = 0.0;
+        } else {
+            self.no_progress += dt;
+        }
         if progress.on_track && up_y > 0.8 && !progress.wrong_way && speed > STUCK_SPEED {
             self.last_valid = (progress.distance, progress.lateral);
         }
@@ -270,7 +288,7 @@ impl ResetMonitor {
             Some(ResetReason::Flipped)
         } else if self.off_track > RESET_AFTER {
             Some(ResetReason::OffTrack)
-        } else if self.stuck > RESET_AFTER {
+        } else if self.stuck > RESET_AFTER || self.no_progress > NO_PROGRESS_AFTER {
             Some(ResetReason::Stuck)
         } else {
             None
@@ -290,6 +308,8 @@ impl ResetMonitor {
         self.flipped = 0.0;
         self.stuck = 0.0;
         self.off_track = 0.0;
+        self.no_progress = 0.0;
+        self.anchor = None;
     }
 }
 
@@ -778,24 +798,38 @@ mod tests {
         let t = track();
         let p = Progress::new(&t, t.grid[0].position);
         let dt = 1.0 / 240.0;
-        let run = |up, speed, racing, seconds: f32| {
+        // The car's progress moves at `pace` m/s along the track.
+        let run = |up, speed, pace: f32, racing, seconds: f32| {
             let mut m = ResetMonitor::new(&p);
+            let mut q = p;
             (0..(seconds * 240.0) as usize).find_map(|k| {
-                m.update(&p, up, speed, racing, dt)
+                q.distance += pace * dt;
+                m.update(&q, up, speed, racing, dt)
                     .map(|r| (r, k as f32 * dt))
             })
         };
-        let (r, at) = run(-0.9, 0.0, false, 4.0).unwrap();
+        let (r, at) = run(-0.9, 0.0, 0.0, false, 4.0).unwrap();
         assert_eq!(r, ResetReason::Flipped);
         assert!((at - RESET_AFTER).abs() < 0.01);
         assert_eq!(
-            run(1.0, 0.2, true, 4.0).map(|x| x.0),
+            run(1.0, 0.2, 0.2, true, 4.0).map(|x| x.0),
             Some(ResetReason::Stuck)
         );
         // Standing on the grid before the start is not stuck.
-        assert_eq!(run(1.0, 0.0, false, 10.0), None);
+        assert_eq!(run(1.0, 0.0, 0.0, false, 10.0), None);
         // Driving slowly but steadily is fine.
-        assert_eq!(run(1.0, 3.0, true, 10.0), None);
+        assert_eq!(run(1.0, 3.0, 3.0, true, 10.0), None);
+        // Rocking against a wall at 0-3 m/s (never 3 s below 1 m/s) without
+        // getting anywhere is stuck, after the no-progress time.
+        let mut m = ResetMonitor::new(&p);
+        let reset = (0..2400).find_map(|k| {
+            let speed = if k % 240 < 120 { 0.5 } else { 2.5 };
+            m.update(&p, 1.0, speed, true, dt)
+                .map(|r| (r, k as f32 * dt))
+        });
+        let (r, at) = reset.unwrap();
+        assert_eq!(r, ResetReason::Stuck);
+        assert!((at - NO_PROGRESS_AFTER).abs() < 0.01, "{at}");
     }
 
     #[test]
