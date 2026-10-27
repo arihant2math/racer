@@ -189,7 +189,10 @@ fn lap(spec: &CarSpec, grip: f32) -> Run {
 /// Constant-radius circle on the skidpad (left turn), speed raised slowly to the limit.
 fn skidpad(spec: &CarSpec) -> Run {
     let mut run = Run::new(spec, skidpad_start());
-    let mut target = 10.0f32;
+    // From about 0.45 g, so the ramp reaches the limit well inside the time cap.
+    let mut target = 14.0f32;
+    // Assists stay on for the run-up from rest and go off once at speed.
+    let mut assists = racer_dynamics::Assists::default();
     while run.time() < 90.0 {
         let tr = run.transform();
         let rel = tr.translation - SKIDPAD_CENTER;
@@ -207,11 +210,14 @@ fn skidpad(spec: &CarSpec) -> Run {
             (2.0 * car.vehicle.wheelbase as f32 * alpha.sin() / local.length().max(1.0)).atan();
         let steer = (-delta / car.vehicle.max_steer as f32).clamp(-1.0, 1.0);
         let e = target - run.speed();
+        if e < 0.5 {
+            assists = racer_dynamics::Assists::OFF;
+        }
         run.step(Controls {
             throttle: (0.25 + 0.5 * e).clamp(0.0, 1.0) as f64,
             steer: steer as f64,
             automatic: true,
-            assists: racer_dynamics::Assists::OFF,
+            assists,
             ..default()
         });
         target += 0.12 * tick_duration().as_secs_f32();
