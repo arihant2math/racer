@@ -150,8 +150,7 @@ Expected: output in `/tmp/x/out`, as `tools/capture.sh` does. Actual: both scrip
 before using the argument, so a relative `<out-dir>` lands in the repository (`racer/out`). They
 also run `target/release/racer-capture` directly, so with `CARGO_TARGET_DIR` set they run a stale
 binary or fail with "No such file"; `capture.sh` asks `cargo metadata` for the target dir.
-Location: `tools/telemetry.sh:14-16`, `tools/ai-check.sh:20-24`. Confidence: high (from the
-scripts; see "Runs" below for the observed run).
+Location: `tools/telemetry.sh:14-16`, `tools/ai-check.sh:20-24`. Confidence: high (observed; see "Runs").
 
 ### QA-TOOL-14: `setup.sh` accepts any `cargo` on PATH without the pinned toolchain (minor)
 
@@ -213,8 +212,9 @@ is a likely source of red CI (AI area). `racer-game race --difficulty <typo>` si
 | `tools/capture.sh greybox "<dir with spaces>"` from `/tmp` | ok, 35 s; `diff` against goldens mean error 0.000 |
 | `tools/capture.sh greybox out --size 2560x1440` (larger than the Xvfb screen) | ok, 2560x1440 PNGs |
 | `tools/capture.sh` with no args, unknown scene, unwritable `/proc/nope` | usage (exit 2), clean errors (exit 2) |
-| `tools/telemetry.sh` from another directory | pending (release build still running at commit time) |
-| Cross-target clippy (`x86_64-pc-windows-msvc`, `aarch64-apple-darwin`) | pending |
+| `cd <dir with spaces> && tools/telemetry.sh rel-out vw-golf-gti-mk8` | ok, 20 min (release build of `racer-capture` from scratch dominates); CSVs and PNGs written to `racer/rel-out`, caller's directory empty (QA-TOOL-13) |
+| `CARGO_FEATURE_PURE=1 cargo clippy --workspace --all-targets --locked --target x86_64-pc-windows-msvc` / `aarch64-apple-darwin` `-- -D warnings` | clean, 5 min 54 s / 4 min 52 s (with the QA tests) |
+| `cargo fmt --all --check`; `cargo clippy -p racer-trackc -p racer-server -p racer-backend -p racer-capture --all-targets --locked -- -D warnings` | clean with the QA tests |
 
 ## Checked and fine
 
