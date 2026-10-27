@@ -39,7 +39,7 @@ impl Run {
         let world = app.world_mut();
         let mut commands = world.commands();
         spawn_track(&mut commands, &test_track());
-        let car = spawn_car(&mut commands, spec, at).expect("valid car");
+        let car = spawn_car(&mut commands, spec, at, ()).expect("valid car");
         world.flush();
         let mut csv = String::from(
             "t,x,y,z,speed_kmh,long_g,lat_g,yaw_rate,sideslip_deg,roll_deg,pitch_deg,steer,throttle,brake,rpm,gear",
@@ -101,7 +101,7 @@ impl Run {
             0.0
         };
         // Roll positive = right side down, pitch positive = nose up.
-        let roll = tr.right().y.asin() * -1.0;
+        let roll = -tr.right().y.asin();
         let pitch = tr.forward().y.asin();
         let tel = &t.telemetry;
         let csv = &mut self.csv;

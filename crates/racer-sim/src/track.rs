@@ -193,22 +193,22 @@ pub fn test_track() -> Track {
             Transform::IDENTITY,
         ),
     ];
-    let mut curb_red = false;
-    for w in pts.windows(2) {
-        let ((a, curbs), (b, _)) = (w[0], w[1]);
-        if !curbs {
-            continue;
-        }
-        let d = b - a;
-        let rot = Quat::from_rotation_y((-d.x).atan2(-d.y));
-        let mid = to3((a + b) / 2.0);
-        curb_red = !curb_red;
+    // Curbs line both edges of flagged segments, following the road edges.
+    let n = pts.len();
+    let edge = |i: usize, side: f32| {
+        let (prev, next) = (pts[(i + n - 1) % n].0, pts[(i + 1) % n].0);
+        let tangent = (next - prev).normalize();
+        to3(pts[i].0 + Vec2::new(-tangent.y, tangent.x) * side * (ROAD_WIDTH / 2.0 - 0.45))
+    };
+    for (i, _) in pts.iter().enumerate().filter(|(_, (_, curbs))| *curbs) {
         for side in [-1.0, 1.0] {
-            let offset = rot * Vec3::X * side * (ROAD_WIDTH / 2.0 - 0.45);
+            let (a, b) = (edge((i + n - 1) % n, side), edge(i, side));
+            let d = b - a;
             pieces.push(piece(
-                PieceKind::Curb(curb_red),
-                Vec3::new(0.9, 0.06, d.length() + 0.05),
-                Transform::from_translation(mid + offset + Vec3::Y * 0.03).with_rotation(rot),
+                PieceKind::Curb(i % 2 == 0),
+                Vec3::new(0.9, 0.06, d.length()),
+                Transform::from_translation((a + b) / 2.0 + Vec3::Y * 0.03)
+                    .with_rotation(Quat::from_rotation_y((-d.x).atan2(-d.z))),
             ));
         }
     }

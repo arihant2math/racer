@@ -48,11 +48,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Capture greybox scene
         run: tools/capture.sh greybox captures/greybox
+      - name: Capture driving scene
+        run: tools/capture.sh driving captures/driving
       - name: Compare with goldens
-        run: target/debug/racer-capture diff captures/greybox crates/racer-capture/goldens/greybox
+        run: |
+          target/debug/racer-capture diff captures/greybox crates/racer-capture/goldens/greybox
+          target/debug/racer-capture diff captures/driving crates/racer-capture/goldens/driving
+      - name: Telemetry runs and plots
+        run: tools/telemetry.sh captures/telemetry
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: captures-greybox
+          name: captures
           path: captures/
           if-no-files-found: warn

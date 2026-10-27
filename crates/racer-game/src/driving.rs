@@ -71,6 +71,8 @@ pub enum CameraMode {
     #[default]
     Chase,
     Hood,
+    /// Camera left alone (scripted captures).
+    Fixed,
 }
 
 /// Smoothed chase-camera state.
@@ -187,7 +189,8 @@ pub fn spawn_player_car(
     paint: Color,
     at: Transform,
 ) -> Entity {
-    let car = spawn_car(commands, spec, at).expect("car.toml is validated by tests");
+    let car = spawn_car(commands, spec, at, (Player, Visibility::default()))
+        .expect("car.toml is validated by tests");
     let c = &spec.chassis;
     let (len, wid, hgt) = (c.length_m as f32, c.width_m as f32, c.height_m as f32);
     let ride = spec.estimated.chassis.cg_height_m as f32;
@@ -202,21 +205,18 @@ pub fn spawn_player_car(
         perceptual_roughness: 0.8,
         ..default()
     });
-    let lower = 0.55 * hgt - 0.15;
-    commands.entity(car).insert(Player).with_children(|p| {
+    // Lower body above the wheel bottoms and narrower than the wheels, so they show.
+    let (sill, belt) = (0.3, 0.55 * hgt);
+    commands.entity(car).with_children(|p| {
         p.spawn((
-            Mesh3d(meshes.add(Cuboid::new(wid, lower, len))),
+            Mesh3d(meshes.add(Cuboid::new(0.88 * wid, belt - sill, len))),
             MeshMaterial3d(paint.clone()),
-            Transform::from_xyz(0.0, 0.15 + lower / 2.0 - ride, 0.0),
+            Transform::from_xyz(0.0, (sill + belt) / 2.0 - ride, 0.0),
         ));
         p.spawn((
-            Mesh3d(meshes.add(Cuboid::new(0.85 * wid, hgt - 0.15 - lower, 0.5 * len))),
+            Mesh3d(meshes.add(Cuboid::new(0.8 * wid, hgt - belt, 0.5 * len))),
             MeshMaterial3d(glass),
-            Transform::from_xyz(
-                0.0,
-                0.15 + lower + (hgt - 0.15 - lower) / 2.0 - ride,
-                0.08 * len,
-            ),
+            Transform::from_xyz(0.0, (belt + hgt) / 2.0 - ride, 0.08 * len),
         ));
         for index in 0..4 {
             let r = racer_dynamics::spec::tire_radius(if index < 2 {
@@ -293,6 +293,7 @@ fn toggle_camera(keys: Res<ButtonInput<KeyCode>>, mut mode: ResMut<CameraMode>) 
         *mode = match *mode {
             CameraMode::Chase => CameraMode::Hood,
             CameraMode::Hood => CameraMode::Chase,
+            CameraMode::Fixed => CameraMode::Fixed,
         };
     }
 }
@@ -319,12 +320,15 @@ fn animate_wheels(
     }
 }
 
+/// The player's car, disjoint from the camera whose transform is written.
+type PlayerNotCamera = (With<Player>, Without<SceneCamera>);
+
 /// Chase camera: trails the car with smoothing and widens the field of view
 /// with speed. Hood camera: fixed to the car.
 fn follow_camera(
     time: Res<Time>,
     mode: Res<CameraMode>,
-    cars: Query<(&Transform, &CarTelemetry), (With<Player>, Without<SceneCamera>)>,
+    cars: Query<(&Transform, &CarTelemetry), PlayerNotCamera>,
     mut cameras: Query<(&mut Transform, &mut Projection, &mut ChaseCamera), With<SceneCamera>>,
 ) {
     let Some((car, telemetry)) = cars.iter().next() else {
@@ -354,14 +358,20 @@ fn follow_camera(
             }
             CameraMode::Hood => {
                 chase.position = None;
-                *transform = *car * Transform::from_xyz(0.0, 0.62, -0.4);
+                *transform = *car * hood_camera();
                 75.0
             }
+            CameraMode::Fixed => return,
         };
         if let Projection::Perspective(p) = projection.as_mut() {
             p.fov = fov.to_radians();
         }
     }
+}
+
+/// Hood camera in the car's frame.
+pub fn hood_camera() -> Transform {
+    Transform::from_xyz(0.0, 0.62, -0.4)
 }
 
 fn update_hud(

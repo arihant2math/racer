@@ -57,11 +57,13 @@ pub struct CarTelemetry {
     last_velocity: Vec3,
 }
 
-/// Spawns a car resting at `transform` (the ground point below its centre of mass).
+/// Spawns a car resting at `transform` (the ground point below its centre of
+/// mass), with `extra` components (rendering, player markers) on the body.
 pub fn spawn_car(
     commands: &mut Commands,
     spec: &CarSpec,
     transform: Transform,
+    extra: impl Bundle,
 ) -> Result<Entity, String> {
     let vehicle = Vehicle::from_spec(spec)?;
     let c = &spec.chassis;
@@ -94,6 +96,7 @@ pub fn spawn_car(
                 vehicle: Arc::new(vehicle),
                 steering_ratio: spec.steering.ratio,
             },
+            extra,
         ))
         .with_child((
             Collider::cuboid(body.x, body.y, body.z),

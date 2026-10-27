@@ -53,7 +53,7 @@ mod tests {
         let car = {
             let mut commands = world.commands();
             spawn_track(&mut commands, &track);
-            spawn_car(&mut commands, &spec, track.start).unwrap()
+            spawn_car(&mut commands, &spec, track.start, ()).unwrap()
         };
         world.flush();
         let mut max_speed: f32 = 0.0;

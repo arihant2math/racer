@@ -340,8 +340,7 @@ mod tests {
             let world = app.world_mut();
             let mut commands = world.commands();
             spawn_track(&mut commands, &test_track());
-            let car = spawn_car(&mut commands, &spec, Transform::default()).unwrap();
-            commands.entity(car).insert(Player);
+            let car = spawn_car(&mut commands, &spec, Transform::default(), Player).unwrap();
             world.flush();
             car
         };
