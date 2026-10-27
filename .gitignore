@@ -1,3 +1,5 @@
 /target
 /.tools
 /captures
+/.cache
+/data/cars/*/refs/cache

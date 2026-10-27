@@ -1,0 +1,136 @@
+# Asset pipeline parameters for the 911 Carrera S (992.1) coupe.
+# Dimensions (length, width, height, wheelbase, tracks, tire sizes) come from
+# car.toml and are hard constraints; everything here is shape.
+
+# Wheel discs [s, radius] drawn into the side-view silhouette check.
+preview_wheels = [[1.040, 0.340], [3.490, 0.358]]
+
+[blueprint]
+# Four-view vector drawing of the 992 Carrera 4S (same wide body and dimensions as
+# the Carrera S). Watermarked preview, not redistributed: fetched into refs/cache/.
+image = "https://www.the-blueprints.com/modules/vectordrawings/preview-wm/porsche_911_carrera_4s_992_2019.jpg"
+source = "https://www.the-blueprints.com/vectordrawings/show/17525/porsche_911_carrera_4s_992/"
+# Pixel boxes [x0, y0, x1, y1] of each view in the 1280x905 image.
+views = { side = [40, 100, 840, 330], top = [40, 450, 840, 810], front = [870, 100, 1240, 335], rear = [870, 510, 1240, 760] }
+paint_blue_margin = 60
+dark_sum = 540
+close_px = 6
+# Polygons (source px) filled into a view where the light glass meets the background.
+fill = { side = [[[290, 180], [400, 121], [425, 121], [365, 180]]] }
+
+[body]
+# Loft resolution: stations along the length, rows per band of the half section.
+stations = 400
+rows = { floor = 6, well = 10, lip = 8, lower = 34, upper = 30, side_top = 40, top = 40 }
+# Stations placed exactly on panel edges (s, m from the nose).
+key_stations = [0.66, 1.42, 1.62, 2.84, 3.95, 4.30, 4.46]
+# Blueprint ranges replaced by interpolation: mirrors in the top view, a
+# watermark speck on the nose in the side view.
+patch_width = [[1.78, 2.16]]
+patch_top = []
+# Gaussian smoothing of the blueprint profiles (m); the windscreen base kink is kept.
+smooth_sigma = 0.035
+smooth_keep = [1.42]
+top_override = [[[0.0, 0.42], [0.03, 0.48], [0.08, 0.535], [0.16, 0.582]], [[4.40, 0.824], [4.45, 0.775], [4.49, 0.735], [4.519, 0.68]]]
+
+# Wheel arches: centre s, centre height z, radius, inner wall of the wheel well
+# (track/2 - tire width/2 - 30 mm).
+[[body.arches]]
+s = 1.040
+z = 0.345
+radius = 0.392
+well_y = 0.642
+
+[[body.arches]]
+s = 3.490
+z = 0.365
+radius = 0.405
+well_y = 0.596
+
+# Control tables, [[s, value], ...] interpolated monotonically. f_* are
+# fractions of the blueprint half width w(s); z_* are heights in metres.
+[body.tables]
+z_floor = [[0.0, 0.14], [0.3, 0.12], [3.7, 0.13], [4.0, 0.17], [4.4, 0.20], [4.519, 0.24]]
+z_rocker = [[0.0, 0.22], [1.6, 0.21], [2.9, 0.21], [3.9, 0.30], [4.519, 0.36]]
+f_rocker = [[0.0, 0.95], [1.5, 0.95], [1.8, 0.93], [2.9, 0.93], [3.2, 0.95], [3.9, 0.93], [4.519, 0.86]]
+z_widest = [[0.0, 0.40], [0.5, 0.58], [1.0, 0.64], [1.4, 0.60], [1.8, 0.58], [2.8, 0.62], [3.4, 0.70], [3.8, 0.68], [4.2, 0.64], [4.519, 0.60]]
+z_shoulder = [[0.0, 0.50], [1.4, 0.89], [1.6, 0.93], [2.4, 0.96], [3.2, 0.98], [3.8, 0.97], [4.2, 0.90], [4.519, 0.70]]
+f_shoulder = [[0.0, 0.84], [0.5, 0.84], [1.2, 0.83], [1.5, 0.80], [1.8, 0.80], [2.8, 0.81], [3.3, 0.86], [4.2, 0.86], [4.519, 0.85]]
+center_dip = [[0.0, 0.0], [0.2, 0.0], [0.4, 0.07], [0.7, 0.055], [1.1, 0.025], [1.42, 0.0], [4.519, 0.0]]
+edge_drop = [[0.0, 0.01], [1.3, 0.015], [1.5, 0.04], [2.0, 0.06], [3.0, 0.06], [3.8, 0.035], [4.3, 0.02], [4.519, 0.01]]
+f_edge = [[0.0, 0.55], [0.5, 0.58], [1.3, 0.66], [1.5, 0.71], [2.2, 0.68], [2.8, 0.66], [3.4, 0.53], [3.9, 0.52], [4.3, 0.58], [4.519, 0.60]]
+
+[paint]
+# Preview colour baked into the GLB car_paint material (the game overrides it).
+color = [0.62, 0.64, 0.66]
+
+# Panel split of the shell, by face centre (s from the nose, z up) and band.
+[panels]
+hood = { s = [0.20, 1.42] }
+door = { s = [1.62, 2.84], z_min = 0.23, front_lean = 0.0 }
+bumper_front = { s_max = 0.66, z_max = 0.50, s_nose = 0.20, lip_z = 0.15 }
+bumper_rear = { s_min = 3.95, z_max = 0.62, diffuser_z = 0.28 }
+spoiler = { s = [4.30, 4.46] }
+grille = { s = [3.88, 4.28], half_width = 0.44 }
+windscreen = { s = [1.42, 2.22] }
+rear_window = { s = [3.10, 3.84] }
+side_window = { s_front = 1.62, z_min = 0.0, rear_edge = [[2.70, 1.40], [3.32, 0.96]], b_pillar = [2.64, 2.71] }
+
+[details]
+panel_gap = { width = 0.006, depth = 0.006, glass_inset = 0.004 }
+sharp_angle_deg = 50
+headlight = { s = 0.50, y = 0.67, z = 0.63, pitch_deg = 25, radius = 0.124, depth = 0.10, lens_dome = 0.008 }
+intakes = [
+    { y = [-0.30, 0.30], z = [0.17, 0.30], depth = 0.06, slats = 2 },
+    { y = [0.45, 0.80], z = [0.16, 0.37], depth = 0.08, slats = 3 },
+]
+front_strips = [{ y = [0.47, 0.78], z = 0.385, h = 0.012 }]
+light_bar = { y = 0.80, z = [0.735, 0.775], proud = 0.003 }
+third_brake = { s = [3.89, 3.92], half_width = 0.11, height = 0.012 }
+grille = { s = [3.90, 4.27], half_width = 0.42, pitch = 0.024, height = 0.004, thickness = 0.004 }
+door_handle = { s = [2.56, 2.73], z = 0.74, h = 0.03 }
+exhaust = { y = 0.44, z = 0.30, size = [0.11, 0.07], depth = 0.10 }
+badge = { s = 0.30, size = [0.045, 0.055] }
+spoiler_well_depth = 0.03
+# Seams cut across the loft grid, straightened onto these (s, z) polylines.
+seams = { tol = 0.016, lines = [
+    [[1.55, 0.23], [2.95, 0.23]],
+    [[0.0, 0.50], [0.70, 0.50]],
+    [[3.90, 0.62], [4.60, 0.62]],
+    [[2.70, 1.40], [3.32, 0.96]],
+    [[0.0, 0.15], [0.70, 0.15]],
+    [[3.90, 0.28], [4.60, 0.28]],
+] }
+
+[mirror]
+s = 1.90
+y = 0.915
+z = 0.965
+size = [0.19, 0.10, 0.095]
+stalk_len = 0.10
+
+[interior]
+shell_s = [1.50, 3.35]
+shell_scale = [0.93, 0.95]
+shell_center_z = 0.70
+floor_z = 0.18
+driver_x = -0.37
+seat_s = 2.55
+rear_seat_s = 3.15
+dash_s = 1.85
+dash_z = 0.72
+wheel_s = 2.15
+wheel_z = 0.86
+wheel_tilt_deg = 25
+
+# Sockets [s, y, z] in body coordinates; y > 0 makes an _l/_r pair.
+[sockets]
+lights = { headlight = [0.45, 0.70, 0.64], tail = [4.47, 0.75, 0.755], reverse = [4.48, 0.15, 0.755], brake = [3.905, 0.0, 1.0] }
+exhaust = [4.48, 0.44, 0.30]
+camera_hood = [1.30, 0.0, 0.96]
+camera_cockpit = [2.65, -0.37, 1.08]
+
+[collision]
+belt_z = 0.95
+cuts_s = [0.70, 1.60, 2.90, 3.90]
+cabin_s = [1.45, 3.75]
