@@ -3,3 +3,4 @@
 /captures
 /.cache
 /data/cars/*/refs/cache
+__pycache__/
