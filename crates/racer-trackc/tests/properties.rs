@@ -3,8 +3,8 @@
 //! geometry, never panic or hang. See `docs/qa/adversarial-edge-cases.md`.
 //!
 //! Small case counts by default; `QA_EDGE_CASES=<n>` for a deeper run.
-//! Failing properties are `#[ignore = "QA-EDGE-N"]` regressions with the
-//! shrunk counterexample hard-coded.
+//! The `qa_edge_*` tests are regressions with the shrunk counterexample
+//! hard-coded (fixed: see `docs/qa/fixes-tooling.md`).
 
 use std::{
     panic::{AssertUnwindSafe, catch_unwind},
@@ -43,8 +43,7 @@ fn shipped() -> TrackFile {
     TrackFile::parse(&SHIPPED).unwrap()
 }
 
-/// One edit of the shipped track. Values stay in ranges that cannot hang the
-/// validator (see QA-EDGE-6 for the ones that do).
+/// One edit of the shipped track.
 #[derive(Clone, Debug)]
 enum Edit {
     MoveNode(usize, f32, f32),
@@ -82,8 +81,8 @@ fn edit() -> impl Strategy<Value = Edit> {
             .prop_map(|(i, x, z)| Edit::MoveNode(i, x, z)),
         (node.clone(), 5.0..60.0f32).prop_map(|(i, r)| Edit::Radius(i, r)),
         (node.clone(), 5.0..26.0f32).prop_map(|(i, w)| Edit::Width(i, w)),
-        // Below 0 is QA-EDGE-13 (own regression test).
-        (node.clone(), 0.0..10.0f32).prop_map(|(i, e)| Edit::Elevation(i, e)),
+        // Below 0 puts the road under the ground (QA-EDGE-13).
+        (node.clone(), -3.0..10.0f32).prop_map(|(i, e)| Edit::Elevation(i, e)),
         (node.clone(), -12.0..12.0f32).prop_map(|(i, b)| Edit::Bank(i, b)),
         (node.clone(), 0.0..8.0f32, 0.0..8.0f32).prop_map(|(i, l, r)| Edit::Apron(i, l, r)),
         (node.clone(), any::<bool>()).prop_map(|(i, c)| Edit::Curbs(i, c)),
@@ -164,9 +163,8 @@ fn soundness(file: &TrackFile, g: &Geometry) -> Vec<String> {
         }
     }
     // Road and aprons face up (counter-clockwise seen from above) and are no
-    // steeper than banking plus grade allow (the road; the aprons only
-    // checked for flipping here, their slope is QA-EDGE-12).
-    for (name, mesh, min_y) in [("road", &g.road, 0.95), ("aprons", &g.aprons, 0.0)] {
+    // steeper than banking plus grade allow (QA-EDGE-12 for the aprons).
+    for (name, mesh, min_y) in [("road", &g.road, 0.95), ("aprons", &g.aprons, 0.95)] {
         if let Some(tri) = mesh.indices.iter().find(|t| {
             let [a, b, c] = t.map(|i| mesh.vertices[i as usize]);
             (b - a).cross(c - a).normalize_or_zero().y < min_y
@@ -224,20 +222,6 @@ fn soundness(file: &TrackFile, g: &Geometry) -> Vec<String> {
     out
 }
 
-/// Data hitting QA-EDGE-5/6/7, which have their own regression tests; the
-/// properties skip it so they can look for something new.
-fn known_bad(file: &TrackFile) -> bool {
-    let r = &file.race;
-    !file.defaults.curb_width.is_finite()
-        || !r.grid_row_spacing.is_finite()
-        || !r.grid_column_offset.is_finite()
-        || r.grid_row_spacing < 2.4
-        || (r.grid_row_spacing < 4.8 && r.grid_column_offset.abs() < 1.0)
-        || r.grid_slots > 16
-        || r.checkpoint_spacing < 1.0
-        || r.checkpoint_spacing.is_nan()
-}
-
 /// Validates with a panic guard; `Ok(None)` when the data is rejected.
 fn validate_and_build(file: &TrackFile) -> Result<Option<Geometry>, String> {
     catch_unwind(AssertUnwindSafe(|| {
@@ -263,7 +247,6 @@ proptest! {
         for e in &edits {
             apply(&mut file, e);
         }
-        prop_assume!(!known_bad(&file));
         match validate_and_build(&file) {
             Err(panic) => prop_assert!(false, "validate panicked: {panic}"),
             Ok(None) => {}
@@ -298,7 +281,6 @@ proptest! {
             text.replace_range(i..j, &insert);
         }
         let Ok(file) = TrackFile::parse(&text) else { return Ok(()) };
-        prop_assume!(!known_bad(&file));
         prop_assume!(file.nodes.iter().all(|n| n.at.iter().all(|c| c.abs() < 1.0e4)));
         if let Err(panic) = validate_and_build(&file) {
             prop_assert!(false, "validate panicked: {panic}");
@@ -317,7 +299,6 @@ proptest! {
         for e in &edits {
             apply(&mut file, e);
         }
-        prop_assume!(!known_bad(&file));
         let Ok(Some(g)) = validate_and_build(&file) else { return Ok(()) };
         let l = line::minimum_curvature(&g, CAR_HALF_WIDTH);
         prop_assert!(l.length.is_finite() && l.length > 0.0 && l.length <= g.length * 1.01);
@@ -427,7 +408,6 @@ fn validate_cli(dir: &std::path::Path, timeout: Duration) -> Option<(Option<i32>
 /// build NaN geometry or broken grids. Shrunk counterexamples (one field of
 /// the shipped track each).
 #[test]
-#[ignore = "QA-EDGE-5"]
 fn qa_edge_5_validate_accepts_non_finite_and_negative_layout_values() {
     type Edit = fn(&mut TrackFile);
     let cases: [(&str, Edit); 5] = [
@@ -471,7 +451,6 @@ fn qa_edge_5_validate_accepts_non_finite_and_negative_layout_values() {
 /// e.g. 1e-4 m on a 2 km lap): `racer-trackc validate` spins forever while
 /// pushing checkpoints until it runs out of memory.
 #[test]
-#[ignore = "QA-EDGE-6"]
 fn qa_edge_6_tiny_checkpoint_spacing_hangs_validate() {
     for spacing in ["0.0", "0.0001"] {
         let dir = temp_track(
@@ -514,7 +493,6 @@ fn scaled_track(k: f32) -> String {
 /// hours (1 m samples, an O(n^2) overlap check, a 0.5 m brute-force
 /// projection) or exhausts memory, instead of returning an error.
 #[test]
-#[ignore = "QA-EDGE-7"]
 fn qa_edge_7_huge_values_crash_or_hang_validate() {
     let mut failures = Vec::new();
     let big = scaled_track(1.0e6);
@@ -547,7 +525,6 @@ fn qa_edge_7_huge_values_crash_or_hang_validate() {
 /// than two `drive` entries (`drive_at` indexes `len - 2`) instead of
 /// returning an error.
 #[test]
-#[ignore = "QA-EDGE-8"]
 fn qa_edge_8_short_drive_table_panics_load() {
     let dir = std::env::temp_dir().join(format!("racer-qa-edge-8-{}", std::process::id()));
     let src = tracks_dir().join("downtown-loop");
@@ -595,17 +572,18 @@ fn steepest_apron(g: &Geometry) -> f32 {
 /// the hairpin up to ~31 degrees, a ramp 1 m high a car can be launched off.
 /// Shrunk case: node 6 (hairpin entry) banked -7.64 degrees instead of +3.
 #[test]
-#[ignore = "QA-EDGE-12"]
 fn qa_edge_12_banking_change_in_the_hairpin_makes_a_steep_apron() {
     assert!(steepest_apron(&geometry::build(&shipped())) < 12.0);
     let mut file = shipped();
     file.nodes[6].bank_deg = Some(-7.6445813);
-    assert_eq!(geometry::validate(&file), Vec::<String>::new());
-    let slope = steepest_apron(&geometry::build(&file));
-    assert!(
-        slope < 15.0,
-        "accepted, but an apron triangle slopes {slope:.1} degrees"
-    );
+    // Rejected, or the aprons stay about as flat as the road.
+    if geometry::validate(&file).is_empty() {
+        let slope = steepest_apron(&geometry::build(&file));
+        assert!(
+            slope < 15.0,
+            "accepted, but an apron triangle slopes {slope:.1} degrees"
+        );
+    }
 }
 
 /// QA-EDGE-13: nothing bounds elevation from below, so a node at -2.4 m
@@ -615,7 +593,6 @@ fn qa_edge_12_banking_change_in_the_hairpin_makes_a_steep_apron() {
 /// outer face, which runs from the wall top down to the fixed ground level,
 /// folds into degenerate triangles.
 #[test]
-#[ignore = "QA-EDGE-13"]
 fn qa_edge_13_road_below_the_ground_plane_is_accepted() {
     let mut file = shipped();
     file.nodes[4].elevation = Some(-2.3868399);

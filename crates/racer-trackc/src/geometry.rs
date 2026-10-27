@@ -561,18 +561,63 @@ fn buildings(samples: &[Sample]) -> Vec<Building> {
     out
 }
 
+/// Most nodes in a track (each sample blends over all of them).
+pub const MAX_NODES: usize = 500;
+/// Largest plan coordinate (m); also keeps `f32` positions precise to ~1 cm.
+pub const MAX_PLAN_EXTENT: f32 = 50_000.0;
+/// Longest lap (m). Validation compares every pair of samples, so this
+/// bounds its time and memory.
+pub const MAX_LENGTH: f32 = 25_000.0;
+/// Most sector ends.
+pub const MAX_SECTORS: usize = 16;
+/// Steepest road or apron triangle (degrees from horizontal): banking and
+/// grade together, with room to spare (the shipped track is under 12).
+pub const MAX_SURFACE_SLOPE_DEG: f32 = 15.0;
+/// Room a car needs on the grid (m): same-column slots are two row spacings
+/// apart, and slots in columns closer than the width need a full length.
+const GRID_CAR_LENGTH: f32 = 5.0;
+const GRID_CAR_WIDTH: f32 = 2.4;
+/// Longest gap between consecutive grid slots (m): 16 slots stay within
+/// 250 m of the line.
+const MAX_GRID_ROW_SPACING: f32 = 15.0;
+
+/// Track and car ids end up in file names and generated TOML: lowercase
+/// ASCII letters, digits, `-` and `_`, at most 64 characters.
+pub fn is_valid_id(id: &str) -> bool {
+    (1..=64).contains(&id.len())
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-' || b == b'_')
+}
+
 /// Checks the data and the geometry built from it; returns every problem found.
+///
+/// Scalar values and sizes are checked before anything is built, so no input
+/// makes validation panic, hang or allocate without bound.
 pub fn validate(file: &TrackFile) -> Vec<String> {
     let mut errors = Vec::new();
+    if !is_valid_id(&file.id) {
+        errors.push(format!(
+            "id {:?} must be 1 to 64 of a-z, 0-9, '-' and '_'",
+            file.id
+        ));
+    }
+    if file.name.chars().any(char::is_control) {
+        errors.push(format!("name {:?} contains control characters", file.name));
+    }
     let nodes = file.nodes();
     let d = &file.defaults;
-    if nodes.len() < 3 {
-        errors.push(format!("need at least 3 nodes, got {}", nodes.len()));
+    if nodes.len() < 3 || nodes.len() > MAX_NODES {
+        errors.push(format!("need 3 to {MAX_NODES} nodes, got {}", nodes.len()));
         return errors;
     }
     if !(0.5..=3.0).contains(&d.wall_height) {
         errors.push(format!("wall_height {} outside 0.5..=3 m", d.wall_height));
     }
+    if !(0.3..=2.0).contains(&d.curb_width) {
+        errors.push(format!("curb_width {} outside 0.3..=2 m", d.curb_width));
+    }
+    errors.extend(validate_race_layout(file));
     let n = nodes.len();
     for (i, node) in nodes.iter().enumerate() {
         let name = format!("node {i} at {:?}", node.at.to_array());
@@ -586,6 +631,12 @@ pub fn validate(file: &TrackFile) -> Vec<String> {
         ];
         if !values.iter().chain(node.at.as_ref()).all(|v| v.is_finite()) {
             errors.push(format!("{name}: non-finite value"));
+            continue;
+        }
+        if node.at.abs().max_element() > MAX_PLAN_EXTENT {
+            errors.push(format!(
+                "{name}: more than {MAX_PLAN_EXTENT} m from the origin"
+            ));
             continue;
         }
         if !(6.0..=25.0).contains(&node.width) {
@@ -629,6 +680,14 @@ pub fn validate(file: &TrackFile) -> Vec<String> {
     if !errors.is_empty() {
         return errors;
     }
+    let route = Route::new(nodes);
+    if route.length > MAX_LENGTH {
+        errors.push(format!(
+            "lap of {:.0} m is longer than {MAX_LENGTH} m",
+            route.length
+        ));
+        return errors;
+    }
 
     let g = build(file);
     let samples = &g.samples;
@@ -659,6 +718,40 @@ pub fn validate(file: &TrackFile) -> Vec<String> {
             }
         }
     }
+    // The road and aprons stand on the city ground, which is solid below
+    // `GROUND_Y`.
+    if let Some((s, y)) = samples
+        .iter()
+        .map(|s| (s, s.at(-s.wall(0), 0.0).y.min(s.at(s.wall(1), 0.0).y)))
+        .find(|&(_, y)| y < GROUND_Y)
+    {
+        errors.push(format!(
+            "s = {:.0} m: the road surface is at {y:.2} m, below the ground at {GROUND_Y} m",
+            s.s
+        ));
+    }
+    // Banking blended across a tight corner can tilt the inner apron into a
+    // ramp even when every node is within limits.
+    let min_up = MAX_SURFACE_SLOPE_DEG.to_radians().cos();
+    for (what, mesh) in [("road", &g.road), ("apron", &g.aprons)] {
+        let steepest = mesh
+            .indices
+            .iter()
+            .enumerate()
+            .map(|(t, tri)| {
+                let [a, b, c] = tri.map(|i| mesh.vertices[i as usize]);
+                (t, (b - a).cross(c - a).normalize_or_zero().y)
+            })
+            .min_by(|a, b| a.1.total_cmp(&b.1));
+        if let Some((t, up)) = steepest.filter(|&(_, up)| up < min_up) {
+            // Two triangles per sample and ribbon (the aprons have two ribbons).
+            errors.push(format!(
+                "s = {:.0} m: {what} surface slopes {:.0} degrees, over {MAX_SURFACE_SLOPE_DEG}",
+                samples[(t / 2) % m].s,
+                up.clamp(-1.0, 1.0).acos().to_degrees()
+            ));
+        }
+    }
     // Parts of the route far apart along the road must not overlap in plan.
     let reach = |s: &Sample| s.half_width + s.apron[0].max(s.apron[1]) + WALL_THICKNESS;
     'outer: for a in 0..m {
@@ -680,9 +773,6 @@ pub fn validate(file: &TrackFile) -> Vec<String> {
     }
     // Grid slots on a straight, on the road.
     let race = &file.race;
-    if race.grid_slots == 0 || race.grid_slots > 16 {
-        errors.push(format!("grid_slots {} outside 1..=16", race.grid_slots));
-    }
     let grid_length = 4.0 + race.grid_slots as f32 * race.grid_row_spacing + 3.0;
     if samples
         .iter()
@@ -695,13 +785,9 @@ pub fn validate(file: &TrackFile) -> Vec<String> {
             "the {grid_length:.0} m behind the start line must be straight for the grid"
         ));
     }
-    if race.grid_column_offset + 1.2 > samples[0].half_width {
+    if race.grid_column_offset.abs() + 1.2 > samples[0].half_width {
         errors.push("grid columns do not fit on the road".into());
     }
-    if race.checkpoint_spacing < 20.0 {
-        errors.push("checkpoint_spacing must be at least 20 m".into());
-    }
-    let route = Route::new(nodes);
     for (what, p) in race.sectors.iter().map(|p| ("sector end", p)).chain([
         ("start", &race.start),
         ("sprint finish", &race.sprint_finish),
@@ -723,6 +809,59 @@ pub fn validate(file: &TrackFile) -> Vec<String> {
             "sprint finish at {:.0} m should lie just before the grid (lap {:.0} m)",
             g.sprint_finish, g.length
         ));
+    }
+    errors
+}
+
+/// The race layout's own values, checked before any geometry is built from
+/// them (the grid and checkpoint loops are sized by them).
+fn validate_race_layout(file: &TrackFile) -> Vec<String> {
+    let race = &file.race;
+    let mut errors = Vec::new();
+    if race.grid_slots == 0 || race.grid_slots > 16 {
+        errors.push(format!("grid_slots {} outside 1..=16", race.grid_slots));
+    }
+    let spacing = race.grid_row_spacing;
+    let min_spacing = GRID_CAR_LENGTH / 2.0;
+    if !(min_spacing..=MAX_GRID_ROW_SPACING).contains(&spacing) {
+        errors.push(format!(
+            "grid_row_spacing {spacing} outside {min_spacing}..={MAX_GRID_ROW_SPACING} m \
+             (slots in a column are two spacings apart)"
+        ));
+    }
+    let offset = race.grid_column_offset;
+    if !offset.is_finite() {
+        errors.push(format!("grid_column_offset {offset} is not finite"));
+    } else if 2.0 * offset.abs() < GRID_CAR_WIDTH && spacing < GRID_CAR_LENGTH {
+        errors.push(format!(
+            "grid slots overlap: columns {:.1} m apart need a grid_row_spacing of at least {GRID_CAR_LENGTH} m",
+            2.0 * offset.abs()
+        ));
+    }
+    if !(race.checkpoint_spacing.is_finite() && race.checkpoint_spacing >= 20.0) {
+        errors.push(format!(
+            "checkpoint_spacing {} must be a finite distance of at least 20 m",
+            race.checkpoint_spacing
+        ));
+    }
+    if race.sectors.len() > MAX_SECTORS {
+        errors.push(format!(
+            "{} sector ends, at most {MAX_SECTORS}",
+            race.sectors.len()
+        ));
+    }
+    for (what, p) in race.sectors.iter().map(|p| ("sector end", p)).chain([
+        ("start", &race.start),
+        ("sprint finish", &race.sprint_finish),
+    ]) {
+        if !p
+            .iter()
+            .all(|c| c.is_finite() && c.abs() <= MAX_PLAN_EXTENT)
+        {
+            errors.push(format!(
+                "{what} {p:?}: non-finite or more than {MAX_PLAN_EXTENT} m from the origin"
+            ));
+        }
     }
     errors
 }
