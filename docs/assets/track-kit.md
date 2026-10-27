@@ -293,3 +293,35 @@ rows = 12
 
 Nothing here requires changing M2's existing behaviour; the kit only depends on
 `racer-render` (one new module, `surface`) and adds two scenes to `racer-capture`.
+
+## Verification
+
+| Check | Result |
+|---|---|
+| `cargo fmt --all --check` | clean |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | clean |
+| `cargo test --workspace --locked` | 75 tests pass (34 in `racer-citykit`, 3 in `racer-render::surface`, the rest unchanged) |
+| `racer-citykit validate` | 38/38 assets pass |
+| Cross-target clippy (`CARGO_FEATURE_PURE=1`, `-D warnings`) | CROSS |
+| `tools/capture.sh downtown-kit{,-golden,-night,-wet,-procedural}` | all pass the harness image check; inspected by eye |
+
+`racer-citykit` tests cover: noise periodicity and determinism; mesh primitives and sweeps
+watertight with outward volume (including concave profiles); path geometry (corner end pose,
+offset arc lengths); road meshes finite, upward carriageway, kerbs/sidewalks watertight;
+decals deterministic, on the road, atlas UVs in range; textures deterministic, in range,
+plausible asphalt albedo, seamless tiling, full mip chains; block subdivision covers the
+block; buildings deterministic and in budget for every archetype; district rules parse and
+reject bad ranges; the whole catalogue validates, names unique, deterministic; lamp sockets
+point down; showcase layout deterministic and within draw/triangle/light budgets; spot-light
+intensity conversion; side streets meet the frontage.
+
+## Not done / next steps
+
+- Blender contact-sheet review (`tools/kit_review.sh`) was written but not run (cancelled).
+- No `dress(&racer_trackc::Geometry)` adapter yet: the integration plan above describes it,
+  but M2 had not landed on `main`, and this branch must not touch `racer-trackc`.
+- Goldens for the `downtown-kit` scenes are not committed (the scenes take minutes on lavapipe
+  and the look is still being tuned); the screenshots above are the reference.
+- Scanned textures should be cached as KTX2 (texture setup is ~7–8 s in a debug build).
+- Façade grime/decal pass, building ornament variety, baked GI/reflection probes, rain and
+  spray, traffic and pedestrians (see the assessment).
