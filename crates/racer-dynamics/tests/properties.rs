@@ -483,7 +483,6 @@ proptest! {
 /// NaN capacity panics ("min > max, or either was NaN"), in release builds
 /// too. Before that, the NaN poisons `VehicleState` (rollback snapshots).
 #[test]
-#[ignore = "QA-EDGE-3"]
 fn qa_edge_3_nan_control_poisons_the_vehicle_state() {
     for controls in [
         Controls {

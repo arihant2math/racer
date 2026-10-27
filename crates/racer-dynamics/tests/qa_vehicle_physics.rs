@@ -166,31 +166,29 @@ fn qa_phys_3_car_stopped_after_a_sideways_slide_stays_put() {
 }
 
 #[test]
-#[ignore = "QA-PHYS-6"]
 fn qa_phys_6_zero_dt_step_is_a_no_op() {
     let v = Vehicle::from_spec(&gti()).unwrap();
     let mut sim = Sim::new(&v, &Flat);
     sim.launch_at(20.0);
     let contacts = sim.contacts();
     let before = sim.state;
-    let mut state = sim.state;
     let c = Controls {
         throttle: 1.0,
         ..auto_controls()
     };
-    let r = catch_unwind(AssertUnwindSafe(|| {
-        v.step(&mut state, &sim.body, &c, &contacts, 0.0);
-        state
-    }));
-    let after = r.expect("Vehicle::step panicked with dt = 0");
-    assert_eq!(
-        after.wheels.map(|w| w.omega),
-        before.wheels.map(|w| w.omega)
-    );
+    for dt in [0.0, -1.0 / 240.0, f64::NAN, f64::INFINITY] {
+        let mut state = before;
+        let r = catch_unwind(AssertUnwindSafe(|| {
+            let out = v.step(&mut state, &sim.body, &c, &contacts, dt);
+            (state, out.force)
+        }));
+        let (after, force) = r.unwrap_or_else(|_| panic!("Vehicle::step panicked with dt = {dt}"));
+        assert_eq!(after, before, "dt = {dt} changed the state");
+        assert_eq!(force, DVec3::ZERO, "dt = {dt} produced a force");
+    }
 }
 
 #[test]
-#[ignore = "QA-PHYS-7"]
 fn qa_phys_7_nan_controls_do_not_panic_or_poison_the_state() {
     let v = Vehicle::from_spec(&gti()).unwrap();
     let r = catch_unwind(AssertUnwindSafe(|| {

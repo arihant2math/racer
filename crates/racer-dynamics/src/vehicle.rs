@@ -56,6 +56,22 @@ pub struct Controls {
     pub assists: Assists,
 }
 
+impl Controls {
+    /// The controls clamped to their ranges, with non-finite values (a NaN
+    /// from a bad AI pose or a malformed network input) read as 0.
+    pub fn sanitized(&self) -> Self {
+        let clean = |v: f64, lo: f64| if v.is_finite() { v.clamp(lo, 1.0) } else { 0.0 };
+        Controls {
+            throttle: clean(self.throttle, 0.0),
+            brake: clean(self.brake, 0.0),
+            steer: clean(self.steer, -1.0),
+            handbrake: clean(self.handbrake, 0.0),
+            clutch: clean(self.clutch, 0.0),
+            ..*self
+        }
+    }
+}
+
 /// Result of the wheel's shape cast, done by the caller along the body's
 /// down axis from the wheel's hardpoint.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -315,6 +331,9 @@ impl Vehicle {
 
     /// Advances the vehicle by one chassis step `dt` (wheels and drivetrain
     /// substepped internally) and returns the chassis force and torque.
+    ///
+    /// A `dt` that is not positive and finite leaves `state` alone and
+    /// returns no force. Controls are [sanitized](Controls::sanitized).
     pub fn step(
         &self,
         state: &mut VehicleState,
@@ -323,6 +342,14 @@ impl Vehicle {
         contacts: &[Option<WheelContact>; 4],
         dt: f64,
     ) -> StepOutput {
+        if !(dt.is_finite() && dt > 0.0) {
+            return StepOutput {
+                force: DVec3::ZERO,
+                torque: DVec3::ZERO,
+                telemetry: Telemetry::default(),
+            };
+        }
+        let controls = &controls.sanitized();
         let rot = chassis.rotation;
         let up = rot * DVec3::Y;
         let forward = rot * DVec3::NEG_Z;
