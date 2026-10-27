@@ -9,8 +9,8 @@ A multiplayer street racing game set in a fictional city. The target is GTA V/VI
 | Who builds it | AI agents, unattended, large token budget | Every tool must install from a script with no account, login, EULA click or GUI. Everything is text in the repo. The agent must see its own results (screenshots, telemetry, profiles) on a CPU-only Linux container. |
 | Platforms | Windows, Linux, macOS (Apple Silicon) | Renderer on Vulkan, DX12 and Metal. |
 | Lobby size | 8 | Server-authoritative physics with prediction is affordable. Every car is fully simulated on the server. |
-| City | Fictional | No real-world map licensing. The city is designed around the tracks. |
-| Cars | Real production cars | Accurate geometry and real specs are required, and shipping them needs manufacturer licenses (section 11). |
+| City | Fictional | The city is designed around the tracks. |
+| Cars | Real production cars | Accurate geometry and real specs are required. Personal use only, so licensing is out of scope. |
 
 ## 2. Technology choice
 
@@ -45,7 +45,7 @@ A multiplayer street racing game set in a fictional city. The target is GTA V/VI
 | Input / force feedback | gilrs for gamepads. SDL3 (via `sdl3` crate) for steering wheels and force feedback on all three OSes. |
 | Backend | axum, tokio, sqlx, Postgres |
 
-**Platform services stay optional so the agent never blocks on an account.** The core game, its own Rust backend and dedicated servers need no third-party accounts, with direct-connect and invite-code lobbies built in. Steam (identity, overlay, store) and a hosting provider are plugged in behind traits at release. Anti-cheat relies on server authority (inputs, not positions, are trusted) instead of a kernel anti-cheat that needs a vendor account.
+**No third-party platform services.** This is a personal-use game, so there is no store, Steam integration or vendor anti-cheat. The game, its Rust backend and dedicated servers are self-hosted, with direct-connect and invite-code lobbies built in. Server authority (inputs, not positions, are trusted) keeps races fair.
 
 ## 3. Game design
 
@@ -55,7 +55,7 @@ A multiplayer street racing game set in a fictional city. The target is GTA V/VI
 
 **Contact:** Ramming is first-class, and car-to-car contact is fully physical. Visual damage covers deformation, detachable bumpers, mirrors, hoods and doors, and broken glass and lights. With mechanical damage on, contact also bends alignment, cuts power and punctures tires. A car flipped or stuck for 3 s resets to the last valid track position.
 
-**Cars (16 real production cars, 6 classes).** The list is provisional and may change based on licensing.
+**Cars (16 real production cars, 6 classes).**
 
 | Class | Cars |
 |---|---|
@@ -99,7 +99,7 @@ Avian owns the chassis rigid body (mass, inertia tensor, collisions with the wor
 
 **Fairness:** the server trusts inputs only, so speed hacks and teleports are structurally impossible. Collision griefing is mitigated by the ghosted-first-lap option and vote-kick.
 
-**Backend (`racer-backend`, Rust):** anonymous device-key accounts (Steam auth added at release), region/mode/class matchmaking, invite-code lobbies, server allocation behind a `Fleet` trait (local process spawner for dev and tests, Kubernetes/hosting provider later), and per-track/class/assist lap-time leaderboards with ghost replays. Leaderboards rank times and are not progression.
+**Backend (`racer-backend`, Rust):** device-key player identities, mode/class quick match, invite-code lobbies, server allocation behind a `Fleet` trait (local process spawner for dev, tests and a single self-hosted machine), and per-track/class/assist lap-time leaderboards with ghost replays. Leaderboards rank times and are not progression.
 
 **Replays:** input streams + periodic state keyframes, used for full replays with free camera and Time Trial ghosts.
 
@@ -140,7 +140,7 @@ Every asset is produced by scripts whose inputs live in the repo as text, so an 
 | Performance | Software rendering can't measure GPU performance, so CPU frame time, draw calls, triangle and light counts are budgeted and gated in CI. If GPU hardware ever becomes available (a credential for a cloud GPU runner), it adds hardware-RT captures and real GPU timing. Every other step works without it. |
 | Builds | GitHub Actions on hosted runners for Linux, Windows and macOS: client, server, tests and captures. |
 
-Release-time steps that are inherently human (signing up for Steam, Apple notarization, Windows code-signing certificates, hosting billing, car manufacturer licensing) are kept out of the build and test loop. The game is fully buildable, testable and playable (including online via self-hosted servers) without any of them.
+Builds are distributed unsigned through GitHub Releases. On macOS and Windows that means allowing the app once on first launch (Gatekeeper / SmartScreen), which is acceptable for personal use and avoids any signing accounts.
 
 ## 9. Repository layout
 
@@ -179,14 +179,13 @@ Each milestone ends with a playable build verified automatically by CI.
 | M4 | Vertical slice | Downtown district art-complete with 1 track, 3 hero cars through the full pipeline, wet road, car paint, baked GI + Solari path, time of day, damage, audio | Car accuracy gates pass. Screenshot review passes the art-direction rubric. CPU budgets are met. This is the go/no-go for visuals, and the renderer work found here is scheduled before scale-up. |
 | M5 | Content scale-up | 3 more districts, 12 tracks (+reverse), all 16 cars, liveries, traffic, pedestrians | Every car/track combination passes automated AI laps, captures and accuracy gates. |
 | M6 | Online polish | Leaderboards + ghosts, replays, server fleet autoscaling, settings, accessibility, remapping | A 48-hour bot-lobby soak test passes without crashes. Crash reporting is in place. |
-| M7 | Release prep | Steam and hosting adapters, signing and notarization hooks, licensing outcomes applied to the car list | Waits on the human release steps in section 8. Everything else is green. |
+| M7 | Distribution | CI-packaged builds for all 3 OSes on GitHub Releases, server Docker image, one-command self-hosting of backend + servers | A fresh machine on each OS installs from the release and joins a race on a self-hosted server. |
 
 ## 11. Main risks
 
 | Risk | Mitigation |
 |---|---|
 | Bevy's renderer falls short of the GTA VI bar | Tracks are fixed, so baked GI + reflections do much of the work that Lumen does dynamically. Renderer work is budgeted in M4 and goes upstream where possible. A sustained, verified gap at M4 is the trigger to reconsider the engine (UE5 would then need a one-time human setup). |
-| Real-car licensing | Shipping real makes, models and logos commercially requires licenses from each manufacturer, and licenses commonly restrict visible damage, which conflicts with ramming. Damage intensity is configurable per car, and a car-agnostic build (badges and logos as swappable decals) keeps the game shippable if a license fails. Development itself can proceed meanwhile. |
 | Image-to-3D isn't accurate enough for real cars | Blueprint fitting + silhouette IoU gates. Fallback: purchased reference-accurate base meshes run through the same pipeline. |
 | No GPU in agent containers | Raster path, CPU budgets and visuals are verified on lavapipe. Hardware-RT features are compiled and unit-tested but only visually verified once a GPU runner exists. |
 | Bevy and ecosystem version churn | Pin Bevy and every ecosystem crate. Upgrade once per milestone at most, with a capture-diff gate. |
