@@ -302,7 +302,7 @@ Nothing here requires changing M2's existing behaviour; the kit only depends on
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | clean |
 | `cargo test --workspace --locked` | 75 tests pass (34 in `racer-citykit`, 3 in `racer-render::surface`, the rest unchanged) |
 | `racer-citykit validate` | 38/38 assets pass |
-| Cross-target clippy (`CARGO_FEATURE_PURE=1`, `-D warnings`) | CROSS |
+| Cross-target clippy (`CARGO_FEATURE_PURE=1`, `-D warnings`) | `x86_64-pc-windows-msvc` and `aarch64-apple-darwin` clean |
 | `tools/capture.sh downtown-kit{,-golden,-night,-wet,-procedural}` | all pass the harness image check; inspected by eye |
 
 `racer-citykit` tests cover: noise periodicity and determinism; mesh primitives and sweeps
