@@ -4743,6 +4743,7 @@ dependencies = [
  "racer-render",
  "racer-sim",
  "sdl3",
+ "sdl3-sys",
 ]
 
 [[package]]

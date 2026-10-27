@@ -26,6 +26,8 @@ impl Plugin for SimPlugin {
 mod tests {
     use super::*;
 
+    use std::f32::consts::FRAC_PI_2;
+
     use bevy::time::TimeUpdateStrategy;
     use racer_dynamics::load_car;
 
@@ -91,6 +93,75 @@ mod tests {
         let z = app.world().get::<Transform>(car).unwrap().translation.z;
         assert!(t.speed > 12.0, "speed after 2 s full throttle: {}", t.speed);
         assert!(z < -10.0, "drove forward (-Z): {z}");
+    }
+
+    /// Random extreme inputs on the Avian track (crest, curbs, grass): the
+    /// coupled simulation stays finite and bounded.
+    #[test]
+    fn random_inputs_on_the_track_stay_finite() {
+        use avian3d::prelude::{AngularVelocity, LinearVelocity};
+        use racer_dynamics::{Assists, Controls, spec::CARS};
+
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let mut rand = move || {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            (seed >> 11) as f64 / (1u64 << 53) as f64
+        };
+        for id in CARS {
+            let mut app = physics_app();
+            let spec = load_car(id).unwrap();
+            let track = test_track();
+            let car = {
+                let world = app.world_mut();
+                let mut commands = world.commands();
+                spawn_track(&mut commands, &track);
+                // Start on the back straight, just before the crest.
+                let at = Transform::from_xyz(230.0, 0.02, 25.0)
+                    .with_rotation(Quat::from_rotation_y(FRAC_PI_2));
+                let car = spawn_car(&mut commands, &spec, at, ()).unwrap();
+                world.flush();
+                car
+            };
+            let mut controls = Controls::default();
+            for step in 0..240 * 20 {
+                if step % 60 == 0 {
+                    controls = Controls {
+                        throttle: if rand() < 0.6 { 1.0 } else { rand() },
+                        brake: if rand() < 0.25 { 1.0 } else { 0.0 },
+                        steer: 2.0 * rand() - 1.0,
+                        handbrake: if rand() < 0.1 { 1.0 } else { 0.0 },
+                        shift_down: rand() < 0.1,
+                        automatic: rand() < 0.7,
+                        assists: Assists {
+                            abs: rand() < 0.5,
+                            tcs: rand() < 0.5,
+                            esc: rand() < 0.5,
+                        },
+                        ..default()
+                    };
+                } else {
+                    controls.shift_down = false;
+                }
+                app.world_mut().get_mut::<CarControls>(car).unwrap().0 = controls;
+                app.update();
+                let w = app.world();
+                let (p, v, av) = (
+                    w.get::<Transform>(car).unwrap().translation,
+                    w.get::<LinearVelocity>(car).unwrap().0,
+                    w.get::<AngularVelocity>(car).unwrap().0,
+                );
+                assert!(
+                    p.is_finite() && v.is_finite() && av.is_finite(),
+                    "{id}: non-finite at step {step}"
+                );
+                assert!(
+                    v.length() < 100.0 && av.length() < 30.0,
+                    "{id}: v {v} w {av} at step {step}"
+                );
+            }
+        }
     }
 
     #[test]

@@ -7,14 +7,17 @@ the full plan and [`docs/milestones/`](docs/milestones/) for milestone handoff n
 
 | Crate | Purpose |
 |---|---|
-| `racer-game` | Game client. Runs the greybox scene with a free camera. |
-| `racer-sim` | Gameplay shared by client and server (fixed 240 Hz step). |
-| `racer-dynamics` | Vehicle physics core, pure Rust, no Bevy. |
+| `racer-game` | Game client: greybox driving scene (test track, skidpad), input, cameras, HUD. |
+| `racer-sim` | Gameplay shared by client and server (fixed 240 Hz step): Avian vehicle plugin, track, test autopilot. |
+| `racer-dynamics` | Vehicle physics core (tires, suspension, drivetrain, aero, assists), pure Rust, no Bevy. |
 | `racer-render` | Custom materials and rendering (greybox car paint for now). |
 | `racer-server` | Headless dedicated server (Bevy `MinimalPlugins`, no renderer). |
 | `racer-backend` | axum backend service (`GET /health`). |
 | `racer-trackc` | City/track compiler (CLI skeleton). |
-| `racer-capture` | Headless screenshot harness, image checks and golden diffs. |
+| `racer-capture` | Headless screenshot and telemetry harness, image checks and golden diffs. |
+
+Car data lives in `data/cars/<id>/car.toml`: published specs with sources, estimated
+parameters under `[estimated]` and the reference performance figures the tests check.
 
 ## Setup
 
@@ -33,17 +36,37 @@ to build. The toolchain version is pinned in `rust-toolchain.toml`.
 
 ```sh
 cargo build --workspace
-cargo run -p racer-game         # greybox scene; WASD + mouse (hold right button), E/Q up/down
+cargo run -p racer-game         # driving scene (see controls below)
+cargo run -p racer-game -- drive --car 3 --skidpad   # 911 on the skidpad
+cargo run -p racer-game -- greybox                   # M0 scene, free camera
+cargo run -p racer-game --features wheel             # + SDL3 steering wheel/FFB (needs cmake)
 cargo run -p racer-server -- --max-ticks 2400   # headless server for 10 s of simulation
 cargo run -p racer-backend      # http://127.0.0.1:8080/health (RACER_BACKEND_ADDR to change)
 cargo test --workspace
+cargo test -p racer-dynamics    # reference maneuvers and fuzz tests for every car, ~3 s
 cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings
 ```
+
+Driving controls: WASD or arrows, Space handbrake, Q/E shift down/up (automatic by default),
+C clutch, V chase/hood camera, 1/2/3 Golf GTI/M3/911, T track, K skidpad, R reset. Gamepad:
+left stick, right/left triggers, south button handbrake, bumpers shift.
+
+## Telemetry
+
+```sh
+tools/telemetry.sh captures/telemetry          # all cars; or append car ids
+```
+
+Drives each car through scripted maneuvers on the Avian test track headlessly (a lap, a
+skidpad speed ramp, a launch and ABS stop), writes one CSV per car and maneuver and plots them
+to PNG with `tools/plot_telemetry.py` (speed, rpm, gear, g, inputs, yaw and sideslip, wheel
+loads, slip angles and ratios, plus a track map or the skidpad balance curve).
 
 ## Headless captures
 
 ```sh
 tools/capture.sh greybox captures/greybox
+tools/capture.sh driving captures/driving
 ```
 
 This builds `racer-capture`, runs the scene under `xvfb-run` on lavapipe, waits until the
@@ -55,6 +78,7 @@ Compare against the committed goldens, or check arbitrary PNGs:
 
 ```sh
 target/debug/racer-capture diff captures/greybox crates/racer-capture/goldens/greybox
+target/debug/racer-capture diff captures/driving crates/racer-capture/goldens/driving
 target/debug/racer-capture check captures/greybox/*.png
 ```
 
@@ -67,5 +91,6 @@ To update goldens after an intended visual change, copy the new captures over
 ## CI
 
 `.github/workflows/ci.yml` runs fmt, clippy (`-D warnings`) and tests on Linux, Windows and
-macOS, plus a Linux job that runs `tools/setup.sh`, captures the greybox scene, diffs it
-against the goldens and uploads the screenshots as the `captures-greybox` artifact.
+macOS, plus a Linux job that runs `tools/setup.sh`, captures the greybox and driving scenes,
+diffs them against the goldens, runs the telemetry and uploads everything as the `captures`
+artifact.
