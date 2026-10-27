@@ -42,6 +42,7 @@ fn synthetic_refs(spec: &CarSpec) -> Vec<Prepared> {
                 view,
                 mask,
                 grid,
+                close_px: 2,
             }
         })
         .collect()

@@ -199,18 +199,34 @@ pub fn structure(model: &Model, spec: &CarSpec, t: &Thresholds) -> Gate {
     if !extra.is_empty() {
         g.info("materials_extra", "other materials", extra.join(", "));
     }
-    let unassigned = model
+    let unassigned: Vec<String> = model
         .nodes
         .iter()
-        .flat_map(|n| &n.prims)
-        .filter(|p| p.material.is_none())
-        .count();
+        .filter(|n| n.prims.iter().any(|p| p.material.is_none()))
+        .map(|n| {
+            let k = n.prims.iter().filter(|p| p.material.is_none()).count();
+            let tris: usize = n
+                .prims
+                .iter()
+                .filter(|p| p.material.is_none())
+                .map(|p| p.tris.len())
+                .sum();
+            format!(
+                "{} (LOD{}, {k} primitive(s), {tris} triangles)",
+                n.name, n.lod
+            )
+        })
+        .collect();
     g.check(
         "material_assigned",
         "primitives without a material",
-        unassigned.to_string(),
+        if unassigned.is_empty() {
+            "0".to_string()
+        } else {
+            unassigned.join(", ")
+        },
         "0",
-        unassigned == 0,
+        unassigned.is_empty(),
     );
 
     let bounds = lod0_bounds(model);

@@ -253,6 +253,7 @@ pub fn hygiene(model: &Model, t: &Thresholds) -> Gate {
     // Topology per LOD0 part (each node's own primitives).
     let mut edges = EdgeStats::default();
     let mut degenerate = 0usize;
+    let mut degenerate_parts: Vec<(usize, String)> = Vec::new();
     let mut loose = 0usize;
     let mut loose_parts = Vec::new();
     let mut inconsistent_parts = Vec::new();
@@ -276,7 +277,11 @@ pub fn hygiene(model: &Model, t: &Thresholds) -> Gate {
         if e.boundary > 0 {
             open_parts.push(format!("{} {:.2} m", node.name, e.boundary_length));
         }
-        degenerate += w.degenerate(t.degenerate_area);
+        let d = w.degenerate(t.degenerate_area);
+        if d > 0 {
+            degenerate_parts.push((d, node.name.clone()));
+        }
+        degenerate += d;
         let small: usize = w
             .components()
             .iter()
@@ -364,7 +369,11 @@ pub fn hygiene(model: &Model, t: &Thresholds) -> Gate {
             "LOD0 triangles with area < {:.0e} m² or collapsed",
             t.degenerate_area
         ),
-        format!("{degenerate} ({})", pct(deg)),
+        format!(
+            "{degenerate} ({}) {}",
+            pct(deg),
+            top_parts(degenerate_parts)
+        ),
         format!("≤ {}", pct(t.degenerate_fraction as f64)),
         deg <= t.degenerate_fraction as f64,
     );
@@ -483,6 +492,36 @@ fn grid_mpp(extent: f32) -> f32 {
     (extent / 2000.0).max(0.01)
 }
 
+/// Largest contributing parts with their share (%) of the LOD0 area.
+fn share_by_part(model: &Model, by: HashMap<usize, f64>, total: f64) -> String {
+    let parts = top_parts(
+        by.into_iter()
+            .map(|(i, a)| {
+                (
+                    (a / total * 1000.0).round() / 10.0,
+                    model.nodes[i].name.clone(),
+                )
+            })
+            .collect(),
+    );
+    if parts.is_empty() {
+        parts
+    } else {
+        format!("largest parts, % of LOD0 area: {parts}")
+    }
+}
+
+/// "name count" for the largest contributors, largest first.
+fn top_parts<T: PartialOrd + std::fmt::Display>(mut parts: Vec<(T, String)>) -> String {
+    parts.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    list(
+        &parts
+            .into_iter()
+            .map(|(v, n)| format!("{n} {v}"))
+            .collect::<Vec<_>>(),
+    )
+}
+
 fn list(items: &[String]) -> String {
     if items.is_empty() {
         String::new()
@@ -556,7 +595,9 @@ fn uv_checks(model: &Model, t: &Thresholds, g: &mut Gate) {
     );
 
     // Texel density and stretch on LOD0, per material.
-    let mut per_material: HashMap<String, Vec<(f32, f32)>> = HashMap::new();
+    // (density, area, node) per material.
+    let mut per_material: HashMap<String, Vec<(f32, f32, usize)>> = HashMap::new();
+    let mut stretched_by: HashMap<usize, f64> = HashMap::new();
     let (mut total, mut zero_uv, mut stretched) = (0.0f64, 0.0f64, 0.0f64);
     for i in model.render_nodes(0) {
         for p in &model.nodes[i].prims {
@@ -580,11 +621,12 @@ fn uv_checks(model: &Model, t: &Thresholds, g: &mut Gate) {
                 }
                 if smax / smin > t.uv_stretch {
                     stretched += a3 as f64;
+                    *stretched_by.entry(i).or_default() += a3 as f64;
                 }
                 per_material
                     .entry(mat.clone())
                     .or_default()
-                    .push(((auv / a3).sqrt(), a3));
+                    .push(((auv / a3).sqrt(), a3, i));
             }
         }
     }
@@ -599,23 +641,29 @@ fn uv_checks(model: &Model, t: &Thresholds, g: &mut Gate) {
     g.check(
         "uv_stretch",
         format!("LOD0 area with UV stretch σmax/σmin > {}", t.uv_stretch),
-        pct(stretched / total),
+        format!(
+            "{} {}",
+            pct(stretched / total),
+            share_by_part(model, stretched_by, total)
+        ),
         format!("≤ {}", pct(t.uv_stretch_fraction as f64)),
         stretched / total <= t.uv_stretch_fraction as f64,
     );
     let mut outliers = 0.0f64;
+    let mut outliers_by: HashMap<usize, f64> = HashMap::new();
     let mut medians = Vec::new();
     let mut mats: Vec<_> = per_material.into_iter().collect();
     mats.sort_by(|a, b| a.0.cmp(&b.0));
     for (mat, v) in mats {
-        let med = weighted_median(v.clone());
+        let med = weighted_median(v.iter().map(|x| (x.0, x.1)).collect());
         medians.push(format!("{mat} {med:.3}/m"));
         let r = t.texel_density_ratio;
-        outliers += v
-            .iter()
-            .filter(|(d, _)| *d < med / r || *d > med * r)
-            .map(|(_, a)| *a as f64)
-            .sum::<f64>();
+        for (d, a, i) in &v {
+            if *d < med / r || *d > med * r {
+                outliers += *a as f64;
+                *outliers_by.entry(*i).or_default() += *a as f64;
+            }
+        }
     }
     g.check(
         "texel_density",
@@ -624,8 +672,9 @@ fn uv_checks(model: &Model, t: &Thresholds, g: &mut Gate) {
             t.texel_density_ratio
         ),
         format!(
-            "{} (medians, UV units per metre: {})",
+            "{} {} (medians, UV units per metre: {})",
             pct(outliers / total),
+            share_by_part(model, outliers_by, total),
             medians.join(", ")
         ),
         format!("≤ {}", pct(t.texel_outlier_fraction as f64)),
@@ -707,7 +756,18 @@ fn collision_checks(model: &Model, t: &Thresholds, g: &mut Gate, lod0: crate::mo
     g.check(
         "collision_coverage",
         "collision bounding box / LOD0 bounding box per axis",
-        format!("x {:.3}, y {:.3}, z {:.3}", ratio.x, ratio.y, ratio.z),
+        format!(
+            "x {:.3}, y {:.3}, z {:.3} (collision y {:.3}..{:.3}, x ±{:.3}; LOD0 y {:.3}..{:.3}, x ±{:.3})",
+            ratio.x,
+            ratio.y,
+            ratio.z,
+            cb.min.y,
+            cb.max.y,
+            cb.size().x / 2.0,
+            lod0.min.y,
+            lod0.max.y,
+            lod0.size().x / 2.0
+        ),
         format!("{lo} – {hi}"),
         ratio.min_element() >= lo && ratio.max_element() <= hi,
     );

@@ -118,9 +118,21 @@ region not reachable from the crop border filled, largest piece kept. Alignment:
 * **front/rear**: ground line = y 0, middle of the silhouette = centreline;
 * **top**: middle = centreline, front-most pixel at the front-most z of the side view.
 
-A sheet with `role = "crosscheck"` is reported but not gated. `racer-assetqa refs <id>`
-prints each view's measured size and how well two sheets agree; for the 911 the two
-independent drawings agree to IoU …, which is why the thresholds are not tighter.
+A sheet with `role = "crosscheck"` is reported but not gated; both 911 sheets gate (the
+asset pipeline fits its body to the-blueprints, so dimensions.com is the sheet it was not
+tuned on). `racer-assetqa refs <id>` prints each view's measured size and how well the
+sheets agree. For the 911 the two independent drawings agree to:
+
+| View | IoU | mean outline distance | p95 |
+|---|---|---|---|
+| side | 0.965 | 13.8 mm | 29.2 mm |
+| front | 0.977 | 7.3 mm | 17.5 mm |
+| rear | 0.975 | 8.0 mm | 17.5 mm |
+| top | 0.992 | 5.4 mm | 21.1 mm |
+
+That is the floor any model can reach against both, so the thresholds sit at about 1.5×
+the worst disagreement (IoU 0.90, mean 20 mm, p95 60 mm). A box car with the 911's exact
+dimensions scores side IoU 0.86 and mean 53 mm against these references and fails.
 Overlays (`silhouette-<sheet>-<view>.png`): dark grey both, red model only, blue reference
 only.
 

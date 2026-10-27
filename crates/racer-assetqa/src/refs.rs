@@ -116,6 +116,8 @@ pub struct Prepared {
     pub mask: Mask,
     /// Maps view metres to pixels of `mask`.
     pub grid: Grid,
+    /// Closing radius used on the reference, applied to the model too.
+    pub close_px: u32,
 }
 
 impl RefsFile {
@@ -126,7 +128,7 @@ impl RefsFile {
 }
 
 /// Square dilation (`grow`) or erosion of a mask by `r` pixels.
-fn morph(m: &Mask, r: u32, grow: bool) -> Mask {
+pub fn morph(m: &Mask, r: u32, grow: bool) -> Mask {
     let r = r as i64;
     let pass = |src: &Mask, horizontal: bool| {
         let mut out = Mask::new(src.width, src.height);
@@ -366,6 +368,7 @@ pub fn prepare_sheet(sheet: &Sheet, dir: &Path, spec: &CarSpec) -> Result<Vec<Pr
             view,
             mask,
             grid,
+            close_px: sheet.close_px,
         });
     }
     Ok(out)
@@ -413,9 +416,18 @@ pub fn silhouettes(
     }
     let tris = lod0_triangles(model);
     for r in refs {
-        // Outer outline only: see-through gaps inside the silhouette are
-        // reported separately.
-        let (mask, holes) = raster::silhouette(&r.grid, r.view, tris.iter().copied()).fill_holes();
+        // Outer outline only, closed like the reference (hairline panel seams
+        // open to the outside would otherwise count as deep notches);
+        // see-through gaps are reported separately.
+        let raw = raster::silhouette(&r.grid, r.view, tris.iter().copied());
+        let close = r.close_px;
+        let closed = if close > 0 {
+            morph(&morph(&raw, close, true), close, false)
+        } else {
+            raw.clone()
+        };
+        let (mask, _) = closed.fill_holes();
+        let holes = mask.count().saturating_sub(raw.count());
         let iou = raster::iou(&mask, &r.mask);
         let d = raster::boundary_distance(&mask, &r.mask);
         let (mean, p95) = (d.mean * r.grid.mpp, d.p95 * r.grid.mpp);
@@ -453,7 +465,10 @@ pub fn silhouettes(
         if !r.crosscheck && holes > 0 {
             g.info(
                 &format!("{id}:holes"),
-                format!("see-through gaps inside the {} silhouette", r.view.name()),
+                format!(
+                    "see-through gaps and seams inside the {} silhouette (filled by the closing)",
+                    r.view.name()
+                ),
                 format!(
                     "{holes} px = {:.1} cm²",
                     holes as f32 * r.grid.mpp * r.grid.mpp * 1e4
