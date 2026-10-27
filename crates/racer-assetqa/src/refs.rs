@@ -262,11 +262,11 @@ fn largest_component(m: &Mask) -> Mask {
             best = (size, next);
         }
     }
-    let mut out = Mask::new(w, h);
-    for i in 0..out.data.len() {
-        out.data[i] = best.1 != 0 && label[i] == best.1;
+    Mask {
+        width: w,
+        height: h,
+        data: label.iter().map(|&l| best.1 != 0 && l == best.1).collect(),
     }
-    out
 }
 
 /// Crops, masks and aligns every view of a sheet.

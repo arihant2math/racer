@@ -139,19 +139,42 @@ pub fn app_main(glb: &Path, out_dir: &Path, timeout: Duration) -> Result<(), Str
                 });
             },
         )
-        .add_systems(Update, drive);
+        .add_systems(Update, (hide_non_render, drive).chain());
     let out = out_dir.to_path_buf();
     app.add_systems(PostStartup, move |mut run: ResMut<Run>| {
         run.out_dir = out.clone();
-    });
-    let status = app.world().resource::<PipelineStatus>().clone();
-    app.finish();
-    app.get_sub_app_mut(RenderApp)
-        .ok_or("no renderer")?
-        .insert_resource(status)
-        .add_systems(Render, publish.in_set(RenderSystems::Cleanup));
+    })
+    .add_plugins(PipelineStatusPlugin);
     app.run();
     Ok(())
+}
+
+/// Hides collision and LOD1+ nodes, as the game will.
+fn hide_non_render(mut nodes: Query<(&Name, &mut Visibility), Added<Name>>) {
+    for (name, mut vis) in &mut nodes {
+        let n = name.as_str();
+        if n.to_ascii_lowercase().starts_with("collision")
+            || crate::model::lod_of(n).is_some_and(|l| l > 0)
+        {
+            *vis = Visibility::Hidden;
+        }
+    }
+}
+
+/// Publishes the render world's pipeline cache counts to the main world.
+struct PipelineStatusPlugin;
+
+impl Plugin for PipelineStatusPlugin {
+    fn build(&self, _app: &mut App) {}
+
+    fn finish(&self, app: &mut App) {
+        let status = app.world().resource::<PipelineStatus>().clone();
+        if let Some(render) = app.get_sub_app_mut(RenderApp) {
+            render
+                .insert_resource(status)
+                .add_systems(Render, publish.in_set(RenderSystems::Cleanup));
+        }
+    }
 }
 
 fn publish(cache: Res<PipelineCache>, status: Res<PipelineStatus>) {

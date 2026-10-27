@@ -167,7 +167,7 @@ scene.camera = cam
 aspect = size[0] / size[1]
 
 
-def perspective(direction, target, lens=50.0, fit=radius, margin=1.15):
+def perspective(direction, target, lens=50.0, fit=radius, margin=0.8):
     cam_data.type = "PERSP"
     cam_data.lens = lens
     fov = 2 * math.atan(cam_data.sensor_width / 2 / lens)
@@ -183,7 +183,8 @@ def ortho(direction, width, height, rotation=None):
     cam_data.ortho_scale = max(width, height * aspect) * 1.08
     d = Vector(direction).normalized()
     cam.location = centre + d * (radius * 4)
-    cam.rotation_euler = rotation if rotation else (-d).to_track_quat("-Z", "Z" if abs(d.z) < 0.9 else "Y").to_euler()
+    # The camera looks down its local -Z with local +Y up.
+    cam.rotation_euler = rotation if rotation else (-d).to_track_quat("-Z", "Y").to_euler()
     cam_data.clip_end = radius * 10
 
 
