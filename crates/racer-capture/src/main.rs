@@ -46,12 +46,16 @@ fn main() -> ExitCode {
 /// Positional arguments and `--flag value` pairs.
 type Parsed<'a> = (Vec<&'a str>, Vec<(&'a str, &'a str)>);
 
-/// Splits `args` into positional arguments and `--flag value` pairs.
-fn parse(args: &[String]) -> Result<Parsed<'_>, String> {
+/// Splits `args` into positional arguments and `--flag value` pairs, rejecting
+/// flags not in `known`.
+fn parse<'a>(args: &'a [String], known: &[&str]) -> Result<Parsed<'a>, String> {
     let (mut positional, mut flags) = (Vec::new(), Vec::new());
     let mut it = args.iter();
     while let Some(arg) = it.next() {
         if let Some(flag) = arg.strip_prefix("--") {
+            if !known.contains(&flag) {
+                return Err(format!("unknown flag --{flag}\n{USAGE}"));
+            }
             let value = it.next().ok_or_else(|| format!("--{flag} needs a value"))?;
             flags.push((flag, value.as_str()));
         } else {
@@ -71,7 +75,7 @@ fn flag<T: std::str::FromStr>(flags: &[(&str, &str)], name: &str, default: T) ->
 }
 
 fn scene(args: &[String]) -> Result<ExitCode, String> {
-    let (pos, flags) = parse(args)?;
+    let (pos, flags) = parse(args, &["size", "timeout"])?;
     let [name, out_dir] = pos[..] else {
         return Err(USAGE.into());
     };
@@ -123,7 +127,7 @@ fn check_files(args: &[String]) -> Result<ExitCode, String> {
     }
     let mut ok = true;
     for path in args {
-        match check::check(&load(Path::new(path))?) {
+        match load(Path::new(path)).and_then(|img| check::check(&img)) {
             Ok(s) => println!(
                 "ok   {path}: {}x{}, mean luma {:.1}, stddev {:.1}, dominant colour {:.1}%",
                 s.width,
@@ -146,7 +150,7 @@ fn check_files(args: &[String]) -> Result<ExitCode, String> {
 }
 
 fn diff(args: &[String]) -> Result<ExitCode, String> {
-    let (pos, flags) = parse(args)?;
+    let (pos, flags) = parse(args, &["pixel", "max-fraction", "max-mean"])?;
     let [actual, golden] = pos[..] else {
         return Err(USAGE.into());
     };
@@ -176,8 +180,7 @@ fn diff(args: &[String]) -> Result<ExitCode, String> {
     };
     let mut ok = true;
     for (a, g) in pairs {
-        let report = check::diff(&load(&a)?, &load(&g)?, tol);
-        match report {
+        match load(&a).and_then(|a| check::diff(&a, &load(&g)?, tol)) {
             Ok(r) => {
                 ok &= r.passed;
                 println!(

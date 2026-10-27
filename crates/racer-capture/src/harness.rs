@@ -29,6 +29,9 @@ use racer_game::greybox::SceneCamera;
 /// Frames the pipeline cache must stay settled before a capture.
 pub const STABLE_FRAMES: u32 = 10;
 
+/// Extra time after the deadline before the watchdog kills the process.
+const WATCHDOG_GRACE: Duration = Duration::from_secs(30);
+
 /// A named camera pose.
 #[derive(Clone, Debug)]
 pub struct Pose {
@@ -84,10 +87,19 @@ struct Delivered(Option<Image>);
 
 impl Plugin for CapturePlugin {
     fn build(&self, app: &mut App) {
+        // The deadline is checked by `drive`, which only runs while the app is
+        // updating. If rendering stalls (a hung driver, a window that never
+        // redraws) the main loop stops too, so a watchdog thread enforces it.
+        let deadline = Instant::now() + self.timeout;
+        std::thread::spawn(move || {
+            std::thread::sleep(deadline + WATCHDOG_GRACE - Instant::now());
+            eprintln!("racer-capture: watchdog: app stopped responding; exiting");
+            std::process::exit(1);
+        });
         app.insert_resource(CaptureRun {
             poses: self.poses.clone(),
             out_dir: self.out_dir.clone(),
-            deadline: Instant::now() + self.timeout,
+            deadline,
             index: 0,
             phase: Phase::Settling,
             frames_in_pose: 0,
@@ -132,9 +144,14 @@ fn drive(
     mut run: ResMut<CaptureRun>,
     mut delivered: ResMut<Delivered>,
     status: Res<PipelineStatus>,
-    mut camera: Single<&mut Transform, With<SceneCamera>>,
+    camera: Option<Single<&mut Transform, With<SceneCamera>>>,
     mut exit: MessageWriter<AppExit>,
 ) {
+    let Some(mut camera) = camera else {
+        error!("the scene must have exactly one SceneCamera");
+        exit.write(AppExit::error());
+        return;
+    };
     let (total, pending, failed) = status.get();
     if Instant::now() > run.deadline {
         error!(
