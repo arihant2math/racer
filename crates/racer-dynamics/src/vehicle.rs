@@ -506,6 +506,19 @@ impl Vehicle {
                 // First-order relaxation, integrated implicitly so it stays
                 // stable at any speed; at standstill it becomes a spring.
                 let slip_speed = omega[i] * r - p.vx;
+                // Slip past the peak is the patch sliding, not carcass
+                // deflection: once the patch moves back the other way only
+                // the elastic part (up to the peak) springs back. Without
+                // this a slide to rest winds the spring far past the peak
+                // and it unwinds as a creep against the brakes.
+                if ws.slip_ratio * slip_speed < 0.0 {
+                    let peak = tire.peak_slip_ratio;
+                    ws.slip_ratio = ws.slip_ratio.clamp(-peak, peak);
+                }
+                if ws.slip_lat * p.vy < 0.0 {
+                    let peak = tire.peak_slip_tan;
+                    ws.slip_lat = ws.slip_lat.clamp(-peak, peak);
+                }
                 let decay = |sigma: f64| 1.0 + h * p.vx.abs() / sigma;
                 ws.slip_ratio = (ws.slip_ratio + h * slip_speed / tire.relaxation_long)
                     / decay(tire.relaxation_long);

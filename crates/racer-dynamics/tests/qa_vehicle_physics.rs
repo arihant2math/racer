@@ -142,7 +142,6 @@ fn qa_phys_2_empty_gear_and_torque_tables_are_rejected() {
 }
 
 #[test]
-#[ignore = "QA-PHYS-3"]
 fn qa_phys_3_car_stopped_after_a_sideways_slide_stays_put() {
     let v = Vehicle::from_spec(&gti()).unwrap();
     let mut sim = Sim::new(&v, &Flat);
@@ -159,9 +158,59 @@ fn qa_phys_3_car_stopped_after_a_sideways_slide_stays_put() {
         held
     });
     let back = furthest - sim.body.position.x;
+    println!("stopped at x = {furthest:.3} m, sprang back {back:.3} m");
     assert!(
         back < 0.1,
         "after stopping at x = {furthest:.2} m the braked car crept {back:.2} m back sideways"
+    );
+}
+
+/// QA-PHYS-3 regression, longitudinal: after a locked-wheel stop (ABS off)
+/// the car doesn't roll back on the unwinding slip spring.
+#[test]
+fn qa_phys_3_car_stopped_on_locked_wheels_stays_put() {
+    let v = Vehicle::from_spec(&gti()).unwrap();
+    let mut sim = Sim::new(&v, &Flat);
+    sim.launch_at(15.0);
+    let mut held = Controls {
+        brake: 1.0,
+        ..auto_controls()
+    };
+    held.assists.abs = false;
+    let mut furthest = f64::INFINITY;
+    sim.run(8.0, |s| {
+        furthest = furthest.min(s.body.position.z);
+        held
+    });
+    let back = sim.body.position.z - furthest;
+    println!("stopped at z = {furthest:.3} m, rolled back {back:.3} m");
+    // Elastic tire deflection at the peak (about 1.3 cm) plus the pitch rebound.
+    assert!(back < 0.05, "rolled back {back:.3} m after the stop");
+}
+
+/// QA-PHYS-3 regression: the relaxation spring still holds a braked car on
+/// a 20 % grade (the slip clamp only drops slip past the peak).
+#[test]
+fn qa_phys_3_braked_car_holds_on_a_grade() {
+    struct Grade;
+    impl racer_dynamics::testbed::Ground for Grade {
+        fn height(&self, _x: f64, z: f64) -> f64 {
+            -0.2 * z
+        }
+    }
+    let v = Vehicle::from_spec(&gti()).unwrap();
+    let mut sim = Sim::new(&v, &Grade);
+    let held = Controls {
+        brake: 1.0,
+        ..auto_controls()
+    };
+    sim.run(2.0, |_| held);
+    let start = sim.body.position;
+    sim.run(10.0, |_| held);
+    let moved = sim.body.position.distance(start);
+    assert!(
+        moved < 0.01,
+        "braked car moved {moved:.3} m on a 20 % grade"
     );
 }
 
