@@ -323,12 +323,17 @@ impl Drivetrain {
 
         let w = &self.weights;
         let mut tc = 0.0;
+        let mut eta = gb.efficiency;
         if g != 0.0 && capacity > 0.0 {
-            let eta = gb.efficiency;
             let a: f64 = (0..4).map(|i| w[i] * wheel_torque[i] / inertia[i]).sum();
             let b: f64 = (0..4).map(|i| w[i] * w[i] / inertia[i]).sum();
-            tc = (we - g * out + dt * (te / eng.inertia - g * a))
-                / (dt * (1.0 / eng.inertia + eta * g * g * b));
+            let slip = we - g * out + dt * (te / eng.inertia - g * a);
+            // Losses come off the power flow: when the wheels drive the
+            // engine (tc < 0, same sign as `slip`) they supply 1/eta of it.
+            if slip < 0.0 {
+                eta = 1.0 / gb.efficiency;
+            }
+            tc = slip / (dt * (1.0 / eng.inertia + eta * g * g * b));
             tc = tc.clamp(-capacity, capacity);
             for i in 0..4 {
                 wheel_torque[i] += eta * g * w[i] * tc;
@@ -336,7 +341,7 @@ impl Drivetrain {
         }
         // Positive input torque drives the car (power side of an LSD ramp),
         // negative is engine braking (coast side).
-        let input = gb.efficiency * g * tc * out.signum();
+        let input = eta * g * tc * out.signum();
         let (front_in, rear_in) = (input * (w[0] + w[1]), input * (w[2] + w[3]));
         if w[0] > 0.0 && w[2] > 0.0 {
             lock(

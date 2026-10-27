@@ -3,7 +3,8 @@
 //! bounded in energy and quiet at 240 Hz.
 
 use racer_dynamics::{
-    Assists, Controls, DVec3, Surface, Vehicle,
+    Assists, Controls, DVec3, Surface, Vehicle, chassis_dt,
+    drivetrain::RPM_TO_RAD_S,
     spec::{CARS, load_car},
     testbed::{Flat, Ground, Sim, auto_controls},
     vehicle::GRAVITY,
@@ -72,12 +73,18 @@ fn random_controls(rng: &mut Rng) -> Controls {
     }
 }
 
+/// Mechanical energy of the chassis, wheels and engine.
 fn energy(sim: &Sim) -> f64 {
-    let b = &sim.body;
+    let (b, v) = (&sim.body, sim.vehicle);
     let w = b.rotation.inverse() * b.angular_velocity;
-    0.5 * sim.vehicle.mass * b.linear_velocity.length_squared()
-        + 0.5 * w.dot(sim.vehicle.inertia * w)
-        + sim.vehicle.mass * GRAVITY * b.position.y
+    let wheels: f64 = (0..4)
+        .map(|i| 0.5 * v.tire(i).inertia * sim.state.wheels[i].omega.powi(2))
+        .sum();
+    0.5 * v.mass * b.linear_velocity.length_squared()
+        + 0.5 * w.dot(v.inertia * w)
+        + v.mass * GRAVITY * b.position.y
+        + wheels
+        + 0.5 * v.drivetrain.engine.inertia * sim.state.drive.engine_omega.powi(2)
 }
 
 #[test]
@@ -85,7 +92,6 @@ fn random_extreme_inputs_stay_finite_and_bounded() {
     for (n, id) in CARS.iter().enumerate() {
         let spec = load_car(id).unwrap();
         let vehicle = Vehicle::from_spec(&spec).unwrap();
-        let power = spec.engine.peak_power_kw * 1000.0;
         for seed in 0..4u64 {
             let mut rng = Rng(0x9e37_79b9_7f4a_7c15 ^ (seed * 7 + n as u64 + 1));
             let mut sim = Sim::new(&vehicle, &Course);
@@ -93,6 +99,8 @@ fn random_extreme_inputs_stay_finite_and_bounded() {
                 sim.launch_at(70.0); // start fast: high-speed curbs and jumps
             }
             let e0 = energy(&sim);
+            // Positive work done by the engine's combustion torque.
+            let mut work = 0.0;
             let mut controls = auto_controls();
             let mut next_change = 0.0;
             let (mut airborne, mut reversed) = (0, 0);
@@ -109,6 +117,7 @@ fn random_extreme_inputs_stay_finite_and_bounded() {
                 sim.step(&c);
                 let b = &sim.body;
                 let t = sim.last.unwrap().telemetry;
+                work += (t.engine_torque * t.rpm * RPM_TO_RAD_S).max(0.0) * chassis_dt();
                 let finite = b.position.is_finite()
                     && b.linear_velocity.is_finite()
                     && b.angular_velocity.is_finite()
@@ -141,7 +150,7 @@ fn random_extreme_inputs_stay_finite_and_bounded() {
                 );
                 // Energy can only come from the engine (and nothing else).
                 assert!(
-                    energy(&sim) <= e0 + 1.05 * power * sim.time + 5.0e4,
+                    energy(&sim) <= e0 + 1.02 * work + 2.0e4,
                     "{id} seed {seed}: energy {:.0} J from {e0:.0} J after {:.1} s",
                     energy(&sim),
                     sim.time
