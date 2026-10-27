@@ -1,6 +1,9 @@
 //! Gameplay shared by the client and the dedicated server.
 
+pub mod ai;
 pub mod autopilot;
+pub mod race;
+pub mod rules;
 pub mod track;
 pub mod vehicle;
 

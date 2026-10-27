@@ -4723,6 +4723,7 @@ dependencies = [
  "racer-dynamics",
  "racer-game",
  "racer-sim",
+ "racer-trackc",
 ]
 
 [[package]]
@@ -4742,6 +4743,7 @@ dependencies = [
  "racer-dynamics",
  "racer-render",
  "racer-sim",
+ "racer-trackc",
  "sdl3",
  "sdl3-sys",
 ]
@@ -4768,11 +4770,18 @@ dependencies = [
  "avian3d",
  "bevy",
  "racer-dynamics",
+ "racer-trackc",
 ]
 
 [[package]]
 name = "racer-trackc"
 version = "0.1.0"
+dependencies = [
+ "glam",
+ "racer-dynamics",
+ "serde",
+ "toml",
+]
 
 [[package]]
 name = "radsort"

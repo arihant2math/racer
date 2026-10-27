@@ -1,7 +1,8 @@
-//! Greybox driving areas: a closed test track (long straight, hairpin,
-//! chicane with curbs, fast sweeper, crest on the back straight) and a
-//! skidpad. The road is one triangle mesh (no seams for the chassis to catch
-//! on); curbs, the skidpad pad and the ground are boxes. Rendering adds
+//! Greybox driving areas: the M1 test track (long straight, hairpin,
+//! chicane with curbs, fast sweeper, crest on the back straight) with the
+//! skidpad, and city tracks compiled by `racer-trackc`. Roads, aprons, curbs
+//! and walls are triangle meshes (no seams for the chassis to catch on); the
+//! ground and the test track's curbs and pad are boxes. Rendering adds
 //! meshes for each [`TrackPiece`].
 
 use std::sync::Arc;
@@ -9,6 +10,8 @@ use std::sync::Arc;
 use avian3d::prelude::*;
 use bevy::prelude::*;
 use racer_dynamics::Surface;
+pub use racer_trackc::geometry::TriMesh;
+use racer_trackc::geometry::{GROUND_Y, Geometry};
 
 /// Radius of the skidpad circle (the magazines' 300-ft pad).
 pub const SKIDPAD_RADIUS: f32 = 45.72;
@@ -27,10 +30,15 @@ const CREST_RUN: f32 = 12.0;
 pub enum PieceKind {
     Grass,
     Road,
+    /// Flat run-off between the road and the walls.
+    Apron,
     /// Curb segment; `true` for the red ones.
     Curb(bool),
+    Wall,
     /// Painted line, visual only.
     Marking,
+    /// Greybox building, visual only.
+    Building,
 }
 
 #[derive(Clone, Debug)]
@@ -41,17 +49,22 @@ pub enum Shape {
     Mesh(Arc<TriMesh>),
 }
 
-#[derive(Debug)]
-pub struct TriMesh {
-    pub vertices: Vec<Vec3>,
-    pub indices: Vec<[u32; 3]>,
-}
-
 /// One piece of the track.
 #[derive(Component, Clone, Debug)]
 pub struct TrackPiece {
     pub kind: PieceKind,
     pub shape: Shape,
+}
+
+/// Collision layers: the ground, walls and cars. Wheels cast against the
+/// ground only (a wheel never stands on a wall top); car bodies collide with
+/// everything, other cars only unless ghosted.
+#[derive(PhysicsLayer, Clone, Copy, Debug, Default)]
+pub enum Layer {
+    #[default]
+    World,
+    Car,
+    Wall,
 }
 
 /// Grip of a collider's surface for the wheel contacts.
@@ -250,14 +263,60 @@ pub fn skidpad_start() -> Transform {
     Transform::from_translation(SKIDPAD_CENTER + Vec3::new(SKIDPAD_RADIUS, ROAD_TOP, 0.0))
 }
 
-/// Spawns every piece with its collider (markings have none).
+/// A city track's pieces: ground, road, aprons, curbs, walls, markings and buildings.
+pub fn city_track(geometry: &Geometry) -> Track {
+    let mesh = |kind, mesh: &TriMesh| {
+        (
+            TrackPiece {
+                kind,
+                shape: Shape::Mesh(Arc::new(mesh.clone())),
+            },
+            Transform::IDENTITY,
+        )
+    };
+    let (lo, hi) = geometry.bounds;
+    let center = (lo + hi) / 2.0;
+    let size = hi - lo + Vec2::splat(800.0);
+    let mut pieces = vec![
+        piece(
+            PieceKind::Grass,
+            Vec3::new(size.x, 1.0, size.y),
+            Transform::from_xyz(center.x, GROUND_Y - 0.5, center.y),
+        ),
+        mesh(PieceKind::Road, &geometry.road),
+        mesh(PieceKind::Apron, &geometry.aprons),
+        mesh(PieceKind::Curb(true), &geometry.curbs[0]),
+        mesh(PieceKind::Curb(false), &geometry.curbs[1]),
+        mesh(PieceKind::Wall, &geometry.walls),
+        mesh(PieceKind::Marking, &geometry.markings),
+    ];
+    for b in &geometry.buildings {
+        pieces.push(piece(
+            PieceKind::Building,
+            b.size,
+            Transform::from_translation(b.base + Vec3::Y * b.size.y / 2.0)
+                .with_rotation(Quat::from_rotation_y(b.yaw)),
+        ));
+    }
+    let start = geometry.grid[0];
+    Track {
+        pieces,
+        centerline: geometry.samples.iter().map(|s| s.pos).collect(),
+        start: Transform::from_translation(start.position).with_rotation(start.rotation),
+    }
+}
+
+/// Spawns every piece with its collider (markings and buildings have none).
 pub fn spawn_track(commands: &mut Commands, track: &Track) {
     for (piece, transform) in &track.pieces {
-        let surface = match piece.kind {
-            PieceKind::Grass => Surface::Grass,
-            PieceKind::Road => Surface::DryAsphalt,
-            PieceKind::Curb(_) => Surface::Curb,
-            PieceKind::Marking => {
+        let (surface, friction, layer) = match piece.kind {
+            PieceKind::Grass => (Surface::Grass, 0.6, Layer::World),
+            PieceKind::Road => (Surface::DryAsphalt, 0.6, Layer::World),
+            PieceKind::Apron => (Surface::Cobbles, 0.6, Layer::World),
+            PieceKind::Curb(_) => (Surface::Curb, 0.6, Layer::World),
+            // Low friction so a car scraping a wall slides along it.
+            PieceKind::Wall => (Surface::DryAsphalt, 0.2, Layer::Wall),
+            PieceKind::Marking | PieceKind::Building => {
                 commands.spawn((piece.clone(), *transform));
                 continue;
             }
@@ -276,7 +335,8 @@ pub fn spawn_track(commands: &mut Commands, track: &Track) {
             RigidBody::Static,
             collider,
             GroundSurface(surface),
-            Friction::new(0.6),
+            Friction::new(friction),
+            CollisionLayers::new(layer, LayerMask::ALL),
         ));
     }
 }

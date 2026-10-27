@@ -5,6 +5,7 @@
 //! racer-capture check <png>...
 //! racer-capture diff <actual> <golden> [--pixel N] [--max-fraction F] [--max-mean E]
 //! racer-capture telemetry <out-dir> [car-id...]
+//! racer-capture ai-laps <out-dir> [--laps N] [--car ID]
 //! ```
 //! `diff` takes two files or two directories; with directories every PNG in the
 //! golden directory must have a matching file in the actual directory.
@@ -19,14 +20,15 @@ use bevy::{prelude::*, window::WindowResolution, winit::WinitSettings};
 use racer_capture::{
     check::{self, Tolerance},
     harness::CapturePlugin,
-    scenes, telemetry,
+    race, scenes, telemetry,
 };
 
 const USAGE: &str = "usage:
   racer-capture scene <name> <out-dir> [--size WxH] [--timeout SECS]
   racer-capture check <png>...
   racer-capture diff <actual> <golden> [--pixel N] [--max-fraction F] [--max-mean E]
-  racer-capture telemetry <out-dir> [car-id...]";
+  racer-capture telemetry <out-dir> [car-id...]
+  racer-capture ai-laps <out-dir> [--laps N] [--car ID]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -35,6 +37,7 @@ fn main() -> ExitCode {
         Some("check") => check_files(&args[1..]),
         Some("diff") => diff(&args[1..]),
         Some("telemetry") => telemetry(&args[1..]),
+        Some("ai-laps") => ai_laps(&args[1..]),
         _ => Err(USAGE.into()),
     };
     match result {
@@ -228,4 +231,59 @@ fn telemetry(args: &[String]) -> Result<ExitCode, String> {
         }
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// Solo AI laps on the city track for every car (or one) and difficulty.
+fn ai_laps(args: &[String]) -> Result<ExitCode, String> {
+    let (pos, flags) = parse(args, &["laps", "car"])?;
+    let [out_dir] = pos[..] else {
+        return Err(USAGE.into());
+    };
+    let laps: u32 = flag(&flags, "laps", 100)?;
+    let only: String = flag(&flags, "car", String::new())?;
+    let out_dir = Path::new(out_dir);
+    std::fs::create_dir_all(out_dir).map_err(|e| format!("{}: {e}", out_dir.display()))?;
+    let track = std::sync::Arc::new(racer_trackc::load("downtown-loop")?);
+    let cars: Vec<&str> = racer_dynamics::spec::CARS
+        .into_iter()
+        .filter(|c| only.is_empty() || *c == only)
+        .collect();
+    let started = std::time::Instant::now();
+    let jobs: Vec<(&str, racer_sim::ai::Difficulty)> = cars
+        .iter()
+        .flat_map(|&c| racer_sim::ai::Difficulty::ALL.map(|d| (c, d)))
+        .collect();
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
+    let runs = race::parallel(&jobs, threads, |&(car, d)| {
+        race::solo(track.clone(), car, d, laps)
+    })
+    .into_iter()
+    .collect::<Result<Vec<_>, String>>()?;
+    let mut report = String::new();
+    let ok = race::report_solo(&track, &runs, &mut report);
+    println!("{report}");
+    println!("{} s wall time", started.elapsed().as_secs());
+    for run in &runs {
+        let mut csv = String::from(
+            "distance,speed,target,trim,lateral_error,front_slip,rear_slip,throttle,brake\n",
+        );
+        for r in &run.trace {
+            let row: Vec<String> = r.iter().map(|v| format!("{v:.3}")).collect();
+            csv.push_str(&row.join(","));
+            csv.push('\n');
+        }
+        let path = out_dir.join(format!(
+            "trace-{}-{}.csv",
+            run.car,
+            run.difficulty.name().to_lowercase()
+        ));
+        std::fs::write(&path, csv).map_err(|e| format!("{}: {e}", path.display()))?;
+    }
+    let path = out_dir.join("solo.md");
+    std::fs::write(&path, &report).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(if ok {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    })
 }

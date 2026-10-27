@@ -1,21 +1,17 @@
 //! Greybox driving scene: the test track and skidpad, a drivable car with
 //! car selection, chase and hood cameras and a debug HUD.
 
-use bevy::{
-    asset::RenderAssetUsages,
-    light::atmosphere::ScatteringMedium,
-    mesh::{Indices, PrimitiveTopology},
-    prelude::*,
-};
+use bevy::{light::atmosphere::ScatteringMedium, prelude::*};
 use racer_dynamics::{CarSpec, load_car, spec::CARS};
 use racer_sim::{
-    track::{PieceKind, Shape, Track, TrackPiece, skidpad_start, spawn_track, test_track},
-    vehicle::{Car, CarTelemetry, spawn_car, wheel_center},
+    track::{Track, skidpad_start, spawn_track, test_track},
+    vehicle::{Car, CarTelemetry, spawn_car},
 };
 
 use crate::{
     greybox::{SceneCamera, spawn_environment},
     input::Player,
+    visuals::{CarPaint, PAINT, VisualsPlugin},
 };
 
 /// Spawns the driving scene. `car` indexes [`CARS`].
@@ -26,27 +22,33 @@ pub struct DrivingPlugin {
 
 impl Plugin for DrivingPlugin {
     fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<VisualsPlugin>() {
+            app.add_plugins(VisualsPlugin);
+        }
+        if !app.is_plugin_added::<CameraPlugin>() {
+            app.add_plugins(CameraPlugin);
+        }
         app.insert_resource(Selection {
             car: self.car,
             location: self.location,
         })
         .insert_resource(TrackLayout(test_track()))
-        .init_resource::<CameraMode>()
         .add_systems(Startup, setup)
-        .add_systems(
-            Update,
-            (
-                select,
-                respawn_car,
-                toggle_camera,
-                update_hud,
-                mesh_track_pieces,
-            ),
-        )
-        .add_systems(
-            PostUpdate,
-            (animate_wheels, follow_camera).before(TransformSystems::Propagate),
-        );
+        .add_systems(Update, (select, respawn_car, update_hud));
+    }
+}
+
+/// Chase and hood cameras following the [`Player`] car (V toggles).
+pub struct CameraPlugin;
+
+impl Plugin for CameraPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<CameraMode>()
+            .add_systems(Update, toggle_camera)
+            .add_systems(
+                PostUpdate,
+                follow_camera.before(TransformSystems::Propagate),
+            );
     }
 }
 
@@ -82,22 +84,8 @@ pub struct ChaseCamera {
     heading: Vec3,
 }
 
-/// Visual wheel `index` of its parent car, with its accumulated spin angle.
-#[derive(Component)]
-struct WheelVisual {
-    index: usize,
-    spin: f32,
-}
-
 #[derive(Component)]
 struct Hud;
-
-/// Body colour per car, in [`CARS`] order.
-const PAINT: [Color; 3] = [
-    Color::srgb(0.75, 0.05, 0.04),
-    Color::srgb(0.05, 0.35, 0.18),
-    Color::srgb(0.95, 0.75, 0.05),
-];
 
 fn setup(
     mut commands: Commands,
@@ -128,51 +116,6 @@ fn setup(
     ));
 }
 
-/// Adds greybox meshes to new track pieces.
-fn mesh_track_pieces(
-    mut commands: Commands,
-    pieces: Query<(Entity, &TrackPiece), Added<TrackPiece>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
-    mut cache: Local<Vec<(PieceKind, Handle<StandardMaterial>)>>,
-) {
-    for (entity, piece) in &pieces {
-        let material = match cache.iter().find(|(k, _)| *k == piece.kind) {
-            Some((_, m)) => m.clone(),
-            None => {
-                let (color, roughness) = match piece.kind {
-                    PieceKind::Grass => (Color::srgb(0.16, 0.24, 0.12), 0.95),
-                    PieceKind::Road => (Color::srgb(0.22, 0.22, 0.23), 0.9),
-                    PieceKind::Curb(true) => (Color::srgb(0.7, 0.08, 0.06), 0.7),
-                    PieceKind::Curb(false) | PieceKind::Marking => {
-                        (Color::srgb(0.85, 0.85, 0.8), 0.7)
-                    }
-                };
-                let m = materials.add(StandardMaterial {
-                    base_color: color,
-                    perceptual_roughness: roughness,
-                    ..default()
-                });
-                cache.push((piece.kind, m.clone()));
-                m
-            }
-        };
-        let mesh = match &piece.shape {
-            Shape::Box(size) => Cuboid::from_size(*size).into(),
-            Shape::Mesh(m) => Mesh::new(
-                PrimitiveTopology::TriangleList,
-                RenderAssetUsages::RENDER_WORLD,
-            )
-            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, m.vertices.clone())
-            .with_inserted_indices(Indices::U32(m.indices.iter().flatten().copied().collect()))
-            .with_computed_smooth_normals(),
-        };
-        commands
-            .entity(entity)
-            .insert((Mesh3d(meshes.add(mesh)), MeshMaterial3d(material)));
-    }
-}
-
 fn start_pose(location: Location, layout: &Track) -> Transform {
     match location {
         Location::Track => layout.start,
@@ -183,57 +126,12 @@ fn start_pose(location: Location, layout: &Track) -> Transform {
 /// Spawns the player's car with a greybox body and four wheels.
 pub fn spawn_player_car(
     commands: &mut Commands,
-    meshes: &mut Assets<Mesh>,
-    materials: &mut Assets<StandardMaterial>,
     spec: &CarSpec,
     paint: Color,
     at: Transform,
 ) -> Entity {
-    let car = spawn_car(commands, spec, at, (Player, Visibility::default()))
-        .expect("car.toml is validated by tests");
-    let c = &spec.chassis;
-    let (len, wid, hgt) = (c.length_m as f32, c.width_m as f32, c.height_m as f32);
-    let ride = spec.estimated.chassis.cg_height_m as f32;
-    let paint = materials.add(racer_render::car_paint(paint));
-    let glass = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.05, 0.06, 0.08),
-        perceptual_roughness: 0.1,
-        ..default()
-    });
-    let tire = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.03, 0.03, 0.03),
-        perceptual_roughness: 0.8,
-        ..default()
-    });
-    // Lower body above the wheel bottoms and narrower than the wheels, so they show.
-    let (sill, belt) = (0.3, 0.55 * hgt);
-    commands.entity(car).with_children(|p| {
-        p.spawn((
-            Mesh3d(meshes.add(Cuboid::new(0.88 * wid, belt - sill, len))),
-            MeshMaterial3d(paint.clone()),
-            Transform::from_xyz(0.0, (sill + belt) / 2.0 - ride, 0.0),
-        ));
-        p.spawn((
-            Mesh3d(meshes.add(Cuboid::new(0.8 * wid, hgt - belt, 0.5 * len))),
-            MeshMaterial3d(glass),
-            Transform::from_xyz(0.0, (belt + hgt) / 2.0 - ride, 0.08 * len),
-        ));
-        for index in 0..4 {
-            let r = racer_dynamics::spec::tire_radius(if index < 2 {
-                &spec.tires.front
-            } else {
-                &spec.tires.rear
-            })
-            .unwrap_or(0.33) as f32;
-            p.spawn((
-                WheelVisual { index, spin: 0.0 },
-                Mesh3d(meshes.add(Cylinder::new(r, 0.24))),
-                MeshMaterial3d(tire.clone()),
-                Transform::default(),
-            ));
-        }
-    });
-    car
+    spawn_car(commands, spec, at, (Player, CarPaint(paint)))
+        .expect("car.toml is validated by tests")
 }
 
 fn select(keys: Res<ButtonInput<KeyCode>>, mut selection: ResMut<Selection>) {
@@ -262,8 +160,6 @@ fn respawn_car(
     selection: Res<Selection>,
     layout: Res<TrackLayout>,
     players: Query<Entity, With<Player>>,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     if !selection.is_changed() {
         return;
@@ -275,14 +171,7 @@ fn respawn_car(
     match load_car(id) {
         Ok(spec) => {
             let at = start_pose(selection.location, &layout.0);
-            spawn_player_car(
-                &mut commands,
-                &mut meshes,
-                &mut materials,
-                &spec,
-                PAINT[selection.car % 3],
-                at,
-            );
+            spawn_player_car(&mut commands, &spec, PAINT[selection.car % 3], at);
         }
         Err(e) => error!("cannot load {id}: {e}"),
     }
@@ -295,28 +184,6 @@ fn toggle_camera(keys: Res<ButtonInput<KeyCode>>, mut mode: ResMut<CameraMode>) 
             CameraMode::Hood => CameraMode::Chase,
             CameraMode::Fixed => CameraMode::Fixed,
         };
-    }
-}
-
-fn animate_wheels(
-    time: Res<Time>,
-    cars: Query<(&Car, &CarTelemetry, &Children)>,
-    mut wheels: Query<(&mut WheelVisual, &mut Transform)>,
-) {
-    for (car, telemetry, children) in &cars {
-        for child in children.iter() {
-            let Ok((mut wheel, mut transform)) = wheels.get_mut(child) else {
-                continue;
-            };
-            let w = &telemetry.telemetry.wheels[wheel.index];
-            wheel.spin = (wheel.spin - w.omega as f32 * time.delta_secs()) % std::f32::consts::TAU;
-            let g = car.vehicle.wheel_geometry(wheel.index);
-            *transform = Transform::from_translation(wheel_center(&g, w.travel)).with_rotation(
-                Quat::from_rotation_y(w.steer as f32)
-                    * Quat::from_rotation_x(wheel.spin)
-                    * Quat::from_rotation_z(std::f32::consts::FRAC_PI_2),
-            );
-        }
     }
 }
 

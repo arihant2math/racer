@@ -1,0 +1,126 @@
+# Downtown Loop: greybox city circuit through a grid of blocks.
+#
+# The route is a closed polyline of corner nodes in driving order; the road
+# runs straight between nodes and around each node on an arc of the node's
+# radius (a fillet). Width, elevation, banking and aprons are set per node
+# and blended smoothly between nodes. Walls line both sides of the road at
+# the outer edge of the apron everywhere, as building fronts and concrete
+# barriers would in a street circuit.
+#
+# Plan coordinates are metres: `at = [x, z]`, +x east, -z north (Bevy's
+# forward). Elevation is +y.
+#
+# racer-trackc validate data/tracks/downtown-loop
+# racer-trackc compile data/tracks/downtown-loop   # writes generated/
+id = "downtown-loop"
+name = "Downtown Loop"
+
+[defaults]
+width = 11.0        # road, kerb to kerb (m)
+apron = [1.5, 1.5]  # flat run-off between the road edge and the wall, left/right (m)
+radius = 14.0       # corner radius on the centreline (m)
+elevation = 0.0     # m
+bank_deg = 0.0      # positive: right edge lower
+wall_height = 1.1   # m above the road
+curb_width = 0.9    # m, laid on the apron side of the road edge
+
+# The south-west corner onto the main avenue.
+[[node]]
+at = [0.0, 60.0]
+radius = 16.0
+width = 13.0
+curbs = true
+
+# Turn 1, end of the 470 m main avenue: hard right, with an escape lane.
+[[node]]
+at = [0.0, -420.0]
+width = 13.0
+apron = [6.0, 1.5]
+curbs = true
+
+# Turns 2 and 3: a left-right through the grid.
+[[node]]
+at = [130.0, -420.0]
+radius = 12.0
+curbs = true
+
+[[node]]
+at = [130.0, -520.0]
+radius = 12.0
+curbs = true
+
+# Fast kink on the climb to the harbour side.
+[[node]]
+at = [300.0, -520.0]
+radius = 120.0
+elevation = 2.0
+curbs = true
+
+[[node]]
+at = [480.0, -460.0]
+radius = 22.0
+elevation = 4.0
+bank_deg = 3.0
+curbs = true
+
+# Hairpin: two 90-degree nodes whose arcs meet, banked a little.
+[[node]]
+at = [480.0, -230.0]
+radius = 11.0
+width = 12.0
+elevation = 4.0
+bank_deg = 3.0
+apron = [1.5, 2.5]
+curbs = true
+
+[[node]]
+at = [458.0, -230.0]
+radius = 11.0
+width = 12.0
+elevation = 4.0
+bank_deg = 3.0
+apron = [1.5, 2.5]
+curbs = true
+
+[[node]]
+at = [458.0, -300.0]
+elevation = 3.0
+curbs = true
+
+[[node]]
+at = [250.0, -300.0]
+elevation = 1.0
+curbs = true
+
+[[node]]
+at = [250.0, -150.0]
+radius = 13.0
+curbs = true
+
+[[node]]
+at = [170.0, -150.0]
+radius = 13.0
+curbs = true
+
+# Overpass: the avenue climbs 6 m over a cross street and drops back.
+[[node]]
+at = [170.0, -60.0]
+elevation = 6.0
+
+[[node]]
+at = [170.0, 60.0]
+radius = 16.0
+curbs = true
+
+[race]
+# Start line; the grid (2 staggered columns) lies behind it on the main avenue.
+start = [0.0, -30.0]
+grid_slots = 8
+grid_row_spacing = 7.0   # m between consecutive slots along the road
+grid_column_offset = 2.6 # m either side of the centreline
+# Sector boundaries (3 sectors); the start line closes the lap.
+sectors = [[215.0, -520.0], [350.0, -300.0]]
+checkpoint_spacing = 90.0
+# Sprint mode runs the same route opened: start on the grid, finish here,
+# just before the grid after one full loop.
+sprint_finish = [0.0, 42.0]

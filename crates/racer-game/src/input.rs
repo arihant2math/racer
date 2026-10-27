@@ -3,7 +3,10 @@
 
 use bevy::{input::gamepad::Gamepad, prelude::*};
 use racer_dynamics::{Assists, Controls};
-use racer_sim::vehicle::{Car, CarControls, CarTelemetry, VehicleSystems};
+use racer_sim::{
+    ai::AiDriver,
+    vehicle::{Car, CarControls, CarTelemetry, ControlSystems},
+};
 
 /// Reads devices every frame, applies them to the player's car every fixed step
 /// and sends force feedback back to the wheel.
@@ -14,7 +17,7 @@ impl Plugin for InputPlugin {
         app.init_resource::<DriverInput>()
             .init_resource::<DriverSettings>()
             .add_systems(PreUpdate, read_devices.after(bevy::input::InputSystems))
-            .add_systems(FixedUpdate, apply_to_car.before(VehicleSystems))
+            .add_systems(FixedUpdate, apply_to_car.in_set(ControlSystems))
             .add_systems(FixedPostUpdate, force_feedback);
         if !app.world().contains_resource::<Wheel>() {
             app.insert_resource(Wheel(default_wheel()));
@@ -160,7 +163,7 @@ fn apply_to_car(
     time: Res<Time>,
     settings: Res<DriverSettings>,
     mut input: ResMut<DriverInput>,
-    mut cars: Query<(&mut CarControls, &CarTelemetry), With<Player>>,
+    mut cars: Query<(&mut CarControls, &CarTelemetry), (With<Player>, Without<AiDriver>)>,
 ) {
     for (mut controls, telemetry) in &mut cars {
         let c = &mut controls.0;

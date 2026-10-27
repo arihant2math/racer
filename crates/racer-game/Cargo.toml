@@ -13,6 +13,7 @@ sdl3 = { workspace = true, optional = true }
 sdl3-sys = { workspace = true, optional = true }
 racer-render.workspace = true
 racer-sim.workspace = true
+racer-trackc.workspace = true
 
 [features]
 # Steering wheels with force feedback through SDL3 (built from source; needs cmake and a C compiler).

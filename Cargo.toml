@@ -12,6 +12,7 @@ publish = false
 # lockstep; upgrade at most once per milestone, behind a capture-diff gate.
 [workspace.dependencies]
 racer-dynamics = { path = "crates/racer-dynamics" }
+racer-trackc = { path = "crates/racer-trackc" }
 racer-sim = { path = "crates/racer-sim" }
 racer-render = { path = "crates/racer-render" }
 racer-game = { path = "crates/racer-game" }

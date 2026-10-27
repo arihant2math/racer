@@ -11,7 +11,7 @@ use racer_dynamics::{
     vehicle::WheelGeometry,
 };
 
-use crate::track::GroundSurface;
+use crate::track::{GroundSurface, Layer};
 
 /// Adds Avian physics and the vehicle step, and [`SimPlugin`](crate::SimPlugin)
 /// if the app lacks it: the model must run at the 240 Hz chassis rate.
@@ -22,18 +22,25 @@ impl Plugin for VehiclePlugin {
         if !app.is_plugin_added::<crate::SimPlugin>() {
             app.add_plugins(crate::SimPlugin);
         }
-        app.add_plugins(PhysicsPlugins::default()).add_systems(
-            FixedUpdate,
-            (drive_cars, record_acceleration)
-                .chain()
-                .in_set(VehicleSystems),
-        );
+        app.add_plugins(PhysicsPlugins::default())
+            .configure_sets(FixedUpdate, ControlSystems.before(VehicleSystems))
+            .add_systems(
+                FixedUpdate,
+                (drive_cars, record_acceleration)
+                    .chain()
+                    .in_set(VehicleSystems),
+            );
     }
 }
 
-/// The vehicle step; schedule input systems before it.
+/// The vehicle step.
 #[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct VehicleSystems;
+
+/// Systems that write [`CarControls`] (player input, AI drivers); they run
+/// before the vehicle step.
+#[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ControlSystems;
 
 /// A car: immutable parameters shared between all cars of the same model.
 #[derive(Component, Clone)]
@@ -108,10 +115,17 @@ pub fn spawn_car(
             Friction::new(0.4),
             Restitution::new(0.0),
             Transform::from_xyz(0.0, (bottom + top) / 2.0 - ride, 0.0),
+            CarBody,
+            CollisionLayers::new(Layer::Car, [Layer::World, Layer::Wall, Layer::Car]),
+            CollidingEntities::default(),
         ))
         .id();
     Ok(entity)
 }
+
+/// The body collider of a car (a child of the [`Car`] entity).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct CarBody;
 
 /// Wheel-centre position in the car's local frame for a cast distance.
 pub fn wheel_center(geometry: &WheelGeometry, travel: f64) -> Vec3 {
@@ -146,9 +160,8 @@ fn drive_cars(
             linear_velocity: forces.linear_velocity().as_dvec3(),
             angular_velocity: forces.angular_velocity().as_dvec3(),
         };
-        let filter = SpatialQueryFilter::from_excluded_entities(
-            std::iter::once(entity).chain(children.iter()),
-        );
+        let filter = SpatialQueryFilter::from_mask(Layer::World)
+            .with_excluded_entities(std::iter::once(entity).chain(children.iter()));
         let down = Dir3::new(rot * Vec3::NEG_Y).unwrap_or(Dir3::NEG_Y);
         let contacts: [Option<WheelContact>; 4] = std::array::from_fn(|i| {
             let g = v.wheel_geometry(i);
