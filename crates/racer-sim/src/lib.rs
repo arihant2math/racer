@@ -16,6 +16,35 @@ pub fn tick_duration() -> Duration {
     Duration::from_secs_f64(racer_dynamics::chassis_dt())
 }
 
+/// A headless app with Avian and the vehicle plugin (add more plugins
+/// before calling [`finish_headless`]) that advances exactly one tick per
+/// update. Single-threaded: inside one simulation the systems are too small
+/// to gain from threads, and runs parallelise across threads instead.
+pub fn headless_app() -> App {
+    use bevy::{app::TaskPoolOptions, time::TimeUpdateStrategy};
+    let mut app = App::new();
+    app.add_plugins((
+        MinimalPlugins.set(TaskPoolPlugin {
+            task_pool_options: TaskPoolOptions::with_num_threads(1),
+        }),
+        TransformPlugin,
+        SimPlugin,
+        vehicle::VehiclePlugin,
+    ))
+    .insert_resource(TimeUpdateStrategy::ManualDuration(tick_duration()));
+    app
+}
+
+/// Finishes a [`headless_app`] and switches every schedule to the
+/// single-threaded executor.
+pub fn finish_headless(app: &mut App) {
+    app.finish();
+    app.cleanup();
+    for (_, schedule) in app.world_mut().resource_mut::<Schedules>().iter_mut() {
+        schedule.set_executor(bevy::ecs::schedule::SingleThreadedExecutor::new());
+    }
+}
+
 /// Configures the fixed simulation step shared by client and server.
 pub struct SimPlugin;
 
@@ -31,21 +60,16 @@ mod tests {
 
     use std::f32::consts::FRAC_PI_2;
 
-    use bevy::time::TimeUpdateStrategy;
     use racer_dynamics::load_car;
 
     use crate::{
         track::{spawn_track, test_track},
-        vehicle::{CarControls, CarTelemetry, VehiclePlugin, spawn_car},
+        vehicle::{CarControls, CarTelemetry, spawn_car},
     };
 
-    /// Headless app with physics that advances exactly one tick per update.
     fn physics_app() -> App {
-        let mut app = App::new();
-        app.add_plugins((MinimalPlugins, TransformPlugin, SimPlugin, VehiclePlugin))
-            .insert_resource(TimeUpdateStrategy::ManualDuration(tick_duration()));
-        app.finish();
-        app.cleanup();
+        let mut app = headless_app();
+        finish_headless(&mut app);
         app
     }
 

@@ -313,8 +313,16 @@ fn ai_races(args: &[String]) -> Result<ExitCode, String> {
     let min_laps = if races * laps as usize >= 100 { 100 } else { 0 };
     let ok = race::report_mixed(&results, min_laps, &mut report);
     println!("{report}");
-    println!("{} races, {} s wall time", races, started.elapsed().as_secs());
+    println!(
+        "{} races, {} s wall time",
+        races,
+        started.elapsed().as_secs()
+    );
     let path = out_dir.join("mixed.md");
     std::fs::write(&path, &report).map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(if ok { ExitCode::SUCCESS } else { ExitCode::FAILURE })
+    Ok(if ok {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    })
 }

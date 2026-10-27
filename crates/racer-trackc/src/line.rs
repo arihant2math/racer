@@ -136,8 +136,7 @@ pub fn minimum_curvature(geometry: &Geometry, half_width: f32) -> RacingLine {
         let eps = 0.02 * stride as f32;
         let sweeps = if stride >= 8 { 3000 } else { 1500 };
         for _ in 0..sweeps {
-            for j in 0..m {
-                let k = idx[j];
+            for (j, &k) in idx.iter().enumerate() {
                 let x = offset[k];
                 let f0 = local(&offset, j);
                 offset[k] = x + eps;

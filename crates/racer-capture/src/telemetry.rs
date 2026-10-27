@@ -5,14 +5,13 @@
 use std::{fmt::Write as _, path::Path};
 
 use avian3d::prelude::{AngularVelocity, LinearVelocity};
-use bevy::{prelude::*, time::TimeUpdateStrategy};
+use bevy::prelude::*;
 use racer_dynamics::{CarSpec, Controls, load_car};
 use racer_sim::{
-    SimPlugin,
     autopilot::Autopilot,
     tick_duration,
     track::{SKIDPAD_CENTER, SKIDPAD_RADIUS, skidpad_start, spawn_track, test_track},
-    vehicle::{Car, CarControls, CarTelemetry, VehiclePlugin, spawn_car},
+    vehicle::{Car, CarControls, CarTelemetry, spawn_car},
 };
 
 /// Maneuvers written by [`run`], one `<car>-<maneuver>.csv` each.
@@ -31,11 +30,8 @@ struct Run {
 
 impl Run {
     fn new(spec: &CarSpec, at: Transform) -> Self {
-        let mut app = App::new();
-        app.add_plugins((MinimalPlugins, TransformPlugin, SimPlugin, VehiclePlugin))
-            .insert_resource(TimeUpdateStrategy::ManualDuration(tick_duration()));
-        app.finish();
-        app.cleanup();
+        let mut app = racer_sim::headless_app();
+        racer_sim::finish_headless(&mut app);
         let world = app.world_mut();
         let mut commands = world.commands();
         spawn_track(&mut commands, &test_track());

@@ -78,11 +78,10 @@ fn setup_world(
     spawn_track(&mut commands, &city_track(&track.0.geometry));
 }
 
+type RaceOrRacer = Or<(With<RaceEntity>, With<Racer>)>;
+
 /// Removes the last race's cars, HUD and resources.
-pub fn clear_race(
-    mut commands: Commands,
-    entities: Query<Entity, Or<(With<RaceEntity>, With<Racer>)>>,
-) {
+pub fn clear_race(mut commands: Commands, entities: Query<Entity, RaceOrRacer>) {
     for e in &entities {
         commands.entity(e).despawn();
     }

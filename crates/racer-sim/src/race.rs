@@ -463,7 +463,7 @@ type AiBody<'a> = (
     &'a Children,
 );
 
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn drive_ai(
     time: Res<Time>,
     track: Res<RaceTrack>,

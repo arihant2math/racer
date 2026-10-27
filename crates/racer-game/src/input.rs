@@ -159,11 +159,14 @@ fn read_devices(
     *input = next;
 }
 
+/// The player's car while a human drives it (not on autopilot).
+type HumanCar = (With<Player>, Without<AiDriver>);
+
 fn apply_to_car(
     time: Res<Time>,
     settings: Res<DriverSettings>,
     mut input: ResMut<DriverInput>,
-    mut cars: Query<(&mut CarControls, &CarTelemetry), (With<Player>, Without<AiDriver>)>,
+    mut cars: Query<(&mut CarControls, &CarTelemetry), HumanCar>,
 ) {
     for (mut controls, telemetry) in &mut cars {
         let c = &mut controls.0;

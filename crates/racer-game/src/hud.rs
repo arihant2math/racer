@@ -142,7 +142,9 @@ fn spawn_hud(mut commands: Commands, track: Res<RaceTrack>) {
         .with_children(|p| {
             p.spawn(text(HudText::Center, 96.0));
             p.spawn((
-                text(HudText::Warning, 40.0),
+                HudText::Warning,
+                Text::new(""),
+                TextFont::from_font_size(40.0),
                 TextColor(Color::srgb(1.0, 0.2, 0.15)),
             ));
         });

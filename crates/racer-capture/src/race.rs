@@ -6,25 +6,25 @@
 use std::{fmt::Write as _, sync::Arc};
 
 use avian3d::prelude::{CollidingEntities, LinearVelocity, Position};
-use bevy::{ecs::schedule::SingleThreadedExecutor, prelude::*, time::TimeUpdateStrategy};
+use bevy::prelude::*;
 use racer_dynamics::{load_car, spec::CARS};
 use racer_sim::{
-    SimPlugin,
     ai::{AiDriver, Difficulty},
     race::{
         DriverKind, Race, RaceConfig, RacePhase, RacePlugin, RaceTrack, Racer, Reset, spawn_racer,
     },
     rules::Status,
-    tick_duration,
     track::{city_track, spawn_track},
-    vehicle::{CarBody, VehiclePlugin},
+    vehicle::CarBody,
 };
 use racer_trackc::Track;
 
 /// No progress (5 m along the track) for this long counts as a stall.
 pub const STALL_AFTER: f32 = 10.0;
-/// A reset this soon after car-to-car contact counts as a contact reset.
+/// A reset this soon after car-to-car contact, or with another car this
+/// close, counts as a reset in traffic.
 pub const CONTACT_WINDOW: f32 = 5.0;
+pub const TRAFFIC_RADIUS: f32 = 12.0;
 /// No progress for this long counts as permanently stuck.
 pub const STUCK_FOR_GOOD: f32 = 60.0;
 
@@ -43,27 +43,12 @@ impl RaceSim {
         config: RaceConfig,
         entries: &[(&str, DriverKind)],
     ) -> Result<Self, String> {
-        let mut app = App::new();
-        app.add_plugins((
-            MinimalPlugins.set(TaskPoolPlugin {
-                task_pool_options: TaskPoolOptions::with_num_threads(1),
-            }),
-            TransformPlugin,
-            SimPlugin,
-            VehiclePlugin,
-            RacePlugin,
-        ))
-        .insert_resource(TimeUpdateStrategy::ManualDuration(tick_duration()))
-        .insert_resource(Race::new(&config))
-        .insert_resource(config)
-        .insert_resource(RaceTrack(track.clone()));
-        app.finish();
-        app.cleanup();
-        // Runs are parallelised across threads by the caller; inside one run
-        // the systems are too small to gain from Bevy's multi-threaded executor.
-        for (_, schedule) in app.world_mut().resource_mut::<Schedules>().iter_mut() {
-            schedule.set_executor(SingleThreadedExecutor::new());
-        }
+        let mut app = racer_sim::headless_app();
+        app.add_plugins(RacePlugin)
+            .insert_resource(Race::new(&config))
+            .insert_resource(config)
+            .insert_resource(RaceTrack(track.clone()));
+        racer_sim::finish_headless(&mut app);
         let world = app.world_mut();
         let mut commands = world.commands();
         spawn_track(&mut commands, &city_track(&track.geometry));
@@ -95,7 +80,12 @@ impl RaceSim {
                     .expect("car body")
             })
             .collect();
-        Ok(RaceSim { app, cars, bodies, track })
+        Ok(RaceSim {
+            app,
+            cars,
+            bodies,
+            track,
+        })
     }
 
     pub fn step(&mut self) {
@@ -140,7 +130,8 @@ pub struct CarRun {
     /// Every completed lap's time; the first is from the standing start.
     pub laps: Vec<f32>,
     pub resets: Vec<Reset>,
-    /// Resets within [`CONTACT_WINDOW`] of touching another car.
+    /// Resets in traffic: within [`CONTACT_WINDOW`] of touching another car
+    /// or with one within [`TRAFFIC_RADIUS`].
     pub contact_resets: usize,
     /// Episodes of car-to-car contact.
     pub contacts: u32,
@@ -150,6 +141,9 @@ pub struct CarRun {
     pub longest_stall: f32,
     /// Lap time the driver's own speed profile predicts.
     pub planned: f32,
+    /// Grid slot and final position (1-based).
+    pub start: usize,
+    pub finish: usize,
     /// Fastest flying lap at 60 Hz: line distance, speed, target speed,
     /// grip trim, lateral error, front and rear slip angle, throttle, brake.
     pub trace: Vec<[f32; 9]>,
@@ -202,6 +196,8 @@ impl Watch {
                     .world()
                     .get::<AiDriver>(e)
                     .map_or(0.0, |ai| ai.planned_lap_time(&sim.track.line)),
+                start: sim.racer(e).slot + 1,
+                finish: 0,
                 trace: Vec::new(),
             })
             .collect();
@@ -224,6 +220,7 @@ impl Watch {
         for (i, &car) in sim.cars.iter().enumerate() {
             let r = sim.racer(car);
             let run = &mut self.runs[i];
+            run.finish = r.position;
             if r.timing.laps.len() > run.laps.len() {
                 let t = *r.timing.laps.last().unwrap();
                 run.laps.push(t);
@@ -275,8 +272,13 @@ impl Watch {
                 self.contact[i].0 = now;
             }
             self.contact[i].1 = touching;
+            let here = sim.position(car);
+            let crowded = sim
+                .cars
+                .iter()
+                .any(|&o| o != car && sim.position(o).distance(here) < TRAFFIC_RADIUS);
             for reset in &r.resets[run.resets.len()..] {
-                if reset.time - self.contact[i].0 < CONTACT_WINDOW {
+                if reset.time - self.contact[i].0 < CONTACT_WINDOW || crowded {
                     run.contact_resets += 1;
                 }
             }
@@ -353,43 +355,80 @@ pub fn mixed(track: Arc<Track>, index: usize, laps: u32) -> Result<Vec<CarRun>, 
         seed ^= seed << 17;
         entries.swap(i, (seed % (i as u64 + 1)) as usize);
     }
-    let config = RaceConfig {
-        laps,
-        ..default()
-    };
-    let slowest = CARS.iter().filter_map(|c| track.car(c)).map(|c| c.lap_time).fold(0.0, f32::max);
+    let config = RaceConfig { laps, ..default() };
+    let slowest = CARS
+        .iter()
+        .filter_map(|c| track.car(c))
+        .map(|c| c.lap_time)
+        .fold(0.0, f32::max);
     let limit = slowest * 1.6 * laps as f32 + 120.0;
     run(track, config, &entries, laps, limit)
 }
 
 /// Text report of mixed races, and whether every check passed: no car
-/// permanently stuck, every difficulty at `min_laps` or more, and resets
-/// without contact rare (at most one per 100 laps per difficulty).
+/// permanently stuck, every difficulty at `min_laps` or more, no reset of a
+/// car alone (away from traffic), and resets in traffic at most one per 25
+/// laps per difficulty.
 pub fn report_mixed(races: &[Vec<CarRun>], min_laps: usize, out: &mut String) -> bool {
     let mut ok = true;
     let _ = writeln!(
         out,
-        "| Difficulty | Cars | Laps | Contacts | Resets after contact | Other resets | Stalls (>{STALL_AFTER:.0} s) | Longest stall (s) | Permanently stuck | |"
+        "| Difficulty | Cars | Mean grid slot | Mean finish | Laps | Contacts | Resets in traffic | Resets alone | Stalls (>{STALL_AFTER:.0} s) | Longest stall (s) | Permanently stuck | |"
     );
-    let _ = writeln!(out, "|---|---|---|---|---|---|---|---|---|---|");
+    let _ = writeln!(out, "|---|---|---|---|---|---|---|---|---|---|---|---|");
     for d in Difficulty::ALL {
-        let runs: Vec<&CarRun> = races.iter().flatten().filter(|r| r.difficulty == d).collect();
+        let runs: Vec<&CarRun> = races
+            .iter()
+            .flatten()
+            .filter(|r| r.difficulty == d)
+            .collect();
         let laps: usize = runs.iter().map(|r| r.laps.len()).sum();
         let contacts: u32 = runs.iter().map(|r| r.contacts).sum();
         let contact_resets: usize = runs.iter().map(|r| r.contact_resets).sum();
         let other: usize = runs.iter().map(|r| r.resets.len() - r.contact_resets).sum();
         let stalls: u32 = runs.iter().map(|r| r.stalls).sum();
         let longest = runs.iter().map(|r| r.longest_stall).fold(0.0, f32::max);
-        let stuck = runs.iter().filter(|r| r.longest_stall >= STUCK_FOR_GOOD).count();
-        let pass = stuck == 0 && laps >= min_laps && other * 100 <= laps.max(1);
+        let stuck = runs
+            .iter()
+            .filter(|r| r.longest_stall >= STUCK_FOR_GOOD)
+            .count();
+        let pass =
+            stuck == 0 && laps >= min_laps && other == 0 && contact_resets * 25 <= laps.max(25);
         ok &= pass;
+        let mean = |f: fn(&CarRun) -> usize| {
+            runs.iter().map(|r| f(r)).sum::<usize>() as f32 / runs.len().max(1) as f32
+        };
         let _ = writeln!(
             out,
-            "| {} | {} | {laps} | {contacts} | {contact_resets} | {other} | {stalls} | {longest:.1} | {stuck} | {} |",
+            "| {} | {} | {:.1} | {:.1} | {laps} | {contacts} | {contact_resets} | {other} | {stalls} | {longest:.1} | {stuck} | {} |",
             d.name(),
             runs.len(),
+            mean(|r| r.start),
+            mean(|r| r.finish),
             if pass { "ok" } else { "**FAIL**" }
         );
+    }
+    for (i, race) in races.iter().enumerate() {
+        let mut order: Vec<&CarRun> = race.iter().collect();
+        order.sort_by_key(|r| r.finish);
+        let line: Vec<String> = order
+            .iter()
+            .map(|r| {
+                let best = r.laps.iter().copied().fold(f32::MAX, f32::min);
+                format!(
+                    "{} {} (P{}->P{}, {} laps, best {:.1}, {} contacts, {} resets)",
+                    r.difficulty.name(),
+                    r.car.split('-').nth(1).unwrap_or(&r.car),
+                    r.start,
+                    r.finish,
+                    r.laps.len(),
+                    best,
+                    r.contacts,
+                    r.resets.len()
+                )
+            })
+            .collect();
+        let _ = writeln!(out, "\nRace {}: {}", i + 1, line.join("; "));
     }
     for run in races.iter().flatten() {
         for r in &run.resets {

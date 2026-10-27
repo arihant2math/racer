@@ -440,7 +440,7 @@ fn menu_input(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
     pads: Query<&Gamepad>,
-    items: Query<(&MenuItem, &MenuIndex, &Interaction)>,
+    items: Query<(&MenuItem, &MenuIndex, Ref<Interaction>)>,
     pause_menus: Query<Entity, With<PauseMenu>>,
     just_paused: Query<(), Added<PauseMenu>>,
     mut cursor: ResMut<MenuCursor>,
@@ -474,14 +474,11 @@ fn menu_input(
     if key(&[KeyCode::ArrowRight]) || pad(GamepadButton::DPadRight) {
         dir = 1;
     }
+    // A click selects and activates; the highlight otherwise follows the keys.
     for (_, index, interaction) in &items {
-        match interaction {
-            Interaction::Pressed => {
-                cursor.0 = index.0;
-                activate = true;
-            }
-            Interaction::Hovered => cursor.0 = index.0,
-            Interaction::None => {}
+        if *interaction == Interaction::Pressed && interaction.is_changed() {
+            cursor.0 = index.0;
+            activate = true;
         }
     }
     let Some((item, _, _)) = items.iter().find(|(_, i, _)| i.0 == cursor.0) else {

@@ -24,7 +24,7 @@ use bevy::{
         view::screenshot::{Screenshot, ScreenshotCaptured},
     },
 };
-use racer_game::greybox::SceneCamera;
+use racer_game::{driving::CameraMode, greybox::SceneCamera};
 
 /// Frames the pipeline cache must stay settled before a capture.
 pub const STABLE_FRAMES: u32 = 10;
@@ -32,11 +32,36 @@ pub const STABLE_FRAMES: u32 = 10;
 /// Extra time after the deadline before the watchdog kills the process.
 const WATCHDOG_GRACE: Duration = Duration::from_secs(30);
 
-/// A named camera pose.
+/// Where the camera is for a capture.
+#[derive(Clone, Copy, Debug)]
+pub enum PoseCamera {
+    Fixed(Transform),
+    /// Computed from the world when the capture is due (follows the action).
+    Dynamic(fn(&World) -> Transform),
+    /// Left to the game (chase camera).
+    Game,
+}
+
+/// A named capture: camera, plus an optional hook run when the pose starts
+/// and a condition to wait for (the scene runs, unpaused, until it holds;
+/// virtual time is paused while the frame settles and is captured).
 #[derive(Clone, Debug)]
 pub struct Pose {
     pub name: String,
-    pub transform: Transform,
+    pub camera: PoseCamera,
+    pub prepare: Option<fn(&mut World)>,
+    pub ready: Option<fn(&World) -> bool>,
+}
+
+impl Pose {
+    pub fn fixed(name: &str, transform: Transform) -> Self {
+        Pose {
+            name: name.into(),
+            camera: PoseCamera::Fixed(transform),
+            prepare: None,
+            ready: None,
+        }
+    }
 }
 
 /// Captures one screenshot per pose into `out_dir`, then exits.
@@ -64,7 +89,9 @@ impl PipelineStatus {
 
 #[derive(Default)]
 enum Phase {
+    /// Running the scene until the pose's condition holds.
     #[default]
+    Starting,
     Settling,
     Waiting,
 }
@@ -77,6 +104,8 @@ struct CaptureRun {
     index: usize,
     phase: Phase,
     frames_in_pose: u32,
+    /// Camera transform for the current capture (`None`: the game's).
+    camera: Option<Transform>,
     stable_frames: u32,
     rejected: u32,
 }
@@ -101,14 +130,16 @@ impl Plugin for CapturePlugin {
             out_dir: self.out_dir.clone(),
             deadline,
             index: 0,
-            phase: Phase::Settling,
+            phase: Phase::Starting,
             frames_in_pose: 0,
+            camera: None,
             stable_frames: 0,
             rejected: 0,
         })
         .init_resource::<Delivered>()
         .init_resource::<PipelineStatus>()
-        .add_systems(Update, drive);
+        .add_systems(Update, drive)
+        .add_systems(Last, run_hooks);
     }
 
     fn finish(&self, app: &mut App) {
@@ -139,6 +170,47 @@ fn publish_pipeline_status(cache: Res<PipelineCache>, status: Res<PipelineStatus
     f.store(failed, Ordering::Relaxed);
 }
 
+/// Runs the current pose's `prepare` hook and checks its `ready` condition
+/// (exclusive, so hooks may change anything), pausing virtual time once ready.
+fn run_hooks(world: &mut World) {
+    let (pose, starting) = {
+        let run = world.resource::<CaptureRun>();
+        (
+            run.poses.get(run.index).cloned(),
+            matches!(run.phase, Phase::Starting),
+        )
+    };
+    let Some(pose) = pose else { return };
+    if !starting {
+        return;
+    }
+    let mut run = world.resource_mut::<CaptureRun>();
+    let first = run.frames_in_pose == 0;
+    run.frames_in_pose += 1;
+    if first && let Some(prepare) = pose.prepare {
+        prepare(world);
+    }
+    if pose.ready.is_none_or(|ready| ready(world)) {
+        let camera = match pose.camera {
+            PoseCamera::Fixed(t) => Some(t),
+            PoseCamera::Dynamic(f) => Some(f(world)),
+            PoseCamera::Game => None,
+        };
+        if let Some(mut mode) = world.get_resource_mut::<CameraMode>() {
+            *mode = if camera.is_some() {
+                CameraMode::Fixed
+            } else {
+                CameraMode::Chase
+            };
+        }
+        world.resource_mut::<Time<Virtual>>().pause();
+        let mut run = world.resource_mut::<CaptureRun>();
+        run.camera = camera;
+        run.phase = Phase::Settling;
+        run.frames_in_pose = 0;
+    }
+}
+
 fn drive(
     mut commands: Commands,
     mut run: ResMut<CaptureRun>,
@@ -146,6 +218,7 @@ fn drive(
     status: Res<PipelineStatus>,
     camera: Option<Single<&mut Transform, With<SceneCamera>>>,
     mut exit: MessageWriter<AppExit>,
+    mut virtual_time: ResMut<Time<Virtual>>,
 ) {
     let Some(mut camera) = camera else {
         error!("the scene must have exactly one SceneCamera");
@@ -174,9 +247,12 @@ fn drive(
     };
 
     match run.phase {
+        Phase::Starting => {}
         Phase::Settling => {
-            if run.frames_in_pose == 0 {
-                **camera = pose.transform;
+            if run.frames_in_pose == 0
+                && let Some(t) = run.camera
+            {
+                **camera = t;
             }
             run.frames_in_pose += 1;
             let ready = total > 0 && pending == 0 && failed == 0;
@@ -221,6 +297,8 @@ fn drive(
                     );
                     run.index += 1;
                     run.frames_in_pose = 0;
+                    run.phase = Phase::Starting;
+                    virtual_time.unpause();
                 }
                 Err(reason) => {
                     run.rejected += 1;
