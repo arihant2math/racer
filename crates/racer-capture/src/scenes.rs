@@ -121,7 +121,7 @@ pub fn add_scene(app: &mut App, name: &str) -> Option<Vec<Pose>> {
                     name: "hud".into(),
                     camera: PoseCamera::Game,
                     prepare: None,
-                    ready: Some(|w| race_time(w) > 32.0),
+                    ready: Some(|w| race_time(w) > 14.0),
                 },
                 Pose {
                     name: "results".into(),
