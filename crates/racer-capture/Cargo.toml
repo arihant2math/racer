@@ -10,6 +10,7 @@ publish.workspace = true
 bevy = { workspace = true, features = ["3d"] }
 image.workspace = true
 racer-game.workspace = true
+racer-render.workspace = true
 racer-sim.workspace = true
 racer-dynamics.workspace = true
 avian3d.workspace = true

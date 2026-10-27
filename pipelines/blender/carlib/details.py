@@ -298,7 +298,8 @@ def add_details(geo, cfg, mats, mi, objs):
                 t = 2 * math.pi * k / 64
                 p = disc_pt(rr, t)
                 hit, _ = geo.ray(p + a * 0.5, -a)
-                q = hit if hit is not None else p
+                # Stay on the fender: ignore hits far behind the lamp face.
+                q = hit if hit is not None and (hit - p).dot(a) > -0.04 else p
                 dome = hl["lens_dome"] * (1 - (rr / r) ** 2)
                 row.append(q + a * (0.002 + dome))
             rings.append(row)
@@ -310,7 +311,7 @@ def add_details(geo, cfg, mats, mi, objs):
         # Chrome reflector cone from the back plate to just behind the lens.
         cone = [[disc_pt(rr, 2 * math.pi * k / 48, dd) for k in range(48)]
                 for rr, dd in ((r * 0.98, back), (r * 0.98, 0.02))]
-        fb.quad_strip(cone, BLACK, close=True)
+        fb.quad_strip(cone, CHROME, close=True)
         # Four-point DRL: tangential bars at 45 deg intervals around the projector.
         for k in range(4):
             t = math.radians(45 + 90 * k)
@@ -356,11 +357,13 @@ def add_details(geo, cfg, mats, mi, objs):
         y0, y1 = it["y"]
         z0, z1 = it["z"]
         for side in ((1, -1) if y0 > 0 else (1,)):
-            hit, _ = geo.surface_from_front(side * (y0 + y1) / 2, (z0 + z1) / 2)
             for k in range(it.get("slats", 0)):
                 z = z0 + (z1 - z0) * (k + 1) / (it["slats"] + 1)
-                fb.box(Vector((side * (y0 + y1) / 2, hit.y - it["depth"] / 2 - 0.01, z)),
-                       (abs(y1 - y0) - 0.01, it["depth"] - 0.01, 0.008), BLACK)
+                # Behind the most recessed point of the opening (corners curve back).
+                ys = [geo.surface_from_front(side * yy, z)[0] for yy in np.linspace(y0, y1, 7)]
+                back = min(h.y for h in ys if h is not None)
+                fb.box(Vector((side * (y0 + y1) / 2, back - 0.025, z)),
+                       (abs(y1 - y0) - 0.01, 0.03, 0.008), BLACK)
     out["lights_front"] = fb.finish("lights_front")
 
     # Rear light bar across the tail, plus the third brake light.

@@ -45,6 +45,7 @@ class Frame:
             self.wheel[key] = dict(center=Vector((x, s_mid - s, r)), width=width, sidewall=side,
                                    rim_r=rr, radius=r, spec=spec, axle=axle)
         self.bvh = None
+        self.brakes = {}
 
     def b(self, s, y, z):
         return Vector((y, self.s_mid - s, z))
@@ -115,9 +116,9 @@ def _rim(width, rr, seg, spokes):
     n_pairs = spokes // 2
     r_in, r_out = 0.075, rr - 0.018
     for k in range(n_pairs):
-        for off in (-0.085, 0.085):
-            th = 2 * math.pi * k / n_pairs + off
-            _spoke(bm, uvl, th, r_in, r_out, face_x, 0.034, 0.020, 0.03)
+        for off in (-0.13, 0.13):
+            th = 2 * math.pi * k / n_pairs
+            _spoke(bm, uvl, (th + off * 0.3, th + off), r_in, r_out, face_x, 0.022, 0.016, 0.03)
     # Hub and centre cap.
     hv, hf, huv = meshkit.revolve([(0.0, face_x + 0.012), (0.04, face_x + 0.012), (0.05, face_x + 0.006),
                                    (0.088, face_x), (0.092, face_x - 0.03), (0.06, face_x - 0.06)],
@@ -136,14 +137,16 @@ def _rim(width, rr, seg, spokes):
     return bm
 
 
-def _spoke(bm, uvl, th, r_in, r_out, face_x, w_in, w_out, depth):
-    c, s = math.cos(th), math.sin(th)
-    radial = np.array([0, c, s])
-    tang = np.array([0, -s, c])
-    n = 8
+def _spoke(bm, uvl, ths, r_in, r_out, face_x, w_in, w_out, depth):
+    """One spoke from the hub to the rim; its angle runs from ths[0] to ths[1]."""
+    n = 10
     rings = []
     for i in range(n + 1):
         t = i / n
+        th = ths[0] + (ths[1] - ths[0]) * t
+        c, s = math.cos(th), math.sin(th)
+        radial = np.array([0, c, s])
+        tang = np.array([0, -s, c])
         r = r_in + (r_out - r_in) * t
         w = (w_in + (w_out - w_in) * t) / 2
         x = face_x - 0.012 * math.sin(math.pi * t) - 0.004 * t
@@ -179,7 +182,7 @@ def _add(bm, uvl, verts, faces, uvs, mat):
     return vs
 
 
-def _brake(disc_r, caliper_side, width_hint):
+def _brake(disc_r, caliper_side):
     bm = bmesh.new()
     uvl = bm.loops.layers.uv.new("UVMap")
     t = 0.032
@@ -204,10 +207,6 @@ def _brake(disc_r, caliper_side, width_hint):
     cal.free()
     bm.from_mesh(me)
     bpy.data.meshes.remove(me)
-    for f in bm.faces:
-        if f.material_index == 0 and all(abs(l.vert.co.x - x0) > 0.02 or l.vert.co.length > disc_r + 0.01
-                                          for l in f.loops):
-            pass
     return bm
 
 
@@ -231,16 +230,14 @@ def wheels(geo, mats):
         ob.location = w["center"]
         out[ob.name] = ob
         # Brake disc and caliper (do not spin with the wheel; same origin).
-        disc_r = geo.ch.get("brake_disc_m", 0.35) / 2
-        bm = _brake(disc_r, -60 if w["axle"] == 0 else 60, w["width"])
+        disc_mm = geo.brakes.get("front_disc_mm" if w["axle"] == 0 else "rear_disc_mm", 330.0)
+        disc_r = disc_mm / 2000
+        bm = _brake(disc_r, 60 if w["axle"] == 0 else -60)
         if left:
             bmesh.ops.scale(bm, vec=(-1, 1, 1), verts=bm.verts)
             bmesh.ops.reverse_faces(bm, faces=bm.faces)
         bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-        # material slots: disc, hat, caliper (the cube faces default to slot 0 -> caliper)
-        for f in bm.faces:
-            pass
-        ob = meshkit.bm_to_object(f"brake_{key}", bm, [mats["brake_caliper"], mats["rim"]])
+        ob = meshkit.bm_to_object(f"brake_{key}", bm, [mats["brake_caliper"], mats["trim_black"]])
         bm.free()
         _fix_brake_materials(ob, disc_r)
         meshkit.set_sharp_by_angle(ob, 35)
@@ -255,7 +252,6 @@ def _fix_brake_materials(ob, disc_r):
     me = ob.data
     if len(me.materials) < 2:
         return
-    me.materials.append(me.materials[1])
     for p in me.polygons:
         c = p.center
         r = math.hypot(c.y, c.z)
@@ -451,6 +447,28 @@ def _drop_loose(bm, hull_result):
     bmesh.ops.delete(bm, geom=list(kill), context="VERTS")
 
 
+def _hull_points(p):
+    tmp = bmesh.new()
+    vs = [tmp.verts.new(v) for v in p[:: max(1, len(p) // 6000)]]
+    res = bmesh.ops.convex_hull(tmp, input=vs)
+    _drop_loose(tmp, res)
+    out = np.array([v.co[:] for v in tmp.verts])
+    tmp.free()
+    return out
+
+
+def _farthest_points(p, n):
+    if len(p) <= n:
+        return p
+    idx = [int(np.argmax(p[:, 2]))]
+    d = np.linalg.norm(p - p[idx[0]], axis=1)
+    for _ in range(n - 1):
+        i = int(np.argmax(d))
+        idx.append(i)
+        d = np.minimum(d, np.linalg.norm(p - p[i], axis=1))
+    return p[idx]
+
+
 def collision(objs, geo):
     """A few convex pieces: lower body split along the length, plus the cabin."""
     pts = []
@@ -477,28 +495,18 @@ def collision(objs, geo):
     for p in pieces:
         if len(p) < 4:
             continue
-        sub = p[:: max(1, len(p) // 4000)]
+        hull_pts = _hull_points(p)
+        # Fewer vertices by farthest-point sampling of the hull's own points:
+        # a subset of the points, so the simplified hull stays inside the body.
+        keep = _farthest_points(hull_pts, 48)
         tmp = bmesh.new()
-        vs = [tmp.verts.new(v) for v in sub]
+        vs = [tmp.verts.new(v) for v in keep]
         res = bmesh.ops.convex_hull(tmp, input=vs)
         _drop_loose(tmp, res)
         me = bpy.data.meshes.new("hull")
         tmp.to_mesh(me)
         tmp.free()
-        hull = bpy.data.objects.new("hull", me)
-        bpy.context.scene.collection.objects.link(hull)
-        mod = hull.modifiers.new("dec", "DECIMATE")
-        mod.ratio = min(1.0, 120 / max(1, len(me.polygons)))
-        meshkit.apply_modifiers(hull)
-        # Decimation can break convexity slightly: re-hull the decimated points.
-        tmp = bmesh.new()
-        vs = [tmp.verts.new(v.co) for v in hull.data.vertices]
-        res = bmesh.ops.convex_hull(tmp, input=vs)
-        _drop_loose(tmp, res)
-        tmp.to_mesh(me)
-        tmp.free()
         bm.from_mesh(me)
-        bpy.data.objects.remove(hull)
         bpy.data.meshes.remove(me)
     ob = meshkit.bm_to_object("collision", bm, [], smooth=False)
     bm.free()

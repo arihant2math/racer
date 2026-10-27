@@ -10,10 +10,13 @@ use racer_sim::{
     vehicle::VehiclePlugin,
 };
 
-use crate::harness::Pose;
+use crate::{
+    car_asset::{self, CarAssetPlugin},
+    harness::Pose,
+};
 
 /// Names accepted by [`add_scene`].
-pub const SCENES: &[&str] = &["greybox", "driving"];
+pub const SCENES: &[&str] = &["greybox", "driving", "car-asset"];
 
 /// Adds the named scene to `app` and returns its camera poses.
 pub fn add_scene(app: &mut App, name: &str) -> Option<Vec<Pose>> {
@@ -71,6 +74,15 @@ pub fn add_scene(app: &mut App, name: &str) -> Option<Vec<Pose>> {
                     look(SKIDPAD_CENTER + Vec3::new(0.0, 60.0, 90.0), SKIDPAD_CENTER),
                 ),
             ])
+        }
+        "car-asset" => {
+            app.add_plugins(CarAssetPlugin);
+            Some(
+                car_asset::poses()
+                    .into_iter()
+                    .map(|(name, transform)| pose(name, transform))
+                    .collect(),
+            )
         }
         _ => None,
     }

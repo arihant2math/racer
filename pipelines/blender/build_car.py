@@ -32,7 +32,7 @@ def make_materials(cfg):
         "car_paint": dict(color=pc, metallic=0.6, roughness=0.35, coat=1.0),
         "glass": dict(color=(0.02, 0.025, 0.03), metallic=0.0, roughness=0.05, alpha=0.35),
         "rubber": dict(color=(0.025, 0.025, 0.025), roughness=0.85),
-        "rim": dict(color=(0.42, 0.43, 0.45), metallic=1.0, roughness=0.28),
+        "rim": dict(color=(0.30, 0.31, 0.33), metallic=1.0, roughness=0.3),
         "chrome": dict(color=(0.9, 0.9, 0.92), metallic=1.0, roughness=0.08),
         "light_emissive_front": dict(color=(0.9, 0.92, 1.0), roughness=0.1,
                                      emission=(0.9, 0.95, 1.0), emission_strength=4.0),
@@ -89,6 +89,7 @@ def main():
         raise SystemExit(f"arch spacing {rear - front} != wheelbase {ch['wheelbase_m']}")
     s_mid = (front + rear) / 2
     geo = parts.Frame(body, s_mid, ch, car["tires"], cfg)
+    geo.brakes = car.get("brakes", {})
 
     shell = bodymesh.build(body, cfg, s_mid, mat_idx, mat_list)
     print(f"[build] shell {meshkit.tri_count(shell)} tris, {time.time() - t0:.1f}s", flush=True)
@@ -107,13 +108,14 @@ def main():
     print(f"[build] parts done {time.time() - t0:.1f}s", flush=True)
 
     os.makedirs(args.out, exist_ok=True)
-    stats = parts.export_all(objs, sockets, collision, args.out, lods=not args.no_lods)
-    stats["build_seconds"] = round(time.time() - t0, 1)
-    stats["dimensions"] = parts.measure(objs)
-    with open(os.path.join(args.out, "stats.json"), "w") as f:
-        json.dump(stats, f, indent=2, sort_keys=True)
     if args.blend:
         bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(args.blend))
+    dims = parts.measure(objs)
+    stats = parts.export_all(objs, sockets, collision, args.out, lods=not args.no_lods)
+    stats["build_seconds"] = round(time.time() - t0, 1)
+    stats["dimensions"] = dims
+    with open(os.path.join(args.out, "stats.json"), "w") as f:
+        json.dump(stats, f, indent=2, sort_keys=True)
     print(json.dumps(stats, indent=2), flush=True)
 
 
