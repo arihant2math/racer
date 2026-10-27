@@ -61,3 +61,7 @@ debug = false
 
 [profile.release]
 debug = "line-tables-only"
+
+# Geometry checks over ~500k-triangle meshes; too slow unoptimised in tests.
+[profile.dev.package.racer-assetqa]
+opt-level = 3

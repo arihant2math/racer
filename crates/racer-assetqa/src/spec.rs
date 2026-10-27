@@ -20,13 +20,9 @@ impl Tyre {
         let err = || format!("cannot parse tyre size {s:?}");
         let (width, rest) = s.trim().split_once('/').ok_or_else(err)?;
         let width: f32 = width.trim().parse().map_err(|_| err())?;
-        let aspect_end = rest
-            .find(|c: char| !c.is_ascii_digit())
-            .ok_or_else(err)?;
+        let aspect_end = rest.find(|c: char| !c.is_ascii_digit()).ok_or_else(err)?;
         let aspect: f32 = rest[..aspect_end].parse().map_err(|_| err())?;
-        let rim_start = rest
-            .rfind(|c: char| !c.is_ascii_digit())
-            .ok_or_else(err)?;
+        let rim_start = rest.rfind(|c: char| !c.is_ascii_digit()).ok_or_else(err)?;
         let rim: f32 = rest[rim_start + 1..].parse().map_err(|_| err())?;
         Ok(Tyre {
             width: width / 1000.0,
@@ -93,8 +89,7 @@ impl CarSpec {
     }
 
     pub fn load(path: &Path) -> Result<CarSpec, String> {
-        let text =
-            std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
         CarSpec::from_toml(&text).map_err(|e| format!("{}: {e}", path.display()))
     }
 
@@ -108,8 +103,16 @@ impl CarSpec {
         } else {
             (self.track_rear, self.tyre_rear)
         };
-        let x = if wheel.ends_with('l') { -track / 2.0 } else { track / 2.0 };
-        let z = if front { -self.wheelbase / 2.0 } else { self.wheelbase / 2.0 };
+        let x = if wheel.ends_with('l') {
+            -track / 2.0
+        } else {
+            track / 2.0
+        };
+        let z = if front {
+            -self.wheelbase / 2.0
+        } else {
+            self.wheelbase / 2.0
+        };
         [x, tyre.radius, z]
     }
 
@@ -142,6 +145,9 @@ mod tests {
             .join("../../data/cars/porsche-911-carrera-s-992/car.toml");
         let spec = CarSpec::load(&path).unwrap();
         assert_eq!(spec.wheelbase, 2.45);
-        assert_eq!(spec.hub("fl"), [-1.589 / 2.0, spec.tyre_front.radius, -1.225]);
+        assert_eq!(
+            spec.hub("fl"),
+            [-1.589 / 2.0, spec.tyre_front.radius, -1.225]
+        );
     }
 }

@@ -70,7 +70,11 @@ fn to_height(img: &RgbImage, height: u32) -> RgbImage {
 pub fn side_by_side(a: &RgbImage, b: &RgbImage, height: u32) -> RgbImage {
     let (a, b) = (to_height(a, height), to_height(b, height));
     let gap = 16;
-    let mut out = RgbImage::from_pixel(a.width() + gap + b.width(), height, image::Rgb([255, 255, 255]));
+    let mut out = RgbImage::from_pixel(
+        a.width() + gap + b.width(),
+        height,
+        image::Rgb([255, 255, 255]),
+    );
     imageops::replace(&mut out, &a, 0, 0);
     imageops::replace(&mut out, &b, (a.width() + gap) as i64, 0);
     out
@@ -86,9 +90,14 @@ fn blueprint_views(sheet: &Sheet, refs_dir: &Path) -> Vec<(String, RgbImage)> {
         .iter()
         .map(|v| {
             let [x0, y0, x1, y1] = v.crop;
-            let mut crop =
-                imageops::crop_imm(&img, x0, y0, x1.min(img.width()) - x0, y1.min(img.height()) - y0)
-                    .to_image();
+            let mut crop = imageops::crop_imm(
+                &img,
+                x0,
+                y0,
+                x1.min(img.width()) - x0,
+                y1.min(img.height()) - y0,
+            )
+            .to_image();
             // Present every view with the front on the left, like the renders.
             if v.front.as_deref() == Some("right") {
                 crop = imageops::flip_horizontal(&crop);
@@ -118,7 +127,11 @@ pub fn run(o: &ReviewOptions) -> Gate {
     let mut g = Gate::new(5, name);
     if !o.reuse {
         let Some(blender) = find_blender(o.root) else {
-            return Gate::skipped(5, name, "Blender not found (run tools/setup.sh --with-blender or set BLENDER)");
+            return Gate::skipped(
+                5,
+                name,
+                "Blender not found (run tools/setup.sh --with-blender or set BLENDER)",
+            );
         };
         let script = o.root.join("pipelines/blender/qa/review_render.py");
         let out = Command::new(&blender)
@@ -131,13 +144,20 @@ pub fn run(o: &ReviewOptions) -> Gate {
             .output();
         let log = match &out {
             Ok(out) => {
-                String::from_utf8_lossy(&out.stdout).to_string() + &String::from_utf8_lossy(&out.stderr)
+                String::from_utf8_lossy(&out.stdout).to_string()
+                    + &String::from_utf8_lossy(&out.stderr)
             }
             Err(e) => e.to_string(),
         };
         let _ = std::fs::write(review_dir.join("blender.log"), &log);
         if !out.as_ref().is_ok_and(|o| o.status.success()) {
-            g.check("renders", "Blender review renders", "Blender failed (see review/blender.log)", "all cameras", false);
+            g.check(
+                "renders",
+                "Blender review renders",
+                "Blender failed (see review/blender.log)",
+                "all cameras",
+                false,
+            );
             return g;
         }
     }
@@ -189,7 +209,10 @@ pub fn run(o: &ReviewOptions) -> Gate {
             for (view, bp) in blueprint_views(sheet, o.refs_dir) {
                 if let Some(render) = load(&review_dir.join(format!("{view}.png"))) {
                     let name = format!("review/compare-blueprint-{}-{view}.png", sheet.id);
-                    if side_by_side(&render, &bp, 360).save(o.out_dir.join(&name)).is_ok() {
+                    if side_by_side(&render, &bp, 360)
+                        .save(o.out_dir.join(&name))
+                        .is_ok()
+                    {
                         g.images.push(name);
                     }
                 }
@@ -210,7 +233,10 @@ pub fn run(o: &ReviewOptions) -> Gate {
                 .map(|s| s.to_string_lossy().to_string())
                 .unwrap_or_default();
             let name = format!("review/compare-photo-{}-{stem}.png", photo.angle);
-            if side_by_side(&render, &p, 480).save(o.out_dir.join(&name)).is_ok() {
+            if side_by_side(&render, &p, 480)
+                .save(o.out_dir.join(&name))
+                .is_ok()
+            {
                 g.images.push(name);
             }
         }

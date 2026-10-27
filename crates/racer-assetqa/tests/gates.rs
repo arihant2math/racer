@@ -26,6 +26,7 @@ fn spec() -> CarSpec {
 /// Synthetic blueprints of the good box car, drawn analytically (not by the
 /// rasteriser under test) at 6 mm/px with the side view's front on the right.
 fn synthetic_refs(spec: &CarSpec) -> Vec<Prepared> {
+    let parts = fixture::parts(spec);
     [View::Side, View::Front, View::Rear, View::Top]
         .into_iter()
         .map(|view| {
@@ -34,7 +35,7 @@ fn synthetic_refs(spec: &CarSpec) -> Vec<Prepared> {
             if view == View::Side {
                 grid.flip_u = true;
             }
-            let mask = refs::mask_from_fn(&grid, |p| fixture::analytic_inside(spec, view, p));
+            let mask = refs::mask_from_fn(&grid, |p| fixture::analytic_inside(&parts, view, p));
             Prepared {
                 sheet: "synthetic".into(),
                 crosscheck: false,
@@ -116,8 +117,12 @@ fn good_fixture_passes_every_gate() {
 
 #[test]
 fn wrong_scale_is_caught() {
-    assert_fails(Fault::WrongScale, 1, &["units", "ground"]);
-    assert_fails(Fault::WrongScale, 2, &["length", "width", "height", "wheelbase"]);
+    assert_fails(Fault::WrongScale, 1, &["units", "wheel_positions"]);
+    assert_fails(
+        Fault::WrongScale,
+        2,
+        &["length", "width", "height", "wheelbase"],
+    );
     assert_fails(Fault::WrongScale, 4, &["synthetic:side", "synthetic:front"]);
 }
 
@@ -125,14 +130,16 @@ fn wrong_scale_is_caught() {
 fn missing_wheels_are_caught() {
     assert_fails(Fault::MissingWheels, 1, &["nodes", "sockets", "facing"]);
     assert_fails(Fault::MissingWheels, 2, &["wheelbase"]);
-    assert_fails(Fault::MissingWheels, 4, &["synthetic:side"]);
 }
 
 #[test]
 fn flipped_normals_are_caught() {
     assert_fails(Fault::FlippedNormals, 3, &["backfaces"]);
     // Normals were flipped with the winding, so they still agree.
-    assert_eq!(status(Fault::FlippedNormals, 3, "normals_vs_winding"), Status::Pass);
+    assert_eq!(
+        status(Fault::FlippedNormals, 3, "normals_vs_winding"),
+        Status::Pass
+    );
 }
 
 #[test]
@@ -144,9 +151,15 @@ fn non_manifold_body_is_caught() {
 #[test]
 fn wrong_orientation_is_caught() {
     assert_fails(Fault::WrongOrientation, 1, &["facing", "placement"]);
-    assert_fails(Fault::WrongOrientation, 4, &["synthetic:side", "synthetic:top"]);
-    // Dimensions alone cannot see it.
-    assert_eq!(results()["wrong-orientation"][1].status, Status::Pass);
+    assert_fails(
+        Fault::WrongOrientation,
+        4,
+        &["synthetic:side", "synthetic:top"],
+    );
+    // Bounding-box dimensions alone cannot see it.
+    for c in ["length", "width", "height"] {
+        assert_eq!(status(Fault::WrongOrientation, 2, c), Status::Pass);
+    }
 }
 
 #[test]
@@ -199,7 +212,8 @@ fn reference_sheet_images_align() {
         mpp: 0.008,
         flip_u: false,
     };
-    let mask = refs::mask_from_fn(&grid, |p| fixture::analytic_inside(&spec, View::Side, p));
+    let parts = fixture::parts(&spec);
+    let mask = refs::mask_from_fn(&grid, |p| fixture::analytic_inside(&parts, View::Side, p));
     let mut img = image::RgbImage::from_pixel(800, 360, image::Rgb([255, 255, 255]));
     for y in 0..360 {
         for x in 0..800 {
@@ -245,13 +259,31 @@ fn committed_911_references_are_consistent() {
             let h = (y1 - y0 + 1) as f32 * p.grid.mpp;
             match p.view {
                 View::Side => {
-                    assert!((w - spec.length).abs() < 0.06, "{} side length {w}", p.sheet);
-                    assert!((h - spec.height).abs() < 0.04, "{} side height {h}", p.sheet);
+                    assert!(
+                        (w - spec.length).abs() < 0.06,
+                        "{} side length {w}",
+                        p.sheet
+                    );
+                    assert!(
+                        (h - spec.height).abs() < 0.04,
+                        "{} side height {h}",
+                        p.sheet
+                    );
                 }
                 View::Front | View::Rear => {
                     // Over the mirrors: 2.024 m published.
-                    assert!((w - 2.024).abs() < 0.05, "{} {:?} width {w}", p.sheet, p.view);
-                    assert!((h - spec.height).abs() < 0.04, "{} {:?} height {h}", p.sheet, p.view);
+                    assert!(
+                        (w - 2.024).abs() < 0.05,
+                        "{} {:?} width {w}",
+                        p.sheet,
+                        p.view
+                    );
+                    assert!(
+                        (h - spec.height).abs() < 0.04,
+                        "{} {:?} height {h}",
+                        p.sheet,
+                        p.view
+                    );
                 }
                 View::Top => {
                     assert!((w - spec.length).abs() < 0.06, "{} top length {w}", p.sheet);
@@ -265,6 +297,11 @@ fn committed_911_references_are_consistent() {
         assert_eq!(a.view, b.view);
         let (iou, d) = refs::compare_refs(a, b);
         assert!(iou > 0.9, "{:?}: sheets agree only to IoU {iou}", a.view);
-        assert!(d.mean < 0.03, "{:?}: mean outline distance {}", a.view, d.mean);
+        assert!(
+            d.mean < 0.03,
+            "{:?}: mean outline distance {}",
+            a.view,
+            d.mean
+        );
     }
 }

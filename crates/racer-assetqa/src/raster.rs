@@ -112,7 +112,10 @@ impl Grid {
 
     pub fn to_metric(&self, px: f32, py: f32) -> Vec2 {
         let du = (px - self.ox) * self.mpp;
-        Vec2::new(if self.flip_u { -du } else { du }, (self.oy - py) * self.mpp)
+        Vec2::new(
+            if self.flip_u { -du } else { du },
+            (self.oy - py) * self.mpp,
+        )
     }
 }
 
@@ -166,7 +169,11 @@ impl Mask {
 
     pub fn to_image(&self) -> GrayImage {
         GrayImage::from_fn(self.width, self.height, |x, y| {
-            Luma([if self.data[(y * self.width + x) as usize] { 0 } else { 255 }])
+            Luma([if self.data[(y * self.width + x) as usize] {
+                0
+            } else {
+                255
+            }])
         })
     }
 
@@ -228,11 +235,7 @@ fn raster_triangle(grid: &Grid, view: View, tri: [Vec3; 3], mut f: impl FnMut(u3
 }
 
 /// Silhouette of the triangles in `grid`.
-pub fn silhouette(
-    grid: &Grid,
-    view: View,
-    tris: impl IntoIterator<Item = [Vec3; 3]>,
-) -> Mask {
+pub fn silhouette(grid: &Grid, view: View, tris: impl IntoIterator<Item = [Vec3; 3]>) -> Mask {
     let mut mask = Mask::new(grid.width, grid.height);
     for t in tris {
         raster_triangle(grid, view, t, |x, y, _| mask.set(x, y, true));
@@ -365,7 +368,10 @@ pub fn boundary_distance(a: &Mask, b: &Mask) -> BoundaryDistance {
     let mut d: Vec<f32> = ba
         .iter()
         .map(|&(x, y)| db[(y * b.width + x) as usize].sqrt())
-        .chain(bb.iter().map(|&(x, y)| da[(y * a.width + x) as usize].sqrt()))
+        .chain(
+            bb.iter()
+                .map(|&(x, y)| da[(y * a.width + x) as usize].sqrt()),
+        )
         .collect();
     d.sort_by(f32::total_cmp);
     BoundaryDistance {
@@ -419,8 +425,18 @@ mod tests {
     #[test]
     fn iou_and_boundary_distance() {
         let grid = Grid::fit(Vec2::new(-1.0, 0.0), Vec2::new(1.0, 1.0), 0.01, 5);
-        let a = square(&grid, View::Side, Vec3::new(0.0, 0.0, -1.0), Vec3::new(0.0, 1.0, 1.0));
-        let b = square(&grid, View::Side, Vec3::new(0.0, 0.0, -1.0), Vec3::new(0.0, 0.9, 1.0));
+        let a = square(
+            &grid,
+            View::Side,
+            Vec3::new(0.0, 0.0, -1.0),
+            Vec3::new(0.0, 1.0, 1.0),
+        );
+        let b = square(
+            &grid,
+            View::Side,
+            Vec3::new(0.0, 0.0, -1.0),
+            Vec3::new(0.0, 0.9, 1.0),
+        );
         assert!((iou(&a, &b) - 0.9).abs() < 1e-3);
         assert_eq!(iou(&a, &a), 1.0);
         let d = boundary_distance(&a, &a);

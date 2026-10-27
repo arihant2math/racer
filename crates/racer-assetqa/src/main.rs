@@ -114,7 +114,10 @@ fn root(args: &Args) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-fn load_refs(dir: &Path, spec: &CarSpec) -> Result<(Option<RefsFile>, Vec<refs::Prepared>), String> {
+fn load_refs(
+    dir: &Path,
+    spec: &CarSpec,
+) -> Result<(Option<RefsFile>, Vec<refs::Prepared>), String> {
     let path = dir.join("refs.toml");
     if !path.exists() {
         return Ok((None, Vec::new()));
@@ -156,7 +159,11 @@ fn check(args: &[String]) -> Result<ExitCode, String> {
     let mut gates = static_gates(&model, &spec, &prepared, &t, Some(&out));
 
     if a.has("no-review") {
-        gates.push(racer_assetqa::report::Gate::skipped(5, "Visual review pack", "disabled (--no-review)"));
+        gates.push(racer_assetqa::report::Gate::skipped(
+            5,
+            "Visual review pack",
+            "disabled (--no-review)",
+        ));
     } else {
         eprintln!("racer-assetqa: gate 5 (Blender review renders)");
         gates.push(review::run(&review::ReviewOptions {
@@ -170,7 +177,11 @@ fn check(args: &[String]) -> Result<ExitCode, String> {
         }));
     }
     if a.has("no-smoke") {
-        gates.push(racer_assetqa::report::Gate::skipped(6, "In-engine smoke test (Bevy, lavapipe)", "disabled (--no-smoke)"));
+        gates.push(racer_assetqa::report::Gate::skipped(
+            6,
+            "In-engine smoke test (Bevy, lavapipe)",
+            "disabled (--no-smoke)",
+        ));
     } else {
         eprintln!("racer-assetqa: gate 6 (Bevy smoke test)");
         let timeout = Duration::from_secs(a.parse_or("smoke-timeout", 900)?);
@@ -191,9 +202,19 @@ fn check(args: &[String]) -> Result<ExitCode, String> {
     std::fs::write(out.join("report.json"), report.to_json()).map_err(|e| e.to_string())?;
     for g in &report.gates {
         let failed: Vec<&str> = g.failed().iter().map(|c| c.id.as_str()).collect();
-        println!("{:<6} {}. {} {}", g.status.label(), g.number, g.name, failed.join(" "));
+        println!(
+            "{:<6} {}. {} {}",
+            g.status.label(),
+            g.number,
+            g.name,
+            failed.join(" ")
+        );
     }
-    println!("verdict: {} (report: {})", report.verdict.label(), out.join("report.md").display());
+    println!(
+        "verdict: {} (report: {})",
+        report.verdict.label(),
+        out.join("report.md").display()
+    );
     Ok(if report.verdict == Status::Fail {
         ExitCode::FAILURE
     } else {
@@ -234,7 +255,10 @@ fn refs_cmd(args: &[String]) -> Result<ExitCode, String> {
             hi.y
         );
         let name = format!("mask-{}-{}.png", p.sheet, p.view.name());
-        p.mask.to_image().save(out.join(name)).map_err(|e| e.to_string())?;
+        p.mask
+            .to_image()
+            .save(out.join(name))
+            .map_err(|e| e.to_string())?;
     }
     for (i, a) in prepared.iter().enumerate() {
         for b in &prepared[i + 1..] {

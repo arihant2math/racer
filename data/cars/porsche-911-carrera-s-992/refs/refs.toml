@@ -15,14 +15,16 @@
 # Silhouettes: pixels darker than ink_max_luma or more saturated than
 # ink_min_saturation are ink; every region not reachable from the crop border
 # is filled (closes windows, wheels and outline drawings); the largest
-# connected piece is kept (drops watermark specks, labels and dimension text).
+# connected piece is kept (drops watermark specks, labels and dimension text),
+# and everything below the ground line is cleared (crops may include the
+# drawn ground line so that wheel outlines stay closed).
 # `racer-assetqa refs porsche-911-carrera-s-992` writes the masks and prints
 # how well the two sheets agree.
 
 [[sheet]]
 id = "the-blueprints"
-image = "the-blueprints-911-carrera-4s-992-2019.jpg"
-source = "https://www.the-blueprints.com/vectordrawings/show/17529/porsche_911_carrera_s_992/ (free watermarked preview https://www.the-blueprints.com/modules/vectordrawings/preview-wm/porsche_911_carrera_s_992_2019.jpg, fetched 2026-10-27)"
+image = "the-blueprints-911-carrera-4s-992-2019.png"
+source = "https://www.the-blueprints.com/vectordrawings/show/17529/porsche_911_carrera_s_992/ (free watermarked preview https://www.the-blueprints.com/modules/vectordrawings/preview-wm/porsche_911_carrera_s_992_2019.jpg, fetched 2026-10-27; converted losslessly from the JPEG to PNG)"
 note = """Vector drawing of the 992 Carrera 4S (2019), 1:25, labelled 4519 x 1300 mm, \
 wheelbase 2450, width over mirrors 2024. The Carrera S and 4S share the body shell \
 and dimensions (4S rear track is the same within 10 mm), so the silhouettes apply. \
@@ -30,7 +32,9 @@ Measured: axle centres from the widest row of each tyre (front 163-295 px, rear 
 580-717 px); ground = bottom of the tyres. Scale 5.84 mm/px; length over the \
 outline 777 px = 4.538 m (+0.4 %), height 1.294 m."""
 role = "gate"
-ink_max_luma = 150
+# Window and headlight outlines are as light as luma 170-177; the watermark
+# text is luma 189 and up (1st percentile), so 182 separates them.
+ink_max_luma = 182
 ink_min_saturation = 60
 front_axle_x = 229.0
 rear_axle_x = 648.5
@@ -61,11 +65,12 @@ id = "dimensions-com"
 image = "dimensions-com-911-carrera-992.png"
 source = "https://www.dimensions.com/element/porsche-911-carrera-992-8th-gen (drawing https://cdn.prod.website-files.com/5b44edefca321a1e2d0c2aa6/672fbecdeb42cf5b27c72b8c_Dimensions-Transport-Sports-Cars-Porsche-911-Carrera-Dimensions.svg, fetched 2026-10-27; committed as the .svg and its 2x rasterisation by Chromium)"
 note = """Line drawing of the 992 Carrera, labelled 454 x 185 x 130 cm, wheelbase 245 cm. \
-Independent second source used as a cross-check (reported, not gated): it shows \
-how far two published drawings of the same car disagree, which bounds what the \
-silhouette thresholds can demand. Front points right. Axle centres = tips of the \
+Independent second source, gated too: the asset pipeline fits its body to the \
+the-blueprints drawing, so this sheet is the check it was not tuned on. The two \
+sheets agree to IoU 0.965 (side) - 0.992 (top), which bounds what the silhouette \
+thresholds can demand. Front points right. Axle centres = tips of the \
 wheelbase dimension arrow (396-1017 px); ground = top of the dashed ground line."""
-role = "crosscheck"
+role = "gate"
 ink_max_luma = 150
 ink_min_saturation = 60
 front_axle_x = 1016.5
@@ -73,18 +78,18 @@ rear_axle_x = 396.5
 
 [[sheet.view]]
 view = "side"
-crop = [100, 135, 1300, 466]
+crop = [100, 135, 1300, 472]
 front = "right"
 ground_y = 466.0
 
 [[sheet.view]]
 view = "front"
-crop = [1360, 135, 1900, 466]
+crop = [1360, 135, 1900, 472]
 ground_y = 466.0
 
 [[sheet.view]]
 view = "rear"
-crop = [1360, 640, 1900, 985]
+crop = [1360, 640, 1900, 992]
 ground_y = 985.0
 
 [[sheet.view]]
@@ -92,26 +97,27 @@ view = "top"
 crop = [100, 625, 1300, 1160]
 front = "right"
 
-# Photos for the review pack's side-by-sides (gate 5). `angle` names the
+# Photos for the review pack's side-by-sides (gate 5), converted from the
+# JPEG thumbnails to PNG at 960 px wide (the checker reads PNG only). `angle` names the
 # review camera they pair with; `mirror` flips the photo so the car faces the
 # same way as the render.
 
 [[photo]]
-image = "photos/vauxford-2019-911-carrera-s-front.jpg"
+image = "photos/vauxford-2019-911-carrera-s-front.png"
 angle = "front-three-quarter"
 source = "https://commons.wikimedia.org/wiki/File:2019_Porsche_911_Carrera_S_S-A_3.0_Front.jpg (1280 px thumbnail)"
 license = "CC BY-SA 4.0, Vauxford"
 note = "992.1 Carrera S coupe, GT Silver, front left three-quarter."
 
 [[photo]]
-image = "photos/vauxford-2019-911-carrera-s-rear.jpg"
+image = "photos/vauxford-2019-911-carrera-s-rear.png"
 angle = "rear-three-quarter"
 source = "https://commons.wikimedia.org/wiki/File:2019_Porsche_911_Carrera_S_S-A_3.0_Rear.jpg (1280 px thumbnail)"
 license = "CC BY-SA 4.0, Vauxford"
 note = "Same car, rear left three-quarter: light bar, engine-lid grille, oval exhausts."
 
 [[photo]]
-image = "photos/bretwa-911-carrera-s-side.jpg"
+image = "photos/bretwa-911-carrera-s-side.png"
 angle = "side"
 mirror = true
 source = "https://commons.wikimedia.org/wiki/File:Porsche_911_Carrera_S_(992)_-_2025-11-21.jpg (1280 px thumbnail)"

@@ -49,7 +49,7 @@ struct PipelineStatus(Arc<[AtomicUsize; 3]>);
 
 #[derive(Resource)]
 struct Run {
-    scene: Handle<Scene>,
+    scene: Handle<WorldAsset>,
     out_dir: PathBuf,
     start: Instant,
     deadline: Instant,
@@ -93,8 +93,7 @@ pub fn app_main(glb: &Path, out_dir: &Path, timeout: Duration) -> Result<(), Str
                 .set(WindowPlugin {
                     primary_window: Some(Window {
                         title: "racer-assetqa smoke".into(),
-                        resolution: WindowResolution::new(960, 540)
-                            .with_scale_factor_override(1.0),
+                        resolution: WindowResolution::new(960, 540).with_scale_factor_override(1.0),
                         ..default()
                     }),
                     ..default()
@@ -106,36 +105,40 @@ pub fn app_main(glb: &Path, out_dir: &Path, timeout: Duration) -> Result<(), Str
         )
         .init_resource::<PipelineStatus>()
         .init_resource::<Delivered>()
-        .add_systems(Startup, move |mut commands: Commands, assets: Res<AssetServer>| {
-            let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(file.clone()));
-            commands.spawn(SceneRoot(scene.clone()));
-            commands.spawn((
-                Camera3d::default(),
-                Transform::from_xyz(-4.2, 2.0, -5.2).looking_at(Vec3::new(0.0, 0.6, 0.0), Vec3::Y),
-            ));
-            commands.spawn((
-                DirectionalLight {
-                    illuminance: 8000.0,
-                    shadow_maps_enabled: true,
+        .add_systems(
+            Startup,
+            move |mut commands: Commands, assets: Res<AssetServer>| {
+                let scene = assets.load(GltfAssetLabel::Scene(0).from_asset(file.clone()));
+                commands.spawn(WorldAssetRoot(scene.clone()));
+                commands.spawn((
+                    Camera3d::default(),
+                    Transform::from_xyz(-4.2, 2.0, -5.2)
+                        .looking_at(Vec3::new(0.0, 0.6, 0.0), Vec3::Y),
+                ));
+                commands.spawn((
+                    DirectionalLight {
+                        illuminance: 8000.0,
+                        shadow_maps_enabled: true,
+                        ..default()
+                    },
+                    Transform::from_xyz(-3.0, 6.0, -2.0).looking_at(Vec3::ZERO, Vec3::Y),
+                ));
+                commands.insert_resource(GlobalAmbientLight {
+                    brightness: 600.0,
                     ..default()
-                },
-                Transform::from_xyz(-3.0, 6.0, -2.0).looking_at(Vec3::ZERO, Vec3::Y),
-            ));
-            commands.insert_resource(GlobalAmbientLight {
-                brightness: 600.0,
-                ..default()
-            });
-            commands.insert_resource(Run {
-                scene,
-                out_dir: PathBuf::new(),
-                start: Instant::now(),
-                deadline,
-                frames: 0,
-                stable: 0,
-                requested: false,
-                result: SmokeResult::default(),
-            });
-        })
+                });
+                commands.insert_resource(Run {
+                    scene,
+                    out_dir: PathBuf::new(),
+                    start: Instant::now(),
+                    deadline,
+                    frames: 0,
+                    stable: 0,
+                    requested: false,
+                    result: SmokeResult::default(),
+                });
+            },
+        )
         .add_systems(Update, drive);
     let out = out_dir.to_path_buf();
     app.add_systems(PostStartup, move |mut run: ResMut<Run>| {
@@ -222,7 +225,11 @@ fn drive(
         let rgba = match image.try_into_dynamic() {
             Ok(d) => d.to_rgba8(),
             Err(e) => {
-                finish(run, &mut exit, Some(format!("cannot convert screenshot: {e:?}")));
+                finish(
+                    run,
+                    &mut exit,
+                    Some(format!("cannot convert screenshot: {e:?}")),
+                );
                 return;
             }
         };
@@ -230,7 +237,10 @@ fn drive(
         run.result.coverage = coverage;
         run.result.luma_stddev = stddev;
         let path = run.out_dir.join("smoke.png");
-        let err = rgba.save(&path).err().map(|e| format!("{}: {e}", path.display()));
+        let err = rgba
+            .save(&path)
+            .err()
+            .map(|e| format!("{}: {e}", path.display()));
         finish(run, &mut exit, err);
         return;
     }
@@ -306,12 +316,14 @@ pub fn run(glb: &Path, out_dir: &Path, t: &Thresholds, timeout: Duration) -> Gat
     if let Some(icd) = std::fs::read_dir("/usr/share/vulkan/icd.d")
         .ok()
         .and_then(|d| {
-            d.flatten()
-                .map(|e| e.path())
-                .find(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("lvp_icd")))
+            d.flatten().map(|e| e.path()).find(|p| {
+                p.file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with("lvp_icd"))
+            })
         })
     {
-        cmd.env("VK_DRIVER_FILES", &icd).env("VK_ICD_FILENAMES", &icd);
+        cmd.env("VK_DRIVER_FILES", &icd)
+            .env("VK_ICD_FILENAMES", &icd);
     }
     cmd.env("WGPU_BACKEND", "vulkan");
     let _ = std::fs::remove_file(out_dir.join("smoke.json"));
@@ -356,7 +368,16 @@ pub fn run(glb: &Path, out_dir: &Path, t: &Thresholds, timeout: Duration) -> Gat
         if errors.is_empty() {
             "none".to_string()
         } else {
-            format!("{}: {}", errors.len(), errors.iter().take(3).copied().collect::<Vec<_>>().join(" / "))
+            format!(
+                "{}: {}",
+                errors.len(),
+                errors
+                    .iter()
+                    .take(3)
+                    .copied()
+                    .collect::<Vec<_>>()
+                    .join(" / ")
+            )
         },
         "none",
         errors.is_empty(),
@@ -365,14 +386,30 @@ pub fn run(glb: &Path, out_dir: &Path, t: &Thresholds, timeout: Duration) -> Gat
         g.info(
             "log_warnings",
             "glTF/wgpu warnings",
-            format!("{}: {}", warnings.len(), warnings.iter().take(3).copied().collect::<Vec<_>>().join(" / ")),
+            format!(
+                "{}: {}",
+                warnings.len(),
+                warnings
+                    .iter()
+                    .take(3)
+                    .copied()
+                    .collect::<Vec<_>>()
+                    .join(" / ")
+            ),
         );
     }
     g.check(
         "non_blank",
         "frame not blank: car coverage and luma spread",
-        format!("coverage {:.1} %, luma stddev {:.1}", result.coverage * 100.0, result.luma_stddev),
-        format!("coverage ≥ {:.0} %, stddev ≥ 4", t.smoke_min_coverage * 100.0),
+        format!(
+            "coverage {:.1} %, luma stddev {:.1}",
+            result.coverage * 100.0,
+            result.luma_stddev
+        ),
+        format!(
+            "coverage ≥ {:.0} %, stddev ≥ 4",
+            t.smoke_min_coverage * 100.0
+        ),
         result.coverage >= t.smoke_min_coverage && result.luma_stddev >= 4.0,
     );
     if out_dir.join("smoke.png").exists() {

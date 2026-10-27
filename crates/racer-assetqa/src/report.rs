@@ -154,7 +154,10 @@ impl Report {
             s.push_str(line);
             s.push('\n');
         };
-        p(&mut s, &format!("# Asset QA: {} (`{}`)", self.car_name, self.car_id));
+        p(
+            &mut s,
+            &format!("# Asset QA: {} (`{}`)", self.car_name, self.car_id),
+        );
         p(&mut s, "");
         p(
             &mut s,

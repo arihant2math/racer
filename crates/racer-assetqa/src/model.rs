@@ -128,9 +128,9 @@ impl Model {
             ..Model::default()
         };
         if let Some(required) = doc.extensions_required().next() {
-            model
-                .warnings
-                .push(format!("requires extension {required}; geometry may be unreadable"));
+            model.warnings.push(format!(
+                "requires extension {required}; geometry may be unreadable"
+            ));
         }
         let scene = doc
             .default_scene()
@@ -280,9 +280,9 @@ fn visit(
                 Source::Uri(_) => None,
             });
             let Some(positions) = reader.read_positions() else {
-                model
-                    .warnings
-                    .push(format!("node {name:?}: primitive without readable positions"));
+                model.warnings.push(format!(
+                    "node {name:?}: primitive without readable positions"
+                ));
                 continue;
             };
             let positions: Vec<Vec3> = positions

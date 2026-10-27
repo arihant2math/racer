@@ -125,7 +125,11 @@ pub fn structure(model: &Model, spec: &CarSpec, t: &Thresholds) -> Gate {
         if missing.is_empty() && dup.is_empty() {
             format!("all {} present", NODES.len())
         } else {
-            format!("missing: [{}] duplicated: [{}]", missing.join(", "), dup.join(", "))
+            format!(
+                "missing: [{}] duplicated: [{}]",
+                missing.join(", "),
+                dup.join(", ")
+            )
         },
         "all present, unique",
         missing.is_empty() && dup.is_empty(),
@@ -138,7 +142,11 @@ pub fn structure(model: &Model, spec: &CarSpec, t: &Thresholds) -> Gate {
         if missing.is_empty() && dup.is_empty() {
             format!("all {} present", SOCKETS.len())
         } else {
-            format!("missing: [{}] duplicated: [{}]", missing.join(", "), dup.join(", "))
+            format!(
+                "missing: [{}] duplicated: [{}]",
+                missing.join(", "),
+                dup.join(", ")
+            )
         },
         "all present, unique",
         missing.is_empty() && dup.is_empty(),
@@ -371,12 +379,32 @@ pub fn structure(model: &Model, spec: &CarSpec, t: &Thresholds) -> Gate {
     side("mirror_r", "x > 0", |p| p.x > 0.0, centre("mirror_r"));
     side("door_l", "x < 0", |p| p.x < 0.0, centre("door_l"));
     side("door_r", "x > 0", |p| p.x > 0.0, centre("door_r"));
-    side("bumper_front", "z < 0", |p| p.z < 0.0, centre("bumper_front"));
+    side(
+        "bumper_front",
+        "z < 0",
+        |p| p.z < 0.0,
+        centre("bumper_front"),
+    );
     side("bumper_rear", "z > 0", |p| p.z > 0.0, centre("bumper_rear"));
-    side("lights_front", "z < 0", |p| p.z < 0.0, centre("lights_front"));
+    side(
+        "lights_front",
+        "z < 0",
+        |p| p.z < 0.0,
+        centre("lights_front"),
+    );
     side("lights_rear", "z > 0", |p| p.z > 0.0, centre("lights_rear"));
-    side("socket_exhaust_l", "x < 0, z > 0", |p| p.x < 0.0 && p.z > 0.0, socket("socket_exhaust_l"));
-    side("socket_exhaust_r", "x > 0, z > 0", |p| p.x > 0.0 && p.z > 0.0, socket("socket_exhaust_r"));
+    side(
+        "socket_exhaust_l",
+        "x < 0, z > 0",
+        |p| p.x < 0.0 && p.z > 0.0,
+        socket("socket_exhaust_l"),
+    );
+    side(
+        "socket_exhaust_r",
+        "x > 0, z > 0",
+        |p| p.x > 0.0 && p.z > 0.0,
+        socket("socket_exhaust_r"),
+    );
     for cam in ["socket_camera_hood", "socket_camera_cockpit"] {
         if let Some(p) = socket(cam)
             && !(p.cmpge(bounds.min).all() && p.cmple(bounds.max).all())
@@ -432,12 +460,28 @@ pub fn dimensions(model: &Model, spec: &CarSpec, t: &Thresholds) -> Gate {
         .flat_map(|i| model.subtree(i))
         .collect();
     let no_mirrors = model.bounds(model.render_nodes(0).filter(|i| !mirrors.contains(i)));
-    dim("width", "width without mirrors (X extent)", no_mirrors.size().x, spec.width);
-    dim("height", "height (ground to roof)", bounds.max.y.max(0.0) - bounds.min.y.min(0.0), spec.height);
+    dim(
+        "width",
+        "width without mirrors (X extent)",
+        no_mirrors.size().x,
+        spec.width,
+    );
+    dim(
+        "height",
+        "height (ground to roof)",
+        bounds.max.y.max(0.0) - bounds.min.y.min(0.0),
+        spec.height,
+    );
     g.info("width_mirrors", "width with mirrors", m(size.x));
 
     let Some(h) = hubs(model) else {
-        g.check("wheelbase", "wheelbase", "wheel nodes missing", "4 wheels", false);
+        g.check(
+            "wheelbase",
+            "wheelbase",
+            "wheel nodes missing",
+            "4 wheels",
+            false,
+        );
         return g;
     };
     let mut axle = |id: &str, what: &str, actual: f32, expected: f32| {
@@ -450,9 +494,24 @@ pub fn dimensions(model: &Model, spec: &CarSpec, t: &Thresholds) -> Gate {
         );
     };
     let wheelbase = (h[2].z + h[3].z) / 2.0 - (h[0].z + h[1].z) / 2.0;
-    axle("wheelbase", "wheelbase (hub Z distance)", wheelbase, spec.wheelbase);
-    axle("track_front", "front track (hub X distance)", h[1].x - h[0].x, spec.track_front);
-    axle("track_rear", "rear track (hub X distance)", h[3].x - h[2].x, spec.track_rear);
+    axle(
+        "wheelbase",
+        "wheelbase (hub Z distance)",
+        wheelbase,
+        spec.wheelbase,
+    );
+    axle(
+        "track_front",
+        "front track (hub X distance)",
+        h[1].x - h[0].x,
+        spec.track_front,
+    );
+    axle(
+        "track_rear",
+        "rear track (hub X distance)",
+        h[3].x - h[2].x,
+        spec.track_rear,
+    );
 
     for w in WHEELS {
         let i = model.find(&format!("wheel_{w}")).unwrap();

@@ -413,15 +413,60 @@ pub fn parts(spec: &CarSpec) -> Vec<Part> {
             ],
             64,
         ),
-        part("bumper_front", "car_paint", vec![b(-0.90, 0.12, zf, 0.90, 0.62, zf + 0.20)], 12),
-        part("bumper_rear", "car_paint", vec![b(-0.90, 0.15, zr - 0.18, 0.90, 0.62, zr)], 12),
-        part("hood", "car_paint", vec![b(-0.70, 0.80, zf + 0.25, 0.70, 0.82, -0.75)], 12),
-        part("door_l", "car_paint", vec![b(-hw, 0.30, -0.60, -hw + 0.01, 0.78, 0.50)], 12),
-        part("door_r", "car_paint", vec![b(hw - 0.01, 0.30, -0.60, hw, 0.78, 0.50)], 12),
-        part("mirror_l", "chrome", vec![b(-1.012, 0.86, -0.62, -hw, 0.95, -0.50)], 12),
-        part("mirror_r", "chrome", vec![b(hw, 0.86, -0.62, 1.012, 0.95, -0.50)], 12),
-        part("spoiler", "trim_black", vec![b(-0.60, 0.80, 1.95, 0.60, 0.85, zr - 0.20)], 12),
-        part("glass", "glass", vec![b(-0.66, 0.86, -0.71, 0.66, 1.24, -0.70)], 12),
+        part(
+            "bumper_front",
+            "car_paint",
+            vec![b(-0.90, 0.12, zf, 0.90, 0.62, zf + 0.20)],
+            12,
+        ),
+        part(
+            "bumper_rear",
+            "car_paint",
+            vec![b(-0.90, 0.15, zr - 0.18, 0.90, 0.62, zr)],
+            12,
+        ),
+        part(
+            "hood",
+            "car_paint",
+            vec![b(-0.70, 0.80, zf + 0.25, 0.70, 0.82, -0.75)],
+            12,
+        ),
+        part(
+            "door_l",
+            "car_paint",
+            vec![b(-hw, 0.30, -0.60, -hw + 0.01, 0.78, 0.50)],
+            12,
+        ),
+        part(
+            "door_r",
+            "car_paint",
+            vec![b(hw - 0.01, 0.30, -0.60, hw, 0.78, 0.50)],
+            12,
+        ),
+        part(
+            "mirror_l",
+            "chrome",
+            vec![b(-1.012, 0.86, -0.62, -hw, 0.95, -0.50)],
+            12,
+        ),
+        part(
+            "mirror_r",
+            "chrome",
+            vec![b(hw, 0.86, -0.62, 1.012, 0.95, -0.50)],
+            12,
+        ),
+        part(
+            "spoiler",
+            "trim_black",
+            vec![b(-0.60, 0.80, 1.95, 0.60, 0.85, zr - 0.20)],
+            12,
+        ),
+        part(
+            "glass",
+            "glass",
+            vec![b(-0.66, 0.86, -0.71, 0.66, 1.24, -0.70)],
+            12,
+        ),
         part(
             "lights_front",
             "light_emissive_front",
@@ -437,7 +482,12 @@ pub fn parts(spec: &CarSpec) -> Vec<Part> {
             vec![b(-0.85, 0.45, zr - 0.02, 0.85, 0.55, zr + 0.005)],
             12,
         ),
-        part("interior", "interior", vec![b(-0.60, 0.50, -0.50, 0.60, 1.15, 1.00)], 12),
+        part(
+            "interior",
+            "interior",
+            vec![b(-0.60, 0.50, -0.50, 0.60, 1.15, 1.00)],
+            12,
+        ),
     ];
     for w in ["fl", "fr", "rl", "rr"] {
         let tyre = spec.tyre(w);
@@ -465,7 +515,12 @@ fn part_prims(part: &Part, divisor: u32) -> Vec<PrimData> {
                 out.push(p);
             }
             Shape::Wheel { radius, width, .. } => {
-                out.extend(wheel_prims(radius, width, 256 / divisor, (24 / divisor).max(3)));
+                out.extend(wheel_prims(
+                    radius,
+                    width,
+                    256 / divisor,
+                    (24 / divisor).max(3),
+                ));
             }
         }
     }
@@ -513,14 +568,16 @@ pub fn box_car(spec: &CarSpec, fault: Fault) -> Vec<u8> {
                     let mut wall = PrimData::new("car_paint");
                     for j in 0..=n {
                         for i in 0..=n {
-                            let v = Vec3::new(0.0, lerp(min.y, max.y, j, n), lerp(min.z, max.z, i, n));
+                            let v =
+                                Vec3::new(0.0, lerp(min.y, max.y, j, n), lerp(min.z, max.z, i, n));
                             wall.vertex(v, Vec3::X, Vec2::new(v.z, v.y) * UV_SCALE);
                         }
                     }
                     for j in 0..n {
                         for i in 0..n {
                             let a = j * (n + 1) + i;
-                            wall.indices.extend([a, a + 1, a + n + 2, a, a + n + 2, a + n + 1]);
+                            wall.indices
+                                .extend([a, a + 1, a + n + 2, a, a + n + 2, a + n + 1]);
                         }
                     }
                     prims.push(wall);
@@ -559,7 +616,16 @@ pub fn box_car(spec: &CarSpec, fault: Fault) -> Vec<u8> {
     );
     let mut hull = PrimData::new("car_paint");
     hull.uvs = None;
-    add_box(&mut hull, cmin, cmax, if fault == Fault::ConcaveCollision { 2 } else { 1 });
+    add_box(
+        &mut hull,
+        cmin,
+        cmax,
+        if fault == Fault::ConcaveCollision {
+            2
+        } else {
+            1
+        },
+    );
     if fault == Fault::ConcaveCollision {
         let mid = (cmin + cmax) / 2.0;
         for v in &mut hull.positions {
@@ -579,14 +645,23 @@ pub fn box_car(spec: &CarSpec, fault: Fault) -> Vec<u8> {
         .map(|w| (format!("socket_wheel_{w}"), Vec3::from(spec.hub(w))))
         .collect();
     sockets.extend([
-        ("socket_light_front_l".to_string(), Vec3::new(-0.67, 0.46, zf)),
-        ("socket_light_front_r".to_string(), Vec3::new(0.67, 0.46, zf)),
+        (
+            "socket_light_front_l".to_string(),
+            Vec3::new(-0.67, 0.46, zf),
+        ),
+        (
+            "socket_light_front_r".to_string(),
+            Vec3::new(0.67, 0.46, zf),
+        ),
         ("socket_light_rear_l".to_string(), Vec3::new(-0.7, 0.5, zr)),
         ("socket_light_rear_r".to_string(), Vec3::new(0.7, 0.5, zr)),
         ("socket_exhaust_l".to_string(), Vec3::new(-0.4, 0.25, zr)),
         ("socket_exhaust_r".to_string(), Vec3::new(0.4, 0.25, zr)),
         ("socket_camera_hood".to_string(), Vec3::new(0.0, 0.95, -0.9)),
-        ("socket_camera_cockpit".to_string(), Vec3::new(-0.35, 1.05, 0.2)),
+        (
+            "socket_camera_cockpit".to_string(),
+            Vec3::new(-0.35, 1.05, 0.2),
+        ),
     ]);
     for (name, p) in sockets {
         glb.node(&name, m.transform_point3(p), None, vec![], true);
@@ -599,22 +674,25 @@ pub fn box_car(spec: &CarSpec, fault: Fault) -> Vec<u8> {
 }
 
 /// Whether a view-plane point lies inside the analytic silhouette of the
-/// good box car (used to draw synthetic reference blueprints).
-pub fn analytic_inside(spec: &CarSpec, view: View, p: Vec2) -> bool {
-    parts(spec).iter().flat_map(|part| part.shapes.clone()).any(|s| match s {
-        Shape::Box(min, max) => {
-            let (a, b) = (view.project(min), view.project(max));
-            let (lo, hi) = (a.min(b), a.max(b));
-            p.x >= lo.x && p.x <= hi.x && p.y >= lo.y && p.y <= hi.y
-        }
-        Shape::Wheel { hub, radius, width } => {
-            let c = view.project(hub);
-            if view == View::Side || view == View::SideRight {
-                (p - c.truncate()).length() <= radius
-            } else {
-                let half = view.project(Vec3::new(width / 2.0, radius, radius)).abs();
-                (p.x - c.x).abs() <= half.x && (p.y - c.y).abs() <= half.y
+/// given parts (used to draw synthetic reference blueprints of the box car).
+pub fn analytic_inside(parts: &[Part], view: View, p: Vec2) -> bool {
+    parts
+        .iter()
+        .flat_map(|part| &part.shapes)
+        .any(|s| match *s {
+            Shape::Box(min, max) => {
+                let (a, b) = (view.project(min), view.project(max));
+                let (lo, hi) = (a.min(b), a.max(b));
+                p.x >= lo.x && p.x <= hi.x && p.y >= lo.y && p.y <= hi.y
             }
-        }
-    })
+            Shape::Wheel { hub, radius, width } => {
+                let c = view.project(hub);
+                if view == View::Side || view == View::SideRight {
+                    (p - c.truncate()).length() <= radius
+                } else {
+                    let half = view.project(Vec3::new(width / 2.0, radius, radius)).abs();
+                    (p.x - c.x).abs() <= half.x && (p.y - c.y).abs() <= half.y
+                }
+            }
+        })
 }

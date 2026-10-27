@@ -50,6 +50,10 @@ pub struct Sheet {
     pub ink_max_luma: u8,
     #[serde(default = "default_saturation")]
     pub ink_min_saturation: u8,
+    /// Radius (px) of the morphological closing that seals small gaps in
+    /// outlines and watermark channels before filling.
+    #[serde(default = "default_close")]
+    pub close_px: u32,
     /// Axle centres in the side view (pixels).
     pub front_axle_x: f32,
     pub rear_axle_x: f32,
@@ -62,6 +66,9 @@ fn gate_role() -> String {
 }
 fn default_luma() -> u8 {
     150
+}
+fn default_close() -> u32 {
+    2
 }
 fn default_saturation() -> u8 {
     60
@@ -113,14 +120,52 @@ pub struct Prepared {
 
 impl RefsFile {
     pub fn load(path: &Path) -> Result<RefsFile, String> {
-        let text =
-            std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let text = std::fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
         toml::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))
     }
 }
 
-/// Ink → filled silhouette → largest piece.
-pub fn extract_mask(img: &RgbImage, crop: [u32; 4], max_luma: u8, min_sat: u8) -> Mask {
+/// Square dilation (`grow`) or erosion of a mask by `r` pixels.
+fn morph(m: &Mask, r: u32, grow: bool) -> Mask {
+    let r = r as i64;
+    let pass = |src: &Mask, horizontal: bool| {
+        let mut out = Mask::new(src.width, src.height);
+        for y in 0..src.height as i64 {
+            for x in 0..src.width as i64 {
+                let mut any = !grow;
+                for d in -r..=r {
+                    let (nx, ny) = if horizontal { (x + d, y) } else { (x, y + d) };
+                    let inside =
+                        nx >= 0 && ny >= 0 && nx < src.width as i64 && ny < src.height as i64;
+                    // Outside the image counts as empty for growing and as
+                    // full for shrinking, so borders don't erode.
+                    let v = if inside { src.get(nx, ny) } else { !grow };
+                    if grow && v {
+                        any = true;
+                        break;
+                    }
+                    if !grow && !v {
+                        any = false;
+                        break;
+                    }
+                }
+                out.set(x as u32, y as u32, any);
+            }
+        }
+        out
+    };
+    pass(&pass(m, true), false)
+}
+
+/// Ink → bottom closed under wheels → closing → filled silhouette → largest
+/// piece.
+pub fn extract_mask(
+    img: &RgbImage,
+    crop: [u32; 4],
+    max_luma: u8,
+    min_sat: u8,
+    close_px: u32,
+) -> Mask {
     let [x0, y0, x1, y1] = crop;
     let (w, h) = (x1.min(img.width()) - x0, y1.min(img.height()) - y0);
     let mut ink = Mask::new(w, h);
@@ -132,6 +177,18 @@ pub fn extract_mask(img: &RgbImage, crop: [u32; 4], max_luma: u8, min_sat: u8) -
             ink.set(x, y, luma < max_luma as u32 || sat > min_sat);
         }
     }
+    // Wheels stand on the crop's bottom edge, where their outlines are cut:
+    // close the bottom row under ink that reaches the last few rows.
+    for x in 0..w {
+        if (h.saturating_sub(4)..h).any(|y| ink.get(x as i64, y as i64)) {
+            ink.set(x, h - 1, true);
+        }
+    }
+    let ink = if close_px > 0 {
+        morph(&ink, close_px, true)
+    } else {
+        ink
+    };
     // Background = non-ink reachable from the border (4-connected).
     let mut outside = Mask::new(w, h);
     let mut stack: Vec<(u32, u32)> = Vec::new();
@@ -165,6 +222,9 @@ pub fn extract_mask(img: &RgbImage, crop: [u32; 4], max_luma: u8, min_sat: u8) -
     let mut filled = Mask::new(w, h);
     for i in 0..filled.data.len() {
         filled.data[i] = !outside.data[i];
+    }
+    if close_px > 0 {
+        filled = morph(&filled, close_px, false);
     }
     largest_component(&filled)
 }
@@ -210,11 +270,7 @@ fn largest_component(m: &Mask) -> Mask {
 }
 
 /// Crops, masks and aligns every view of a sheet.
-pub fn prepare_sheet(
-    sheet: &Sheet,
-    dir: &Path,
-    spec: &CarSpec,
-) -> Result<Vec<Prepared>, String> {
+pub fn prepare_sheet(sheet: &Sheet, dir: &Path, spec: &CarSpec) -> Result<Vec<Prepared>, String> {
     let path: PathBuf = dir.join(&sheet.image);
     let img = image::open(&path)
         .map_err(|e| format!("{}: {e}", path.display()))?
@@ -228,7 +284,22 @@ pub fn prepare_sheet(
     views.sort_by_key(|v| v.view != "side");
     for v in views {
         let view = View::parse(&v.view).ok_or_else(|| format!("unknown view {:?}", v.view))?;
-        let mask = extract_mask(&img, v.crop, sheet.ink_max_luma, sheet.ink_min_saturation);
+        let mut mask = extract_mask(
+            &img,
+            v.crop,
+            sheet.ink_max_luma,
+            sheet.ink_min_saturation,
+            sheet.close_px,
+        );
+        if let Some(g) = v.ground_y {
+            // Drop the drawn ground line and anything under it.
+            let first = (g - v.crop[1] as f32).round().max(0.0) as u32;
+            for y in first..mask.height {
+                for x in 0..mask.width {
+                    mask.set(x, y, false);
+                }
+            }
+        }
         let (bx0, by0, bx1, by1) = mask
             .bbox()
             .ok_or_else(|| format!("{}: empty silhouette in view {}", sheet.id, v.view))?;
@@ -248,7 +319,11 @@ pub fn prepare_sheet(
                     mpp,
                     flip_u: flip(v),
                 };
-                let front_px = if flip(v) { bx1 as f32 + 1.0 } else { bx0 as f32 };
+                let front_px = if flip(v) {
+                    bx1 as f32 + 1.0
+                } else {
+                    bx0 as f32
+                };
                 side_front_z = Some(grid.to_metric(front_px, 0.0).x);
                 grid
             }
@@ -354,7 +429,11 @@ pub fn silhouettes(
             && p95 <= t.silhouette_p95_distance;
         let what = format!("{} view vs {}", r.view.name(), r.sheet);
         if r.crosscheck {
-            g.info(&id, format!("{what} (cross-check)"), format!("{value} ({})", if pass { "within" } else { "outside" }));
+            g.info(
+                &id,
+                format!("{what} (cross-check)"),
+                format!("{value} ({})", if pass { "within" } else { "outside" }),
+            );
         } else {
             g.check(
                 &id,
@@ -371,7 +450,10 @@ pub fn silhouettes(
         }
         if let Some(dir) = out_dir {
             let name = format!("silhouette-{}-{}.png", r.sheet, r.view.name());
-            if raster::overlay(&mask, &r.mask).save(dir.join(&name)).is_ok() {
+            if raster::overlay(&mask, &r.mask)
+                .save(dir.join(&name))
+                .is_ok()
+            {
                 g.images.push(name);
             }
         }

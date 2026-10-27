@@ -38,11 +38,7 @@ impl Welded {
                     })
                 })
                 .collect();
-            tris.extend(
-                p.tris
-                    .iter()
-                    .map(|t| t.map(|v| ids[v as usize])),
-            );
+            tris.extend(p.tris.iter().map(|t| t.map(|v| ids[v as usize])));
         }
         Welded { positions, tris }
     }
@@ -216,14 +212,18 @@ pub fn hygiene(model: &Model, t: &Thresholds) -> Gate {
         Grid::fit(
             glam::Vec2::new(bounds.min.z, bounds.min.y),
             glam::Vec2::new(bounds.max.z, bounds.max.y),
-            0.01,
+            grid_mpp(bounds.size().max_element()),
             4,
         )
     });
     let base = grid.as_ref().map(|grid| side_silhouette(model, 0, grid));
     for lod in [1u8, 2] {
         let n = model.triangles(model.render_nodes(lod));
-        let ratio = if prev > 0 { n as f32 / prev as f32 } else { 0.0 };
+        let ratio = if prev > 0 {
+            n as f32 / prev as f32
+        } else {
+            0.0
+        };
         g.check(
             &format!("lod{lod}_ratio"),
             format!("LOD{lod} triangles / LOD{}", lod - 1),
@@ -292,14 +292,25 @@ pub fn hygiene(model: &Model, t: &Thresholds) -> Gate {
     g.check(
         "non_manifold",
         "LOD0 edges shared by > 2 triangles",
-        format!("{} of {} ({}) {}", edges.non_manifold, edges.edges, pct(nm), list(&nm_parts)),
+        format!(
+            "{} of {} ({}) {}",
+            edges.non_manifold,
+            edges.edges,
+            pct(nm),
+            list(&nm_parts)
+        ),
         format!("≤ {}", pct(t.non_manifold_fraction as f64)),
         nm <= t.non_manifold_fraction as f64,
     );
     g.info(
         "open_edges",
         "LOD0 open (boundary) edges, all parts",
-        format!("{} edges, {:.2} m {}", edges.boundary, edges.boundary_length, list(&open_parts)),
+        format!(
+            "{} edges, {:.2} m {}",
+            edges.boundary,
+            edges.boundary_length,
+            list(&open_parts)
+        ),
     );
     g.info(
         "winding_inconsistent",
@@ -339,14 +350,20 @@ pub fn hygiene(model: &Model, t: &Thresholds) -> Gate {
         "closed_parts",
         "closed parts watertight and wound outwards (positive volume)",
         closed.join("; "),
-        format!("open edges ≤ {} m, 0 non-manifold, volume > 0", t.closed_boundary_length),
+        format!(
+            "open edges ≤ {} m, 0 non-manifold, volume > 0",
+            t.closed_boundary_length
+        ),
         closed_ok,
     );
 
     let deg = degenerate as f64 / tris0.max(1) as f64;
     g.check(
         "degenerate",
-        format!("LOD0 triangles with area < {:.0e} m² or collapsed", t.degenerate_area),
+        format!(
+            "LOD0 triangles with area < {:.0e} m² or collapsed",
+            t.degenerate_area
+        ),
         format!("{degenerate} ({})", pct(deg)),
         format!("≤ {}", pct(t.degenerate_fraction as f64)),
         deg <= t.degenerate_fraction as f64,
@@ -354,7 +371,10 @@ pub fn hygiene(model: &Model, t: &Thresholds) -> Gate {
     let lf = loose as f64 / tris0.max(1) as f64;
     g.check(
         "loose",
-        format!("LOD0 triangles in pieces of ≤ {} triangles", t.loose_max_triangles),
+        format!(
+            "LOD0 triangles in pieces of ≤ {} triangles",
+            t.loose_max_triangles
+        ),
         format!("{loose} ({}) {}", pct(lf), list(&loose_parts)),
         format!("≤ {}", pct(t.loose_fraction as f64)),
         lf <= t.loose_fraction as f64,
@@ -385,7 +405,15 @@ pub fn hygiene(model: &Model, t: &Thresholds) -> Gate {
     g.check(
         "normals_vs_winding",
         "LOD0 area whose stored normals point against the winding",
-        format!("{}{}", pct(mf), if no_normals > 0 { format!(", {no_normals} primitives without normals") } else { String::new() }),
+        format!(
+            "{}{}",
+            pct(mf),
+            if no_normals > 0 {
+                format!(", {no_normals} primitives without normals")
+            } else {
+                String::new()
+            }
+        ),
         format!("≤ {}", pct(t.normal_mismatch_fraction as f64)),
         mf <= t.normal_mismatch_fraction as f64,
     );
@@ -405,13 +433,27 @@ pub fn hygiene(model: &Model, t: &Thresholds) -> Gate {
         }
         let mut worst = 0.0f64;
         let mut parts = Vec::new();
-        for view in [View::Front, View::Rear, View::Side, View::SideRight, View::Top, View::Bottom] {
+        for view in [
+            View::Front,
+            View::Rear,
+            View::Side,
+            View::SideRight,
+            View::Top,
+            View::Bottom,
+        ] {
             let corners = corners(bounds.min, bounds.max).map(|c| view.project(c));
-            let min = corners.iter().fold(Vec2::splat(f32::INFINITY), |a, c| a.min(c.truncate()));
-            let max = corners.iter().fold(Vec2::splat(f32::NEG_INFINITY), |a, c| a.max(c.truncate()));
-            let grid = Grid::fit(min, max, 0.01, 2);
+            let min = corners
+                .iter()
+                .fold(Vec2::splat(f32::INFINITY), |a, c| a.min(c.truncate()));
+            let max = corners
+                .iter()
+                .fold(Vec2::splat(f32::NEG_INFINITY), |a, c| a.max(c.truncate()));
+            let grid = Grid::fit(min, max, grid_mpp(bounds.size().max_element()), 2);
             // Double-sided surfaces count as front-facing from both sides.
-            let tagged = single.iter().map(|t| (*t, false)).chain(double.iter().map(|t| (*t, true)));
+            let tagged = single
+                .iter()
+                .map(|t| (*t, false))
+                .chain(double.iter().map(|t| (*t, true)));
             let f = facing_with_double(&grid, view, tagged);
             let covered = f.iter().filter(|x| x.is_some()).count();
             let back = f.iter().filter(|x| **x == Some(false)).count();
@@ -433,6 +475,12 @@ pub fn hygiene(model: &Model, t: &Thresholds) -> Gate {
     uv_checks(model, t, &mut g);
     collision_checks(model, t, &mut g, bounds);
     g
+}
+
+/// 1 cm pixels, coarser for absurdly large (mis-scaled) assets so a view
+/// stays under ~2000 px.
+fn grid_mpp(extent: f32) -> f32 {
+    (extent / 2000.0).max(0.01)
 }
 
 fn list(items: &[String]) -> String {
@@ -470,7 +518,11 @@ fn facing_with_double(
         if d {
             // Re-wind towards the camera.
             let n = (t[1] - t[0]).cross(t[2] - t[0]);
-            double.push(if n.dot(view.dir()) < 0.0 { t } else { [t[0], t[2], t[1]] });
+            double.push(if n.dot(view.dir()) < 0.0 {
+                t
+            } else {
+                [t[0], t[2], t[1]]
+            });
         } else {
             single.push(t);
         }
@@ -571,7 +623,11 @@ fn uv_checks(model: &Model, t: &Thresholds, g: &mut Gate) {
             "LOD0 area whose texel density is outside ×1/{0}…×{0} of its material's median",
             t.texel_density_ratio
         ),
-        format!("{} (medians, UV units per metre: {})", pct(outliers / total), medians.join(", ")),
+        format!(
+            "{} (medians, UV units per metre: {})",
+            pct(outliers / total),
+            medians.join(", ")
+        ),
         format!("≤ {}", pct(t.texel_outlier_fraction as f64)),
         outliers / total <= t.texel_outlier_fraction as f64,
     );
@@ -580,7 +636,13 @@ fn uv_checks(model: &Model, t: &Thresholds, g: &mut Gate) {
 fn collision_checks(model: &Model, t: &Thresholds, g: &mut Gate, lod0: crate::model::Aabb) {
     let nodes: Vec<usize> = model.collision_nodes().collect();
     if nodes.is_empty() {
-        g.check("collision", "collision node with geometry", "missing", "present", false);
+        g.check(
+            "collision",
+            "collision node with geometry",
+            "missing",
+            "present",
+            false,
+        );
         return;
     }
     let mut pieces = 0usize;
@@ -634,7 +696,11 @@ fn collision_checks(model: &Model, t: &Thresholds, g: &mut Gate, lod0: crate::mo
         format!("≤ {}", t.collision_max_triangles),
         worst_tris <= t.collision_max_triangles,
     );
-    g.info("collision_open", "collision open-edge length", format!("{open:.3} m"));
+    g.info(
+        "collision_open",
+        "collision open-edge length",
+        format!("{open:.3} m"),
+    );
     let cb = model.bounds(nodes.iter().copied());
     let ratio = cb.size() / lod0.size().max(Vec3::splat(1e-6));
     let (lo, hi) = t.collision_coverage;
@@ -674,7 +740,10 @@ mod tests {
         let w = Welded::new([&prim]);
         assert_eq!(w.positions.len(), 4);
         let e = w.edges();
-        assert_eq!((e.edges, e.boundary, e.non_manifold, e.inconsistent), (6, 0, 0, 0));
+        assert_eq!(
+            (e.edges, e.boundary, e.non_manifold, e.inconsistent),
+            (6, 0, 0, 0)
+        );
         assert!((w.volume(&[0, 1, 2, 3]) - 1.0 / 6.0).abs() < 1e-6);
         assert_eq!(w.components().len(), 1);
     }
