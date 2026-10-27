@@ -134,7 +134,7 @@ roll_center_height_m = 0.09
 
 [estimated.tires.front]
 mu_long = 1.26
-mu_lat = 1.24
+mu_lat = 1.30
 reference_load_n = 4000.0
 load_sensitivity = 0.12
 peak_slip_ratio = 0.11
@@ -150,7 +150,7 @@ inertia_kgm2 = 1.2
 
 [estimated.tires.rear]
 mu_long = 1.26
-mu_lat = 1.24
+mu_lat = 1.30
 reference_load_n = 4000.0
 load_sensitivity = 0.12
 peak_slip_ratio = 0.11

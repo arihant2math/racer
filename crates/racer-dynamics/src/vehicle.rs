@@ -124,6 +124,9 @@ pub struct WheelState {
     pub slip_lat: f64,
     /// ABS brake-pressure factor.
     pub abs: f64,
+    /// Lateral tire force along the body's +X from the last step (N), for
+    /// the suspension's geometric load transfer.
+    pub lateral_force: f64,
 }
 
 /// Everything the vehicle carries between steps. Plain `Copy` data, so
@@ -368,7 +371,13 @@ impl Vehicle {
             let bump = 20.0 * c.spring_rate * (0.03 - d).max(0.0);
             let other = travel[i ^ 1].unwrap_or(c.geometry.max_distance);
             let arb = c.anti_roll * (other - d);
-            load[i] = (spring + damper + bump + arb).clamp(0.0, 20.0 * self.mass * GRAVITY / 4.0);
+            // Geometric load transfer: the linkage carries the lateral force's
+            // moment about the roll centre without compressing the spring (an
+            // inward force pushes the wheel down, an outward one lifts it).
+            let jacking =
+                -state.wheels[i].lateral_force * c.roll_center_height / c.geometry.hardpoint.x;
+            load[i] = (spring + damper + bump + arb + jacking)
+                .clamp(0.0, 20.0 * self.mass * GRAVITY / 4.0);
         }
 
         // Contact frames and the ground velocity of each contact patch.
@@ -537,25 +546,28 @@ impl Vehicle {
             torque += at.cross(f);
         };
         let inv = 1.0 / f64::from(n);
+        let mut aligning = DVec3::ZERO;
         for i in 0..4 {
             let c = &self.corners[i];
-            let ws = &state.wheels[i];
+            let ws = &mut state.wheels[i];
             let t = &mut tel.wheels[i];
             t.omega = ws.omega;
             t.steer = if i < 2 { steer[i] } else { 0.0 };
             t.brake_torque = brake[i] * ws.abs;
             t.travel = travel[i].unwrap_or(c.geometry.max_distance);
             let Some(p) = &patches[i] else {
+                ws.lateral_force = 0.0;
                 continue;
             };
             let (fx, fy, mz) = (fx_sum[i] * inv, fy_sum[i] * inv, mz_sum[i] * inv);
-            apply(p.normal * load[i], p.point);
-            // Tire forces act at the axle's roll centre, not the ground, which
-            // stands in for the suspension linkage's anti-roll geometry.
-            apply(
-                p.fwd * fx + p.right * fy,
-                p.point + up * c.roll_center_height,
-            );
+            // The tire force and the linkage's jacking force (part of `load`)
+            // act along the line from the contact patch through the roll
+            // centre, so they enter the body at the patch: the total load
+            // transfer is m a h / track, and only the share above the roll
+            // centre goes through the springs.
+            apply(p.normal * load[i] + p.fwd * fx + p.right * fy, p.point);
+            aligning += p.normal * mz;
+            ws.lateral_force = fy * p.right.dot(rot * DVec3::X);
             *t = WheelTelemetry {
                 contact: true,
                 load: load[i],
@@ -575,6 +587,7 @@ impl Vehicle {
             let lift = q * self.lift_area[axle] * forward_speed * forward_speed;
             apply(up * lift, rot * DVec3::new(0.0, 0.0, z));
         }
+        torque += aligning;
 
         let ds = &state.drive;
         tel.rpm = ds.engine_omega / crate::drivetrain::RPM_TO_RAD_S;

@@ -133,7 +133,7 @@ roll_center_height_m = 0.10
 
 [estimated.tires.front]
 mu_long = 1.15
-mu_lat = 1.22
+mu_lat = 1.27
 reference_load_n = 4500.0
 load_sensitivity = 0.12
 peak_slip_ratio = 0.11
@@ -149,8 +149,8 @@ inertia_kgm2 = 1.4
 
 [estimated.tires.rear]
 # Wider, driven 285s: higher longitudinal grip fitted to the RWD 0-100 time.
-mu_long = 1.45
-mu_lat = 1.22
+mu_long = 1.35
+mu_lat = 1.27
 reference_load_n = 4500.0
 load_sensitivity = 0.12
 peak_slip_ratio = 0.11
