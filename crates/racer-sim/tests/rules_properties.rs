@@ -4,8 +4,8 @@
 //! arbitrary fields for `standings`. See `docs/qa/adversarial-edge-cases.md`.
 //!
 //! Small case counts by default; `QA_EDGE_CASES=<n>` for a deeper run.
-//! Failing properties are `#[ignore = "QA-EDGE-N"]` regressions with the
-//! shrunk counterexample hard-coded.
+//! The `qa_edge_*` tests are regressions with the shrunk counterexamples
+//! the properties found hard-coded (fixed, see `docs/qa/fixes-race-rules.md`).
 
 use std::sync::LazyLock;
 
@@ -65,9 +65,10 @@ fn leg() -> impl Strategy<Value = Leg> {
     prop_oneof![
         12 => (-40.0..250.0f32, -0.9..0.9f32, 5.0..90.0f32)
             .prop_map(|(distance, lateral, speed)| Leg::Drive { distance, lateral, speed }),
-        // Up to 20 m: longer ones hit QA-EDGE-2 (and on the dense track
-        // QA-EDGE-1), which have their own regression tests.
-        1 => (5.0..20.0f32).prop_map(|distance| Leg::Excursion { distance }),
+        // Up to 60 m: past ~26 m the car is off the track until it is
+        // reset (QA-EDGE-2), and on the dense track it can pass two gates
+        // (QA-EDGE-1).
+        1 => (5.0..60.0f32).prop_map(|distance| Leg::Excursion { distance }),
         1 => Just(Leg::Reset),
     ]
 }
@@ -105,10 +106,6 @@ struct Run<'a> {
     starts: Vec<f32>,
     lap_sectors: Vec<Vec<f32>>,
     laps_counted: i64,
-    /// A lap was taken back (QA-EDGE-10 makes best sectors stale after that).
-    undone: bool,
-    /// The last leg drove backwards.
-    reversed: bool,
     problems: Vec<String>,
 }
 
@@ -126,8 +123,6 @@ impl<'a> Run<'a> {
             starts: vec![0.0],
             lap_sectors: Vec::new(),
             laps_counted: 0,
-            undone: false,
-            reversed: false,
             problems: Vec::new(),
         }
     }
@@ -142,7 +137,6 @@ impl<'a> Run<'a> {
             }
             ProgressEvent::LapUndone => {
                 self.laps_counted -= 1;
-                self.undone = true;
                 self.starts.pop();
                 self.lap_sectors.pop();
             }
@@ -269,7 +263,7 @@ impl<'a> Run<'a> {
                     .fold(f32::MAX, f32::min)
             })
             .collect();
-        if !self.undone && !self.lap_sectors.is_empty() && t.best_sectors != best {
+        if !self.lap_sectors.is_empty() && t.best_sectors != best {
             self.problem(format!(
                 "best sectors {:?}, standing laps' best {best:?}",
                 t.best_sectors
@@ -289,13 +283,7 @@ impl<'a> Run<'a> {
                     self.drive(distance, 0.0, 30.0, true);
                     self.drive(1.0, 0.0, 30.0, false);
                 }
-                // After reversing, a reset can place the car ahead of gates it
-                // took back (QA-EDGE-11, own regression test): skip those.
-                Leg::Reset if self.reversed => {}
                 Leg::Reset => self.reset(),
-            }
-            if let Leg::Drive { distance, .. } = leg {
-                self.reversed = distance < 0.0;
             }
             self.check();
         }
@@ -324,13 +312,16 @@ proptest! {
         prop_assert!(run.problems.is_empty(), "{:#?}", run.problems);
     }
 
-    /// The same with excursions off the corridor and resets mixed in (on the
-    /// shipped track: on the dense one any excursion can jump two gates,
-    /// QA-EDGE-1).
+    /// The same with excursions off the corridor and resets mixed in, on
+    /// both tracks (the dense one has gates closer than one step's window).
     #[test]
-    fn progress_survives_excursions_and_resets(legs in prop::collection::vec(leg(), 1..30)) {
-        let g = &TRACKS[0];
-        let mut run = Run::new(g, 0);
+    fn progress_survives_excursions_and_resets(
+        track in 0usize..2,
+        slot in 0usize..8,
+        legs in prop::collection::vec(leg(), 1..30),
+    ) {
+        let g = &TRACKS[track];
+        let mut run = Run::new(g, slot);
         run.run(&legs);
         prop_assert!(run.problems.is_empty(), "{:#?}", run.problems);
     }
