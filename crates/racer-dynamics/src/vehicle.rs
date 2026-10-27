@@ -185,7 +185,9 @@ pub struct StepOutput {
 }
 
 impl Vehicle {
+    /// Builds the model from a spec, rejecting out-of-range data (see [`CarSpec::validate`]).
     pub fn from_spec(spec: &CarSpec) -> Result<Self, String> {
+        spec.validate()?;
         let c = &spec.chassis;
         let e = &spec.estimated;
         let mass = c.curb_mass_kg + e.chassis.payload_kg;

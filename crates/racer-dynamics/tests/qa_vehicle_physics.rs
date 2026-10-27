@@ -59,7 +59,6 @@ fn assert_all_rejected(cases: Vec<(&str, CarSpec)>) {
 }
 
 #[test]
-#[ignore = "QA-PHYS-1"]
 fn qa_phys_1_degenerate_parameters_are_rejected() {
     let mut cases = Vec::new();
     let mut case = |name, edit: &dyn Fn(&mut CarSpec)| {
@@ -113,7 +112,6 @@ fn qa_phys_1_degenerate_parameters_are_rejected() {
 }
 
 #[test]
-#[ignore = "QA-PHYS-1"]
 fn qa_phys_1_nan_and_inf_in_car_toml_are_rejected() {
     let text =
         std::fs::read_to_string(racer_dynamics::spec::cars_dir().join("vw-golf-gti-mk8/car.toml"))
@@ -129,7 +127,6 @@ fn qa_phys_1_nan_and_inf_in_car_toml_are_rejected() {
 }
 
 #[test]
-#[ignore = "QA-PHYS-2"]
 fn qa_phys_2_empty_gear_and_torque_tables_are_rejected() {
     let mut cases = Vec::new();
     let mut s = gti();

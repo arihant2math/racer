@@ -553,7 +553,6 @@ fn spec_outcome(spec: &CarSpec) -> Result<(), String> {
 /// and then panics or produces NaN within a second of driving, instead of
 /// being rejected with an error naming the field.
 #[test]
-#[ignore = "QA-EDGE-4"]
 fn qa_edge_4_invalid_car_specs_are_accepted() {
     let cases: Vec<(&str, CarSpec)> = vec![
         (
@@ -593,16 +592,11 @@ fn qa_edge_4_invalid_car_specs_are_accepted() {
 }
 
 /// A Magic Formula shape factor below 1 cannot peak, so the curve fit
-/// silently gives a tire with (almost) no grip. Also part of QA-EDGE-4.
+/// would give a tire with (almost) no grip: the spec is rejected instead.
+/// Also part of QA-EDGE-4.
 #[test]
-#[ignore = "QA-EDGE-4"]
-fn qa_edge_4_shape_factor_below_one_gives_a_gripless_tire() {
+fn qa_edge_4_shape_factor_below_one_is_rejected() {
     let spec = spec_with(|s| s.estimated.tires.front.shape_lat = 0.9);
-    let v = Vehicle::from_spec(&spec).expect("accepted");
-    let t = v.tire(0);
-    let peak = t.force(0.0, t.peak_slip_tan, 4000.0, 1.0).fy.abs();
-    assert!(
-        peak > 0.5 * 4000.0,
-        "peak lateral force {peak} N at 4 kN load: the fit has no peak"
-    );
+    let err = Vehicle::from_spec(&spec).expect_err("C < 1 accepted");
+    assert!(err.contains("shape_lat"), "{err}");
 }
