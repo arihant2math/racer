@@ -22,7 +22,7 @@ pub fn sun_direction(time: TimeOfDay) -> Vec3 {
     let (elev, azim): (f32, f32) = match time {
         // Azimuth measured from −Z (north) clockwise towards +X (east).
         TimeOfDay::Day => (52.0, 150.0),
-        TimeOfDay::Golden => (7.0, 285.0),
+        TimeOfDay::Golden => (7.0, 271.0),
         TimeOfDay::Night => (35.0, 200.0),
     };
     let (e, a) = (elev.to_radians(), azim.to_radians());
@@ -90,7 +90,7 @@ pub fn camera_bundle(time: TimeOfDay, wet: bool) -> impl Bundle {
         },
         TimeOfDay::Golden => ColorGrading {
             global: ColorGradingGlobal {
-                temperature: 0.1,
+                temperature: 0.05,
                 post_saturation: 1.15,
                 ..default()
             },
