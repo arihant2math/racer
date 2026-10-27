@@ -453,8 +453,10 @@ pub fn utility_cabinet() -> Parts {
     p
 }
 
-/// Street tree in a pit: tapered trunk, branching limbs and a canopy of
-/// jittered low-poly blobs (deterministic per `seed`).
+/// Street tree in a pit: tapered trunk, branching limbs, a small dark core
+/// blob (so the canopy never looks see-through) and leaf cards scattered
+/// over a few canopy lobes with normals pointing away from the lobe centre
+/// (soft, volumetric shading). Deterministic per `seed`.
 pub fn tree(seed: u64, lod: usize) -> Parts {
     let mut rng = Rng::new(seed);
     let mut p = Parts::new();
@@ -465,20 +467,58 @@ pub fn tree(seed: u64, lod: usize) -> Parts {
         bx(Vec3::new(-0.7, -0.02, -0.7), Vec3::new(0.7, 0.03, 0.7)),
     );
     p.add_closed(Slot::Bark, MeshData::frustum(0.14, 0.09, h, seg, true));
-    let blobs = if lod == 0 { 9 } else { 4 };
-    for k in 0..blobs {
-        let a = k as f32 / blobs as f32 * std::f32::consts::TAU + rng.range(-0.3, 0.3);
-        let r = if k == 0 { 0.0 } else { rng.range(0.8, 1.8) };
-        let c = Vec3::new(a.cos() * r, h + rng.range(0.4, 2.6), a.sin() * r);
+    let lobes = if lod == 0 { 6 } else { 3 };
+    let cards_per_lobe = if lod == 0 { 14 } else { 6 };
+    let mut cards = MeshData::new();
+    for k in 0..lobes {
+        let a = k as f32 / lobes as f32 * std::f32::consts::TAU + rng.range(-0.3, 0.3);
+        let r = if k == 0 { 0.0 } else { rng.range(0.7, 1.5) };
+        let c = Vec3::new(a.cos() * r, h + rng.range(0.6, 2.4), a.sin() * r);
+        let rad = rng.range(1.1, 1.6);
         if k > 0 && lod == 0 {
             p.add_closed(
                 Slot::Bark,
                 MeshData::tube(Vec3::Y * (h - 0.2), c, 0.05, 5, true),
             );
         }
-        let rad = rng.range(1.0, 1.6);
-        p.add_closed(Slot::Foliage, blob(c, rad, &mut rng, lod));
+        if k == 0 {
+            p.add_closed(Slot::Foliage, blob(c, rad * 0.75, &mut rng, 1));
+        }
+        for _ in 0..cards_per_lobe {
+            // Random point in the lobe, card facing a random direction.
+            let dir = Vec3::new(
+                rng.range(-1.0, 1.0),
+                rng.range(-0.6, 1.0),
+                rng.range(-1.0, 1.0),
+            )
+            .normalize_or(Vec3::Y);
+            let at = c + dir * rad * rng.range(0.35, 0.95);
+            let size = rng.range(1.0, 1.5);
+            let normal = (at - c).normalize_or(Vec3::Y);
+            let tangent = normal.any_orthonormal_vector();
+            let rot =
+                bevy::math::Quat::from_axis_angle(normal, rng.range(0.0, std::f32::consts::TAU));
+            let (u, v) = (rot * tangent, rot * normal.cross(tangent));
+            let (hu, hv) = (u * size / 2.0, v * size / 2.0);
+            let corners = [at - hu - hv, at + hu - hv, at + hu + hv, at - hu + hv];
+            let base = cards.positions.len() as u32;
+            for (i, q) in corners.iter().enumerate() {
+                // Lobe-radial normals for every vertex.
+                let n = (*q - c).normalize_or(Vec3::Y);
+                let uv = [
+                    Vec2::new(0.0, 1.0),
+                    Vec2::new(1.0, 1.0),
+                    Vec2::new(1.0, 0.0),
+                    Vec2::new(0.0, 0.0),
+                ][i];
+                cards.vertex(*q, n, uv);
+            }
+            cards
+                .indices
+                .extend([base, base + 1, base + 2, base, base + 2, base + 3]);
+        }
     }
+    p.add(Slot::Leaves, cards);
     p
 }
 

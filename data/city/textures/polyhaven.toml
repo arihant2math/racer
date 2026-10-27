@@ -6,13 +6,13 @@
 
 [[texture]]
 kit = "asphalt"
-id = "asphalt_02"
-author = "Rob Tuytel"
-tile_m = 3.0
-page = "https://polyhaven.com/a/asphalt_02"
-albedo = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/asphalt_02/asphalt_02_diff_1k.jpg", md5 = "fa19772d4817754c3efab708c651f5a8" }
-normal = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/asphalt_02/asphalt_02_nor_gl_1k.jpg", md5 = "338da8de636ea36133170578cac82e8e" }
-orm = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/asphalt_02/asphalt_02_arm_1k.jpg", md5 = "33820445f43af5e5ee484674b6939271" }
+id = "asphalt_track"
+author = "Dimitrios Savva"
+tile_m = 2.0
+page = "https://polyhaven.com/a/asphalt_track"
+albedo = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/asphalt_track/asphalt_track_diff_1k.jpg", md5 = "92e0682878c39430e521cce235ac1f75" }
+normal = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/asphalt_track/asphalt_track_nor_gl_1k.jpg", md5 = "d61d8e22e24ea0e44873b9c9c97d4e0c" }
+orm = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/asphalt_track/asphalt_track_arm_1k.jpg", md5 = "f38c5981fb7f8e8c9a8a42726d7fe5a5" }
 
 [[texture]]
 kit = "paving"

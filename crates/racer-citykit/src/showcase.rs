@@ -230,7 +230,10 @@ fn report_frames(
     acc.1 += time.delta_secs();
     if acc.0 % 60 == 30 {
         let draws = visible.iter().filter(|v| v.get()).count();
-        info!("downtown-kit: mean frame {:.0} ms over 60 frames, {draws} visible mesh entities", acc.1 / 60.0 * 1000.0);
+        info!(
+            "downtown-kit: mean frame {:.0} ms over 60 frames, {draws} visible mesh entities",
+            acc.1 / 60.0 * 1000.0
+        );
         acc.1 = 0.0;
     }
 }
@@ -925,15 +928,16 @@ pub fn build_showcase(
             buildings += 1;
         }
     }
-    // Landmark tower behind the grandstand.
+    // Landmark tower north of the corner plaza: closes the view down the
+    // first straight without shading the second one from a westerly sun.
     {
         let tower = district
             .archetypes
             .iter()
             .find(|a| a.style == Style::Curtain)
             .expect("a curtain archetype");
-        let c = main.point(mid, -p.frontage() - 50.0, 0.0);
-        let d = road_dir(&main, mid, -1.0);
+        let c = Vec3::new(0.0, 0.0, -268.0);
+        let d = Vec3::Z;
         let (dx, dz) = (Vec2::new(d.x, d.z), Vec2::new(-d.z, d.x));
         let cc = Vec2::new(c.x, c.z);
         let poly = vec![
@@ -1112,6 +1116,11 @@ pub fn camera_poses() -> Vec<(&'static str, Vec3, Vec3)> {
             "drone",
             m.point(CORNER_IN + 22.0, -30.0, 42.0),
             m.point(CORNER_IN - 110.0, 2.0, 0.0),
+        ),
+        (
+            "into-sun",
+            m.point(CORNER_OUT + 120.0, 2.0, 1.4),
+            m.point(CORNER_OUT - 10.0, 0.0, 5.0),
         ),
     ]
 }

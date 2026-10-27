@@ -51,6 +51,8 @@ pub enum Slot {
     CarPaint,
     CarGlass,
     Foliage,
+    /// Alpha-tested leaf cards.
+    Leaves,
     Bark,
     // Buildings
     Brick,

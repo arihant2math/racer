@@ -22,7 +22,7 @@ pub fn sun_direction(time: TimeOfDay) -> Vec3 {
     let (elev, azim): (f32, f32) = match time {
         // Azimuth measured from −Z (north) clockwise towards +X (east).
         TimeOfDay::Day => (52.0, 150.0),
-        TimeOfDay::Golden => (11.0, 300.0),
+        TimeOfDay::Golden => (7.0, 285.0),
         TimeOfDay::Night => (35.0, 200.0),
     };
     let (e, a) = (elev.to_radians(), azim.to_radians());
@@ -37,7 +37,7 @@ pub fn spawn_sky(commands: &mut Commands, media: &mut Assets<ScatteringMedium>, 
     let dir = sun_direction(time);
     let (illuminance, color, shadows) = match time {
         TimeOfDay::Day => (lux::RAW_SUNLIGHT, Color::WHITE, true),
-        TimeOfDay::Golden => (lux::RAW_SUNLIGHT * 0.8, Color::srgb(1.0, 0.9, 0.78), true),
+        TimeOfDay::Golden => (lux::RAW_SUNLIGHT * 0.75, Color::srgb(1.0, 0.8, 0.58), true),
         // Moonlight (a bright full moon is ~0.3 lux; games push it for
         // readability), cool; the atmosphere then renders a dark sky.
         TimeOfDay::Night => (2.0, Color::srgb(0.7, 0.8, 1.0), false),
@@ -90,8 +90,8 @@ pub fn camera_bundle(time: TimeOfDay, wet: bool) -> impl Bundle {
         },
         TimeOfDay::Golden => ColorGrading {
             global: ColorGradingGlobal {
-                temperature: 0.04,
-                post_saturation: 1.05,
+                temperature: 0.1,
+                post_saturation: 1.15,
                 ..default()
             },
             shadows: ColorGradingSection {

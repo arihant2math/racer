@@ -257,6 +257,7 @@ impl KitMaterials {
         let signs = images.add(texture::sign_atlas(512, 21).to_image(Encoding::Srgb));
         let road_signs = images.add(texture::road_sign_atlas(512).to_image(Encoding::Srgb));
         let chequer = images.add(texture::chequer(64).to_image(Encoding::Srgb));
+        let leaves = images.add(texture::leaves(512, 23).to_image(Encoding::Srgb));
         let skyline = images.add(texture::skyline(512, 22, false).to_image(Encoding::Srgb));
         let skyline_lit = images.add(texture::skyline(512, 22, true).to_image(Encoding::Srgb));
 
@@ -290,7 +291,11 @@ impl KitMaterials {
             StandardMaterial {
                 base_color_texture: Some(fence),
                 // Alpha-to-coverage needs MSAA; the wet (deferred) preset has none.
-                alpha_mode: if wet > 0.0 { AlphaMode::Mask(0.3) } else { AlphaMode::AlphaToCoverage },
+                alpha_mode: if wet > 0.0 {
+                    AlphaMode::Mask(0.3)
+                } else {
+                    AlphaMode::AlphaToCoverage
+                },
                 double_sided: true,
                 cull_mode: None,
                 metallic: 0.8,
@@ -405,6 +410,23 @@ impl KitMaterials {
         std(Slot::CarGlass, plain(0.015, 0.018, 0.02, 0.05, 0.0));
         std(Slot::Foliage, plain(0.09, 0.17, 0.05, 0.8, 0.0));
         std(Slot::Bark, plain(0.11, 0.085, 0.065, 0.9, 0.0));
+        std(
+            Slot::Leaves,
+            StandardMaterial {
+                base_color_texture: Some(leaves),
+                alpha_mode: if wet > 0.0 {
+                    AlphaMode::Mask(0.5)
+                } else {
+                    AlphaMode::AlphaToCoverage
+                },
+                double_sided: true,
+                cull_mode: None,
+                perceptual_roughness: 0.7,
+                // Thin leaves let light through: soften the terminator.
+                diffuse_transmission: 0.3,
+                ..default()
+            },
+        );
         std(Slot::Brick, textured(&brick, brick_tile));
         std(Slot::Plaster, textured(&plaster, plaster_tile));
         std(Slot::Stone, textured(&plaster, Vec2::splat(2.0)));

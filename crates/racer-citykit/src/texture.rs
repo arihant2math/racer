@@ -1107,3 +1107,48 @@ pub fn skyline(size: u32, seed: u32, emissive: bool) -> Tex {
         [c.x, c.y, c.z, 1.0]
     })
 }
+
+/// Leaf clusters for tree canopy cards: a few hundred small elliptical
+/// leaves with per-leaf tint on a transparent background (alpha = leaf).
+pub fn leaves(size: u32, seed: u32) -> Tex {
+    let mut t = Tex::new(size, [0.06, 0.1, 0.04, 0.0]);
+    let mut rng = crate::noise::Rng::new(seed as u64);
+    let n = 900;
+    for _ in 0..n {
+        // Denser towards the centre so card edges stay ragged.
+        let (r, a) = (
+            rng.f32().sqrt() * 0.47,
+            rng.range(0.0, std::f32::consts::TAU),
+        );
+        let c = Vec2::new(0.5 + r * a.cos(), 0.5 + r * a.sin());
+        let len = rng.range(0.025, 0.045);
+        let wid = len * rng.range(0.35, 0.5);
+        let ang = rng.range(0.0, std::f32::consts::PI);
+        let (sa, ca) = ang.sin_cos();
+        let tone = rng.range(0.0, 1.0);
+        let col = Vec3::new(0.05, 0.11, 0.03).lerp(Vec3::new(0.16, 0.26, 0.06), tone);
+        let ext = (len * size as f32).ceil() as i32 + 1;
+        let (cx, cy) = ((c.x * size as f32) as i32, (c.y * size as f32) as i32);
+        for dy in -ext..=ext {
+            for dx in -ext..=ext {
+                let (x, y) = (cx + dx, cy + dy);
+                if x < 0 || y < 0 || x >= size as i32 || y >= size as i32 {
+                    continue;
+                }
+                let p = Vec2::new(
+                    (x as f32 + 0.5) / size as f32,
+                    (y as f32 + 0.5) / size as f32,
+                ) - c;
+                let q = Vec2::new(p.x * ca + p.y * sa, -p.x * sa + p.y * ca);
+                let d = (q.x / len).powi(2) + (q.y / wid).powi(2);
+                if d < 1.0 {
+                    // Midrib darker, edges lighter.
+                    let shade = 0.85 + 0.25 * (q.y / wid).abs();
+                    let i = (y as u32 * size + x as u32) as usize;
+                    t.px[i] = [col.x * shade, col.y * shade, col.z * shade, 1.0];
+                }
+            }
+        }
+    }
+    t
+}

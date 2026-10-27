@@ -18,7 +18,7 @@ pub fn slot_colour(slot: Slot) -> [f32; 3] {
         }
         Slot::Chequer | Slot::BoardWhite | Slot::PaintWhite | Slot::LampLens => [0.9, 0.9, 0.9],
         Slot::Led | Slot::SignalAmber | Slot::PaintYellow => [0.95, 0.65, 0.1],
-        Slot::SignalGreen | Slot::Foliage => [0.1, 0.5, 0.2],
+        Slot::SignalGreen | Slot::Foliage | Slot::Leaves => [0.1, 0.5, 0.2],
         Slot::SeatBlue => [0.1, 0.25, 0.7],
         Slot::Banner => [0.8, 0.2, 0.2],
         Slot::Crowd => [0.5, 0.4, 0.35],

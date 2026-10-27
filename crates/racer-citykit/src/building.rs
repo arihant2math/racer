@@ -387,6 +387,10 @@ struct Spec<'a> {
     awning: bool,
     fire_escape: bool,
     lit: f32,
+    /// Multiplier on the window bay width (secondary façades are sparser).
+    bay_scale: f32,
+    /// Window frames (mullion and transom bars).
+    frames: bool,
 }
 
 /// Street façade of `len` metres in façade space.
@@ -429,7 +433,7 @@ fn street_facade(
             let (bw0, bw1) = (spec.arch.bay_width[0], spec.arch.bay_width[1]);
             let margin = 0.7;
             let usable = (len - 2.0 * margin).max(0.0);
-            let n = (usable / rng.range(bw0, bw1)).round() as usize;
+            let n = (usable / (rng.range(bw0, bw1) * spec.bay_scale)).round() as usize;
             let mut w = MeshData::new();
             // Corner piers.
             wall_quad(&mut w, 0.0, margin.min(len), g + 0.3, y_top, 0.0);
@@ -474,7 +478,7 @@ fn street_facade(
                         depth,
                         Slot::Window,
                         rect,
-                        true,
+                        spec.frames,
                     );
                     // Sill and lintel.
                     p.add_closed(
@@ -997,6 +1001,57 @@ pub fn pick_archetype<'a>(district: &'a District, frontage: f32, rng: &mut Rng) 
 }
 
 /// Assembles one building on `lot` with archetype `arch`.
+/// Random choices of one building, drawn first so neighbours can be
+/// planned before any building is assembled.
+struct Plan {
+    rng: Rng,
+    floors: u32,
+    tints: Tints,
+    lit: f32,
+    podium_floors: u32,
+}
+
+impl Plan {
+    fn draw(arch: &Archetype, district: &District, seed: u64) -> Self {
+        let mut rng = Rng::new(seed);
+        let floors =
+            arch.floors[0] + rng.index((arch.floors[1] - arch.floors[0] + 1) as usize) as u32;
+        let pal = &district.palette;
+        let tints = Tints {
+            wall: if arch.wall == Wall::Brick {
+                pick(&pal.brick, &mut rng)
+            } else {
+                pick(&pal.plaster, &mut rng)
+            },
+            trim: pick(&pal.stone, &mut rng),
+            glass: pick(&pal.glass, &mut rng),
+            awning: pick(&pal.awning, &mut rng),
+        };
+        let lit = rng.range(0.35, 0.7);
+        let podium_floors = if arch.style == Style::Curtain {
+            let pf = arch.podium_floors[0]
+                + rng.index((arch.podium_floors[1] - arch.podium_floors[0] + 1) as usize) as u32;
+            pf.max(1)
+        } else {
+            floors
+        };
+        Self {
+            rng,
+            floors,
+            tints,
+            lit,
+            podium_floors,
+        }
+    }
+
+    /// Top of the street wall (the podium for towers).
+    fn base_top(&self, arch: &Archetype) -> f32 {
+        arch.ground_floor + 0.3 + self.podium_floors.saturating_sub(1) as f32 * arch.floor_height
+    }
+}
+
+/// Assembles one building on `lot` with archetype `arch` (all side walls
+/// exposed).
 pub fn build(
     lot: &Lot,
     arch: &Archetype,
@@ -1004,39 +1059,41 @@ pub fn build(
     seed: u64,
     name: String,
 ) -> Building {
-    let mut rng = Rng::new(seed);
-    let floors = arch.floors[0] + rng.index((arch.floors[1] - arch.floors[0] + 1) as usize) as u32;
+    build_with(lot, arch, district, seed, name, &[])
+}
+
+/// Like [`build`], with `hidden[i]` the height up to which edge `i` is
+/// covered by a neighbour: a non-street edge hidden to the full wall height
+/// stays a plain wall instead of getting windows.
+pub fn build_with(
+    lot: &Lot,
+    arch: &Archetype,
+    district: &District,
+    seed: u64,
+    name: String,
+    hidden: &[f32],
+) -> Building {
+    let plan = Plan::draw(arch, district, seed);
+    let base_top = plan.base_top(arch);
+    let Plan {
+        mut rng,
+        floors,
+        tints,
+        lit,
+        podium_floors,
+    } = plan;
     let wall = match arch.wall {
         Wall::Brick => Slot::Brick,
         Wall::Plaster => Slot::Plaster,
     };
-    let pal = &district.palette;
-    let tints = Tints {
-        wall: if arch.wall == Wall::Brick {
-            pick(&pal.brick, &mut rng)
-        } else {
-            pick(&pal.plaster, &mut rng)
-        },
-        trim: pick(&pal.stone, &mut rng),
-        glass: pick(&pal.glass, &mut rng),
-        awning: pick(&pal.awning, &mut rng),
-    };
-    let lit = rng.range(0.35, 0.7);
+    let tower = arch.style == Style::Curtain;
     let mut parts = Parts::new();
     let poly = &lot.poly;
     let n = poly.len();
     let g = arch.ground_floor;
-    let (podium_floors, tower) = if arch.style == Style::Curtain {
-        let pf = arch.podium_floors[0]
-            + rng.index((arch.podium_floors[1] - arch.podium_floors[0] + 1) as usize) as u32;
-        (pf.max(1), true)
-    } else {
-        (floors, false)
-    };
     // Base (whole building for masonry/loft, podium for towers).
     let base_style = if tower { Style::Masonry } else { arch.style };
     let base_floors = podium_floors;
-    let base_top = g + 0.3 + (base_floors.saturating_sub(1)) as f32 * arch.floor_height;
     let spec = Spec {
         arch,
         style: base_style,
@@ -1048,16 +1105,29 @@ pub fn build(
         awning: rng.chance(district.ground.awning),
         fire_escape: rng.chance(arch.fire_escapes),
         lit,
+        bay_scale: 1.0,
+        frames: true,
+    };
+    // Side and back walls: same floors and materials, no shopfronts or fire
+    // escapes, sparser unframed windows (exposed party walls downtown).
+    let side_spec = Spec {
+        shopfront: false,
+        fire_escape: false,
+        bay_scale: 1.35,
+        frames: false,
+        ..spec
     };
     for i in 0..n {
         let (t, len) = facade_frame(poly[i], poly[(i + 1) % n], outward(poly, i));
         let mut f = Parts::new();
         if lot.street[i] {
             street_facade(&mut f, &spec, len, base_top, district, &mut rng);
-        } else {
+        } else if hidden.get(i).is_some_and(|h| *h >= base_top - 0.5) {
             let mut w = MeshData::new();
             wall_quad(&mut w, 0.0, len, 0.0, base_top, 0.0);
             f.add(wall, w);
+        } else {
+            street_facade(&mut f, &side_spec, len, base_top, district, &mut rng);
         }
         parts.merge(&f, t);
         if lot.street[i] && !tower {
@@ -1144,21 +1214,52 @@ pub fn build(
 pub fn assemble_block(block: &Lot, district: &District, seed: u64, prefix: &str) -> Vec<Building> {
     let mut rng = Rng::new(seed ^ district.seed);
     let lots = subdivide_block(block, district.lot_width, &mut rng);
+    // Pick archetypes and seeds first, so each lot knows its neighbours' heights.
     let mut last: Option<String> = None;
-    lots.iter()
-        .enumerate()
-        .map(|(i, lot)| {
+    let picks: Vec<(&Archetype, u64)> = lots
+        .iter()
+        .map(|lot| {
             let mut arch = pick_archetype(district, lot.frontage(), &mut rng);
             if last.as_deref() == Some(arch.name.as_str()) {
                 arch = pick_archetype(district, lot.frontage(), &mut rng);
             }
             last = Some(arch.name.clone());
-            build(
+            (arch, rng.next_u32() as u64)
+        })
+        .collect();
+    let tops: Vec<f32> = picks
+        .iter()
+        .map(|(a, s)| Plan::draw(a, district, *s).base_top(a))
+        .collect();
+    lots.iter()
+        .enumerate()
+        .map(|(i, lot)| {
+            let m = lot.poly.len();
+            let hidden: Vec<f32> = (0..m)
+                .map(|e| {
+                    let (p, q) = (lot.poly[e], lot.poly[(e + 1) % m]);
+                    lots.iter()
+                        .enumerate()
+                        .filter(|(j, other)| {
+                            *j != i
+                                && (0..other.poly.len()).any(|k| {
+                                    let (a, b) =
+                                        (other.poly[k], other.poly[(k + 1) % other.poly.len()]);
+                                    on_edge(p, q, a, b) || on_edge(a, b, p, q)
+                                })
+                        })
+                        .map(|(j, _)| tops[j])
+                        .fold(0.0, f32::max)
+                })
+                .collect();
+            let (arch, seed) = picks[i];
+            build_with(
                 lot,
                 arch,
                 district,
-                rng.next_u32() as u64,
+                seed,
                 format!("bldg_{prefix}_{i}"),
+                &hidden,
             )
         })
         .collect()
