@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "m*-*"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup (Linux)
+        if: runner.os == 'Linux'
+        run: tools/setup.sh
+      - name: Toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+      - uses: Swatinem/rust-cache@v2
+      - name: fmt
+        run: cargo fmt --all --check
+      - name: clippy
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - name: test
+        run: cargo test --workspace --locked
+
+  capture:
+    name: capture (Linux, lavapipe)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Setup
+        run: tools/setup.sh
+      - uses: Swatinem/rust-cache@v2
+      - name: Capture greybox scene
+        run: tools/capture.sh greybox captures/greybox
+      - name: Compare with goldens
+        run: target/debug/racer-capture diff captures/greybox crates/racer-capture/goldens/greybox
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: captures-greybox
+          path: captures/
+          if-no-files-found: warn

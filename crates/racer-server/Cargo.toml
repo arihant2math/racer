@@ -1,0 +1,12 @@
+[package]
+name = "racer-server"
+description = "Headless dedicated race server."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+bevy = { workspace = true, features = ["std", "multi_threaded", "bevy_log"] }
+racer-sim.workspace = true
+

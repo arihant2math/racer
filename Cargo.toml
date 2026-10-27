@@ -1,0 +1,45 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+publish = false
+
+# Every external crate is pinned exactly. Bevy and its ecosystem move in
+# lockstep; upgrade at most once per milestone, behind a capture-diff gate.
+[workspace.dependencies]
+racer-dynamics = { path = "crates/racer-dynamics" }
+racer-sim = { path = "crates/racer-sim" }
+racer-render = { path = "crates/racer-render" }
+racer-game = { path = "crates/racer-game" }
+
+bevy = { version = "=0.19.1", default-features = false }
+image = { version = "=0.25.10", default-features = false, features = ["png"] }
+
+# Ecosystem crates verified to build against Bevy 0.19.1 (see docs/milestones/M0.md).
+# Not yet used by any crate; add them to a crate's [dependencies] when it needs them.
+avian3d = "=0.7.0"
+lightyear = "=0.30.1"
+bevy_egui = "=0.42.0"
+bevy_hanabi = "=0.19.0"
+bevy_kira_audio = "=0.26.0"
+
+axum = "=0.8.9"
+tokio = { version = "=1.54.1", features = ["macros", "rt-multi-thread", "net", "signal"] }
+tower = { version = "=0.5.3", features = ["util"] }
+
+[profile.dev]
+debug = "line-tables-only"
+opt-level = 1
+
+# Dependencies (Bevy, wgpu, naga) are compiled optimized: software rendering
+# and shader compilation are unusably slow otherwise.
+[profile.dev.package."*"]
+opt-level = 3
+debug = false
+
+[profile.release]
+debug = "line-tables-only"

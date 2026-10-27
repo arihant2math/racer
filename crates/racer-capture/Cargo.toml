@@ -1,0 +1,12 @@
+[package]
+name = "racer-capture"
+description = "Screenshot harness for agents and CI: renders scenes from scripted cameras and checks the images."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+bevy = { workspace = true, features = ["3d"] }
+image.workspace = true
+racer-game.workspace = true
