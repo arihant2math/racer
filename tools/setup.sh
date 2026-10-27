@@ -23,6 +23,8 @@ for arg in "$@"; do
 done
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# rustup reads the pinned toolchain from rust-toolchain.toml in the repo root.
+cd "$ROOT"
 SUDO=""
 if [ "$(id -u)" -ne 0 ]; then SUDO="sudo"; fi
 
@@ -57,12 +59,14 @@ if ! command -v cargo >/dev/null 2>&1 && [ -x "$HOME/.cargo/bin/cargo" ]; then
   export PATH="$HOME/.cargo/bin:$PATH"
 fi
 if ! command -v cargo >/dev/null 2>&1; then
-  echo "==> rustup: installing stable toolchain"
-  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+  echo "==> rustup: installing rustup"
+  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
+    sh -s -- -y --profile minimal --default-toolchain none
   export PATH="$HOME/.cargo/bin:$PATH"
 fi
 if command -v rustup >/dev/null 2>&1; then
-  rustup component add rustfmt clippy >/dev/null
+  # Installs the toolchain and components pinned in rust-toolchain.toml.
+  rustup toolchain install
 fi
 echo "==> $(cargo --version)"
 
