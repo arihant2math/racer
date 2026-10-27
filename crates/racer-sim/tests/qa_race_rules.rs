@@ -58,7 +58,6 @@ fn drive(
 /// just lost, with that gate still owed: it can never be crossed forwards
 /// again, so the car never completes another lap.
 #[test]
-#[ignore = "QA-RULES-1"]
 fn reset_after_reversing_over_a_gate_must_not_strand_the_car() {
     let t = track();
     let mut p = Progress::new(&t, t.grid[0].position);
@@ -71,7 +70,7 @@ fn reset_after_reversing_over_a_gate_must_not_strand_the_car() {
     let events = drive(&t, &mut p, Some(&mut m), g - 3.0, 3.0, 1.0);
     assert_eq!(events, [ProgressEvent::CheckpointUndone(2)]);
     let (_, d, x) = reset_pose(&t, m.last_valid, &[]);
-    p.move_back_to(&t, d, x);
+    p.move_to(&t, d, x);
     assert!(
         p.distance > g,
         "reset at {d}, behind gate {g}: not this bug"
@@ -91,7 +90,6 @@ fn reset_after_reversing_over_a_gate_must_not_strand_the_car() {
 /// way for 20 s the warning stays on for ~9 s of correct driving (it decays
 /// at 2x), and `last_valid` is frozen all that time.
 #[test]
-#[ignore = "QA-RULES-2"]
 fn wrong_way_warning_clears_soon_after_turning_round() {
     let t = track();
     let mut p = Progress::new(&t, t.grid[0].position);
@@ -116,7 +114,6 @@ fn wrong_way_warning_clears_soon_after_turning_round() {
 /// as a jump. Progress freezes for good, and since the car is on track and
 /// moving, no reset ever comes.
 #[test]
-#[ignore = "QA-RULES-3"]
 fn rejoining_further_on_is_reset_or_counted_never_frozen() {
     let t = track();
     let mut p = Progress::new(&t, t.grid[0].position);
@@ -166,7 +163,7 @@ fn timing_survives_a_full_lap_driven_backwards() {
             now += 0.01;
             let s = interpolate(&t.samples, t.length, d);
             let v = s.tangent * 25.0 * dir;
-            if let Some(e) = p.update(&t, s.at(0.0, 0.5), v, s.tangent * facing, 0.01) {
+            for e in p.update(&t, s.at(0.0, 0.5), v, s.tangent * facing, 0.01) {
                 timing.on_event(e, now, &t);
             }
         }

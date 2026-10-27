@@ -309,14 +309,14 @@ fn track_racers(
     let running = race.phase == RacePhase::Running;
     for (entity, mut racer, (pos, rot, vel), request) in &mut racers {
         let forward = rot.0 * Vec3::NEG_Z;
-        let event = racer.progress.update(g, pos.0, vel.0, forward, dt);
+        let events = racer.progress.update(g, pos.0, vel.0, forward, dt);
         if running && racer.status == Status::Racing {
-            if let Some(event) = event {
+            for &event in &events {
                 racer.timing.on_event(event, now, g);
             }
             // Done at the goal (a sprint finish lies between gates, so it is
             // checked every step), or at the line once the winner is home.
-            let lapped_home = race.winner.is_some() && event == Some(ProgressEvent::Lap);
+            let lapped_home = race.winner.is_some() && events.contains(&ProgressEvent::Lap);
             if goal.reached(&racer.progress, g) || lapped_home {
                 racer.status = Status::Finished(now);
                 race.winner.get_or_insert(now);
@@ -388,7 +388,7 @@ fn apply_resets(
         state.0 = car.vehicle.initial_state();
         racer.ghost = rules::GHOST_AFTER_RESET;
         racer.monitor.clear();
-        let events = racer.progress.move_back_to(g, distance, lateral);
+        let events = racer.progress.move_to(g, distance, lateral);
         // A finished car's times stand, even if it is reset behind the line.
         if racer.status == Status::Racing {
             for event in events {

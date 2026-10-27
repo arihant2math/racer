@@ -8,10 +8,12 @@
 //! car is inside the walled corridor and is found by searching a short
 //! window around the previous value, so it moves continuously: a car that
 //! leaves the corridor (over a wall, through a gap) freezes its progress and
-//! is reset after [`RESET_AFTER`] instead of gaining ground. Checkpoint gates
-//! must be crossed in order and inside the corridor; crossing one backwards
-//! takes its credit back, so a lap counts only when the car has driven all
-//! of it forwards.
+//! is reset after [`RESET_AFTER`] instead of gaining ground, and so does one
+//! that comes back further on than the window reaches. The gates credited
+//! (checkpoints, then the line) are always those at or before the car's
+//! progress: crossing one backwards takes its credit back, so a lap counts
+//! only when the car has driven all of it forwards, and a step or a reset
+//! that passes several gates credits each in order.
 
 use bevy::math::Vec3;
 use racer_trackc::{Geometry, Pose, geometry::interpolate};
@@ -28,6 +30,9 @@ const WINDOW: usize = 24;
 const CORRIDOR_SLACK: f32 = 0.8;
 /// Seconds of driving against the track direction before the warning.
 const WRONG_WAY_AFTER: f32 = 1.0;
+/// Cap on the wrong-way timer over [`WRONG_WAY_AFTER`] (s): it decays at 2x,
+/// so the warning clears at most half of this after turning round.
+const WRONG_WAY_CLEAR: f32 = 1.0;
 
 /// What happened while updating progress.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,22 +89,54 @@ impl Progress {
         p
     }
 
-    /// Distance of gate `g` in the current lap.
-    fn gate(&self, track: &Geometry, g: usize) -> f32 {
-        let s = track.checkpoints.get(g).copied().unwrap_or(track.length);
-        self.laps as f32 * track.length + s
+    /// Gates (checkpoints and the line, the line at the start excluded)
+    /// credited to a car at unwrapped `distance`: every gate at or before it.
+    fn credit_at(track: &Geometry, distance: f32) -> usize {
+        if distance < 0.0 {
+            return 0;
+        }
+        let gates = track.checkpoints.len() + 1;
+        let mut lap = (distance / track.length).floor();
+        let mut s = distance - lap * track.length;
+        // Keep `s` in [0, length) whatever the rounding.
+        if s >= track.length {
+            (lap, s) = (lap + 1.0, s - track.length);
+        }
+        let passed = track.checkpoints.iter().filter(|&&c| c <= s).count();
+        lap as usize * gates + passed
     }
 
-    /// Distance of the gate credited last (the line of the previous lap at the start).
-    fn previous_gate(&self, track: &Geometry) -> f32 {
-        if self.next_gate == 0 {
-            self.laps as f32 * track.length
-        } else {
-            self.gate(track, self.next_gate - 1)
+    /// Moves to unwrapped `distance`, crediting every gate crossed forwards
+    /// and taking back every gate crossed backwards, in order.
+    fn advance(&mut self, track: &Geometry, distance: f32) -> Vec<ProgressEvent> {
+        self.distance = distance;
+        let gates = track.checkpoints.len() + 1;
+        let target = Self::credit_at(track, distance);
+        let mut credit = self.laps as usize * gates + self.next_gate;
+        let mut events = Vec::new();
+        while credit < target {
+            events.push(if self.next_gate == gates - 1 {
+                ProgressEvent::Lap
+            } else {
+                ProgressEvent::Checkpoint(self.next_gate)
+            });
+            credit += 1;
+            (self.laps, self.next_gate) = ((credit / gates) as u32, credit % gates);
         }
+        while credit > target {
+            credit -= 1;
+            (self.laps, self.next_gate) = ((credit / gates) as u32, credit % gates);
+            events.push(if self.next_gate == gates - 1 {
+                ProgressEvent::LapUndone
+            } else {
+                ProgressEvent::CheckpointUndone(self.next_gate)
+            });
+        }
+        events
     }
 
     /// Updates from the car's position, velocity and forward direction.
+    /// Returns the gates credited or taken back, in order.
     pub fn update(
         &mut self,
         track: &Geometry,
@@ -107,7 +144,7 @@ impl Progress {
         velocity: Vec3,
         forward: Vec3,
         dt: f32,
-    ) -> Option<ProgressEvent> {
+    ) -> Vec<ProgressEvent> {
         let n = track.samples.len();
         let sample = nearest(track, position, self.sample, WINDOW);
         // Refine between the nearest sample and its neighbours.
@@ -119,75 +156,39 @@ impl Progress {
         self.lateral = rel.dot(here.right);
         let height = rel.dot(here.up);
         let side = usize::from(self.lateral > 0.0);
-        self.on_track =
-            self.lateral.abs() < here.wall(side) + CORRIDOR_SLACK && (-1.5..4.0).contains(&height);
+        let l = track.length;
+        let unwrapped = s_local + l * ((self.distance - s_local) / l).round();
+        // Back in the corridor, but further than the window can move in one
+        // step (the car left it and came back further on): that is off the
+        // track too, and progress waits where it left (or the car is reset)
+        // instead of jumping ahead.
+        let reachable = (unwrapped - self.distance).abs() <= (WINDOW as f32 + 2.0) * l / n as f32;
+        self.on_track = reachable
+            && self.lateral.abs() < here.wall(side) + CORRIDOR_SLACK
+            && (-1.5..4.0).contains(&height);
         // Wrong way: moving or pointing against the track direction.
         let backwards = velocity.dot(here.tangent) < -1.0
             || (forward.dot(here.tangent) < -0.5 && velocity.length() > 1.0);
+        // Capped, so the warning clears soon after turning round.
         self.wrong_way_time = if self.on_track && backwards {
-            self.wrong_way_time + dt
+            (self.wrong_way_time + dt).min(WRONG_WAY_AFTER + WRONG_WAY_CLEAR)
         } else {
             (self.wrong_way_time - 2.0 * dt).max(0.0)
         };
         self.wrong_way = self.wrong_way_time > WRONG_WAY_AFTER;
         if !self.on_track {
-            return None;
+            return Vec::new();
         }
         self.sample = sample;
-        let l = track.length;
-        let unwrapped = s_local + l * ((self.distance - s_local) / l).round();
-        let (old, new) = (self.distance, unwrapped);
-        if (new - old).abs() > (WINDOW as f32 + 2.0) * l / n as f32 {
-            // A jump the window cannot produce; ignore it.
-            return None;
-        }
-        self.distance = new;
-        let gates = track.checkpoints.len();
-        let next = self.gate(track, self.next_gate);
-        if old < next && new >= next {
-            if self.next_gate == gates {
-                self.laps += 1;
-                self.next_gate = 0;
-                return Some(ProgressEvent::Lap);
-            }
-            self.next_gate += 1;
-            return Some(ProgressEvent::Checkpoint(self.next_gate - 1));
-        }
-        let prev = self.previous_gate(track);
-        let credited = self.laps > 0 || self.next_gate > 0;
-        if credited && old >= prev && new < prev {
-            if self.next_gate == 0 {
-                self.laps -= 1;
-                self.next_gate = gates;
-                return Some(ProgressEvent::LapUndone);
-            }
-            self.next_gate -= 1;
-            return Some(ProgressEvent::CheckpointUndone(self.next_gate));
-        }
-        None
+        self.advance(track, unwrapped)
     }
 
-    /// Moves the car back to `distance` (a reset), taking back the credit
-    /// of every gate it is now behind. Returns those undo events.
-    pub fn move_back_to(
-        &mut self,
-        track: &Geometry,
-        distance: f32,
-        lateral: f32,
-    ) -> Vec<ProgressEvent> {
-        let mut events = Vec::new();
-        while (self.laps > 0 || self.next_gate > 0) && distance < self.previous_gate(track) {
-            if self.next_gate == 0 {
-                self.laps -= 1;
-                self.next_gate = track.checkpoints.len();
-                events.push(ProgressEvent::LapUndone);
-            } else {
-                self.next_gate -= 1;
-                events.push(ProgressEvent::CheckpointUndone(self.next_gate));
-            }
-        }
+    /// Moves the car to `distance` (a reset), taking back the credit of
+    /// every gate it is now behind and crediting every gate it is now past
+    /// (it reached them before). Returns those events.
+    pub fn move_to(&mut self, track: &Geometry, distance: f32, lateral: f32) -> Vec<ProgressEvent> {
+        let events = self.advance(track, distance);
         let n = track.samples.len();
-        self.distance = distance;
         self.sample =
             ((distance.rem_euclid(track.length) / track.length * n as f32) as usize).min(n - 1);
         self.lateral = lateral;
@@ -679,7 +680,7 @@ mod tests {
                 now += 0.01;
                 let s = interpolate(&t.samples, t.length, d);
                 let v = s.tangent * 25.0 * step.signum();
-                if let Some(e) = p.update(&t, s.at(0.0, 0.5), v, v.normalize(), 0.01) {
+                for e in p.update(&t, s.at(0.0, 0.5), v, v.normalize(), 0.01) {
                     timing.on_event(e, now, &t);
                 }
             }
@@ -725,7 +726,7 @@ mod tests {
         let mut q = Progress::new(&t, t.grid[0].position);
         drive(&t, &mut q, t.checkpoints[0] + 3.0, 0.0);
         assert_eq!(q.next_gate, 1);
-        let undone = q.move_back_to(&t, t.checkpoints[0] - 5.0, 0.0);
+        let undone = q.move_to(&t, t.checkpoints[0] - 5.0, 0.0);
         assert_eq!(undone, [ProgressEvent::CheckpointUndone(0)]);
         assert_eq!(
             drive(&t, &mut q, t.checkpoints[0] + 1.0, 0.0),

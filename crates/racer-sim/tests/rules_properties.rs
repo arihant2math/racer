@@ -154,7 +154,7 @@ impl<'a> Run<'a> {
         self.now += DT;
         let laps = self.p.laps;
         let forward = velocity.normalize_or(Vec3::NEG_Z);
-        if let Some(e) = self.p.update(self.g, position, velocity, forward, DT) {
+        for e in self.p.update(self.g, position, velocity, forward, DT) {
             self.event(e);
         }
         let up = 1.0;
@@ -173,7 +173,7 @@ impl<'a> Run<'a> {
     fn reset(&mut self) {
         let (pose, d, x) = reset_pose(self.g, self.monitor.last_valid, &[]);
         self.monitor.clear();
-        for e in self.p.move_back_to(self.g, d, x) {
+        for e in self.p.move_to(self.g, d, x) {
             self.event(e);
         }
         let p2 = Progress::new(self.g, pose.position);
@@ -418,7 +418,6 @@ proptest! {
 /// back: progress credits the first gate only and the car is stuck on the
 /// second for every later lap.
 #[test]
-#[ignore = "QA-EDGE-1"]
 fn qa_edge_1_one_update_over_two_gates_loses_the_lap_for_good() {
     let g = &TRACKS[1];
     // The first pair of gates closer together than the 26 m the window allows.
@@ -466,7 +465,6 @@ fn qa_edge_1_one_update_over_two_gates_loses_the_lap_for_good() {
 /// Shrunk case: from the grid, 33.5 m outside the corridor (about a second
 /// at 30 m/s, inside the 3 s off-track reset), then a lap on the road.
 #[test]
-#[ignore = "QA-EDGE-2"]
 fn qa_edge_2_rejoining_far_downstream_freezes_progress() {
     let g = &TRACKS[0];
     let mut run = Run::new(g, 0);
@@ -491,13 +489,12 @@ fn qa_edge_2_rejoining_far_downstream_freezes_progress() {
 /// QA-EDGE-11: a reset after reversing back over a checkpoint puts the car
 /// ahead of that checkpoint without crediting it again. `ResetMonitor`
 /// keeps `last_valid` from the first second of reversing (before the
-/// wrong-way flag), `reset_pose` goes 8 m behind that, and `move_back_to`
+/// wrong-way flag), `reset_pose` goes 8 m behind that, and `move_to`
 /// only ever takes credit back. The gate is then behind the car for good:
 /// it can never complete the lap. Shrunk case (shipped track): drive 210.7 m
 /// from pole, reverse 39.7 m at 5 m/s (back over the checkpoint at ~180 m),
 /// reset (stuck, or the driver's reset key, or an AI giving up on recovery).
 #[test]
-#[ignore = "QA-EDGE-11"]
 fn qa_edge_11_reset_after_reversing_skips_an_uncredited_gate() {
     let g = &TRACKS[0];
     let mut run = Run::new(g, 0);
