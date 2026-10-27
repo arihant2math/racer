@@ -1,5 +1,7 @@
 //! Rendering: materials and post-processing beyond Bevy's defaults.
 
+pub mod surface;
+
 use bevy::prelude::*;
 
 /// Greybox car paint: a metallic base under a glossy clearcoat. Placeholder

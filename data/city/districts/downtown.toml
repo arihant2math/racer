@@ -1,0 +1,83 @@
+# Downtown district style rules (PLAN.md section 7): building archetypes,
+# palettes, ground-floor and roof dressing, and street furniture density.
+# Read by racer-citykit's block assembler; every value is a range or a
+# probability drawn from with the district seed, so the same file always
+# produces the same blocks.
+
+name = "Downtown"
+seed = 7
+
+# Street frontage of one lot (m).
+lot_width = [12.0, 30.0]
+
+# Archetypes, picked per lot by weight. Heights in floors; floor heights in m.
+[[archetype]]
+name = "glass_tower"
+style = "curtain"
+weight = 0.22
+floors = [16, 34]
+floor_height = 3.9
+ground_floor = 6.0
+bay_width = [1.5, 1.5]
+podium_floors = [2, 4]
+setback = 3.0
+wall = "plaster"
+min_lot_width = 20.0
+
+[[archetype]]
+name = "stone_office"
+style = "masonry"
+weight = 0.4
+floors = [7, 15]
+floor_height = 3.6
+ground_floor = 5.2
+bay_width = [2.4, 3.0]
+window = [0.5, 0.58]
+podium_floors = [0, 0]
+setback = 0.0
+wall = "plaster"
+fire_escapes = 0.0
+min_lot_width = 0.0
+
+[[archetype]]
+name = "brick_loft"
+style = "loft"
+weight = 0.38
+floors = [4, 9]
+floor_height = 3.7
+ground_floor = 4.8
+bay_width = [3.0, 3.6]
+window = [0.6, 0.66]
+podium_floors = [0, 0]
+setback = 0.0
+wall = "brick"
+fire_escapes = 0.5
+min_lot_width = 0.0
+
+# Material tints (sRGB 0..1), multiplied with the neutral kit textures.
+[palette]
+brick = [[0.78, 0.45, 0.36], [0.66, 0.36, 0.28], [0.85, 0.62, 0.48], [0.55, 0.33, 0.27], [0.80, 0.70, 0.58]]
+plaster = [[0.93, 0.89, 0.80], [0.85, 0.83, 0.78], [0.80, 0.74, 0.64], [0.72, 0.72, 0.70], [0.95, 0.93, 0.88]]
+stone = [[0.86, 0.82, 0.74], [0.70, 0.68, 0.64], [0.62, 0.58, 0.52]]
+glass = [[0.32, 0.46, 0.52], [0.22, 0.30, 0.38], [0.40, 0.48, 0.45], [0.30, 0.36, 0.44]]
+awning = [[0.55, 0.08, 0.08], [0.05, 0.25, 0.20], [0.10, 0.12, 0.30], [0.20, 0.20, 0.20], [0.60, 0.40, 0.10]]
+
+[ground]
+shopfront = 0.85
+awning = 0.35
+bay_width = [4.0, 6.0]
+
+[roof]
+ac_units_per_100m2 = 1.2
+water_tower = 0.55
+bulkhead = 0.8
+
+# Street corridor dressing along the sidewalks (spacings in m).
+[street]
+lamp_spacing = 26.0
+tree_spacing = 14.0
+tree_chance = 0.55
+bin_spacing = 40.0
+hydrant_spacing = 60.0
+bench_chance = 0.3
+meter_spacing = 9.0
