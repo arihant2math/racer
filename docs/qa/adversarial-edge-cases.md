@@ -26,7 +26,7 @@ cargo test --workspace                                  # properties at small ca
 QA_EDGE_CASES=4000 cargo test --release -p racer-dynamics --test properties   # deeper
 QA_EDGE_CASES=4000 cargo test --release -p racer-trackc --test properties
 QA_EDGE_CASES=2000 cargo test --release -p racer-sim --test rules_properties
-cargo test --workspace -- --ignored QA-EDGE             # bug regressions (all fail today)
+cargo test --workspace -- --ignored qa_edge             # bug regressions (all fail today)
 cargo test -p racer-sim --test rules_properties qa_edge_11 -- --ignored   # one bug
 QA_LONG_RUN_MINUTES=10 cargo test --release -p racer-sim --test long_run -- --ignored --nocapture
 ```
@@ -273,8 +273,9 @@ time and best-lap columns. *Confidence:* high. Test:
 overflow" in debug builds. In release builds the addition wraps to an empty range, so the run
 does no races and reports on nothing. `races * laps as usize` (`:314`) has the same problem.
 
-*Confidence:* high, found by reading. No regression test: the binary is heavy to start, and the
-fix is a `checked_add`.
+*Confidence:* high. I found it by reading and confirmed it on the debug binary ("attempt to add
+with overflow" at `main.rs:307:36`). There is no regression test: the binary is heavy to start,
+and the fix is a `checked_add`.
 
 ## Properties that held
 
@@ -343,7 +344,16 @@ up to 57° on any of the 8 surfaces, and all controls in range:
 **racer-game:** `lap_time` round-trips within 0.5 ms for 0-7200 s, apart from QA-EDGE-15.
 
 **Long run** (`tests/long_run.rs`, release): an 8-car AI race (all three cars and all five
-difficulties, full contact) ran for 10 simulated minutes. Results: LONG_RUN_RESULT.
+difficulties, full contact) ran for 10 and then 30 simulated minutes (400 s of wall time).
+The invariants were checked after every simulated minute:
+- the entity count stayed constant;
+- every position, wheel spin and engine speed stayed finite;
+- the race clock stayed within 2 ms of the tick count × tick length, so the f64 clock does not
+  drift;
+- each racing car's timed laps equalled its progress laps, and every lap time was positive;
+- the sum of each car's lap times never exceeded the race time.
+
+After 30 minutes every car had 17-18 laps and there were 4 resets in total.
 
 **Reviewed by reading, no issue:** every `clamp` in `racer-sim`, `racer-game` and
 `racer-trackc` has ordered bounds for validated data. The AI's `clear` interval is fixed up
