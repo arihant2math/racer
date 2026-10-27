@@ -50,7 +50,7 @@ fn setup(
         default_camera_transform(),
         AtmosphereSettings::default(),
         AtmosphereEnvironmentMapLight::default(),
-        Exposure::SUNLIGHT,
+        Exposure { ev100: 13.0 },
         Tonemapping::AcesFitted,
     ));
 
@@ -60,7 +60,7 @@ fn setup(
             shadow_maps_enabled: true,
             ..default()
         },
-        Transform::from_xyz(-4.0, 6.0, 3.0).looking_at(Vec3::ZERO, Vec3::Y),
+        Transform::from_xyz(3.0, 5.0, 6.0).looking_at(Vec3::ZERO, Vec3::Y),
         CascadeShadowConfigBuilder {
             maximum_distance: 80.0,
             first_cascade_far_bound: 12.0,
@@ -71,9 +71,9 @@ fn setup(
 
     // Ground: matte asphalt-grey plane with lighter lane markings.
     commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(400.0, 400.0))),
+        Mesh3d(meshes.add(Plane3d::default().mesh().size(2000.0, 2000.0))),
         MeshMaterial3d(materials.add(StandardMaterial {
-            base_color: Color::srgb(0.18, 0.18, 0.19),
+            base_color: Color::srgb(0.22, 0.22, 0.23),
             perceptual_roughness: 0.9,
             ..default()
         })),

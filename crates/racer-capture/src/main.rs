@@ -43,8 +43,11 @@ fn main() -> ExitCode {
     }
 }
 
+/// Positional arguments and `--flag value` pairs.
+type Parsed<'a> = (Vec<&'a str>, Vec<(&'a str, &'a str)>);
+
 /// Splits `args` into positional arguments and `--flag value` pairs.
-fn parse(args: &[String]) -> Result<(Vec<&str>, Vec<(&str, &str)>), String> {
+fn parse(args: &[String]) -> Result<Parsed<'_>, String> {
     let (mut positional, mut flags) = (Vec::new(), Vec::new());
     let mut it = args.iter();
     while let Some(arg) = it.next() {
