@@ -83,7 +83,7 @@ fn flag<T: std::str::FromStr>(flags: &[(&str, &str)], name: &str, default: T) ->
     }
 }
 
-/// Largest capture width or height (wgpu's minimum texture limit).
+/// Largest capture width or height (wgpu's default 2D texture size limit).
 const MAX_SIZE: u32 = 8192;
 
 fn scene(args: &[String]) -> Result<ExitCode, String> {
@@ -167,7 +167,7 @@ fn check_files(args: &[String]) -> Result<ExitCode, String> {
 
 /// A tolerance flag: a number in `0..=max` (NaN and negatives would fail
 /// or pass every image).
-fn fraction(flags: &[(&str, &str)], name: &str, default: f64, max: f64) -> Result<f64, String> {
+fn tolerance(flags: &[(&str, &str)], name: &str, default: f64, max: f64) -> Result<f64, String> {
     let v: f64 = flag(flags, name, default)?;
     if (0.0..=max).contains(&v) {
         Ok(v)
@@ -184,8 +184,8 @@ fn diff(args: &[String]) -> Result<ExitCode, String> {
     let d = Tolerance::default();
     let tol = Tolerance {
         pixel: flag(&flags, "pixel", d.pixel)?,
-        max_differing_fraction: fraction(&flags, "max-fraction", d.max_differing_fraction, 1.0)?,
-        max_mean_error: fraction(&flags, "max-mean", d.max_mean_error, 255.0)?,
+        max_differing_fraction: tolerance(&flags, "max-fraction", d.max_differing_fraction, 1.0)?,
+        max_mean_error: tolerance(&flags, "max-mean", d.max_mean_error, 255.0)?,
     };
     let (actual, golden) = (Path::new(actual), Path::new(golden));
     let pairs = if golden.is_dir() {
