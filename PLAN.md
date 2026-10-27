@@ -1,173 +1,197 @@
 # Racer: Project Plan
 
-A multiplayer street racing game set in a fictional city. The target is GTA V/VI visual quality or better, with realistic driving physics. It runs on PC (Windows, Linux, macOS), with races of up to 8 players or solo against AI. All cars and tracks are unlocked from the start and there is no progression. The build is done by AI agents, and assets come from generative pipelines.
+A multiplayer street racing game set in a fictional city. The target is GTA V/VI visual quality or better, with realistic driving physics and real-world cars. It runs on PC (Windows, Linux, macOS), with races of up to 8 players or solo against AI. All cars and tracks are unlocked from the start and there is no progression. AI agents build it end to end with no human in the loop, and assets come from generative pipelines.
 
 ## 1. Constraints that shape everything
 
 | Decision input | Answer | Consequence |
 |---|---|---|
-| Who builds it | AI agents, large token budget | Workflows must be text-first and scriptable. The agent has to be able to see its results (screenshots, profiler data) without a human in the loop. |
-| Platforms | Windows, Linux, macOS (Apple Silicon) | A Metal-capable, high-end renderer that runs on all three. No console or mobile compromises. |
-| Lobby size | 8 | Server-authoritative physics with prediction is affordable, and every car can be fully simulated on the server. |
-| City | Fictional | No licensing or real-world data constraints. The city can be designed around the tracks. |
-| Cars | Fictional | No manufacturer licensing. Designs can be "inspired by" without trade dress. |
+| Who builds it | AI agents, unattended, large token budget | Every tool must install from a script with no account, login, EULA click or GUI. Everything is text in the repo. The agent must see its own results (screenshots, telemetry, profiles) on a CPU-only Linux container. |
+| Platforms | Windows, Linux, macOS (Apple Silicon) | Renderer on Vulkan, DX12 and Metal. |
+| Lobby size | 8 | Server-authoritative physics with prediction is affordable. Every car is fully simulated on the server. |
+| City | Fictional | No real-world map licensing. The city is designed around the tracks. |
+| Cars | Real production cars | Accurate geometry and real specs are required, and shipping them needs manufacturer licenses (section 11). |
 
 ## 2. Technology choice
 
-**Engine: Unreal Engine 5 (latest stable 5.x at kickoff), C++ only, no Blueprint logic.**
+**Engine: Bevy (Rust), pinned to a release (0.19.1 at the time of writing).** The whole game, tools and backend are one Cargo workspace.
 
-Nothing else on the market reliably reaches GTA VI-class visuals on PC in 2026. Nanite handles film-density city geometry, Lumen with hardware ray tracing handles global illumination and reflections (wet asphalt at night is the signature look), and MegaLights covers thousands of street and neon lights. Substrate gives layered car paint (clearcoat, metallic flake), and Virtual Shadow Maps and TSR/DLSS/FSR/XeSS cover the rest. UE5 ships on all three PC targets, including Metal on Apple Silicon. Bevy and Godot were considered and rejected: neither has a production-grade answer for Nanite-scale geometry plus real-time GI at this fidelity, and closing that gap would turn the project into an engine project.
+**Why not Unreal Engine 5:** UE5 has the best renderer, but an agent cannot set it up unattended. The engine is only available after a human links an Epic account to GitHub and accepts the EULA. The binary download sits behind an Epic login and Cloudflare challenge, and the `ghcr.io/epicgames` Docker images need that linked account's token. A source build also needs far more disk than an agent container has (≈31 GB free here), and the editor workflow is GUI- and binary-asset-centric. Godot installs unattended but its renderer ceiling is lower than Bevy's (no hardware ray-traced GI or virtual geometry), and its scene and editor workflow is less agent-friendly than plain Rust.
 
-The usual problem with UE for AI development is its GUI- and binary-asset-centric workflow. The plan works around it (section 8): gameplay in C++, content built by Python editor scripts and commandlets, data in text (JSON/DataTables imported from CSV), and editor-free headless builds and tests.
+**Verified in this environment (no human steps):** on the 4-core, 15 GB RAM, GPU-less container, this sequence works unattended. Install `mesa-vulkan-drivers` (lavapipe software Vulkan), `xvfb`, `libxkbcommon-x11-0` and Bevy's Linux build dependencies (`pkg-config libwayland-dev libxkbcommon-dev libasound2-dev libudev-dev libx11-dev libxcursor-dev libxrandr-dev libxi-dev`), then `cargo add bevy`. A PBR scene with clearcoat material and shadow maps then builds and renders, and a screenshot written via Bevy's screenshot API is read back by the agent. 440 frames, including first-run shader compilation, took 75 s at 1280×720. That is slow but fine for automated visual checks.
 
-**Where Rust is involved (deliberately, not decoratively):**
+**What Bevy gives and what has to be built.** Bevy is less finished than UE5, so reaching the visual bar is partly renderer engineering. The plan budgets for it (M4), and because the renderer is plain Rust and WGSL in the dependency tree, agents can extend or fork it like any other code.
 
-| Component | Language | Why |
+| Capability | Bevy 0.19 status | Plan |
 |---|---|---|
-| Vehicle dynamics core (`racer-dynamics`) | Rust, linked into UE via the `cxx` crate as a static library | Tire model, suspension, drivetrain and aero form a pure, numerics-heavy function of state. As a standalone crate it is unit-testable and benchmarkable headlessly in milliseconds, and it can be fuzzed for NaNs and blow-ups. It is shared bit-for-bit by client and dedicated server. This is the part of the game that most benefits from an AI iterating fast against tests. |
-| Backend services (matchmaking, lobbies, leaderboards, server fleet orchestration) | Rust (axum, tokio, sqlx, Postgres) | Small, correct, cheap to run. |
-| Content tooling (track/road network compiler, asset validation, CI tools) | Rust CLI + Python for Blender/UE scripting | Fast validators for the data that drives level generation. |
-| Rendering, gameplay, netcode, UI | C++ in UE | Engine-native. Fighting the engine here costs more than it gains. |
+| PBR, clearcoat, anisotropy, transmission, clustered decals, PCSS soft shadows, SSR, SSAO, volumetric fog, atmosphere, bloom, TAA/SMAA, DLSS | Built in (some behind feature flags) | Use as is. Tune. |
+| Real-time ray-traced GI and reflections | `bevy_solari`, experimental, needs hardware RT | Primary GI path on RT-capable GPUs. Harden and contribute fixes upstream. |
+| Fallback GI for non-RT GPUs and macOS | Not built in at Lumen quality | Build: baked irradiance volumes + reflection probes per track (tracks are fixed, so baking is cheap and high quality), plus SSR/SSGI. |
+| Virtual geometry (Nanite-like) | `meshlet`, experimental | Use for static city geometry if it holds up at M4. Otherwise use conventional LODs + HLOD impostors. |
+| Many dynamic lights (neon, street lamps, headlights) | Clustered forward | Profile at M4. Add light culling/budgeting per view if needed. |
+| Car paint, wet road, rain, puddles | Partially via extended materials | Build: custom WGSL material extensions (section 6). |
+| FSR / XeSS / MetalFX | Not built in | Add as plugins if TAA + DLSS is insufficient. |
 
-If the Rust FFI boundary ever becomes a liability, `racer-dynamics` is small enough (a few thousand lines) to port to C++ without design changes. That is the escape hatch.
+**Rest of the stack (all crates.io, versions pinned to the chosen Bevy release at M0):**
 
-**Platform services:** Steam (Steamworks) for distribution, identity and overlay, since it covers all three OSes. Easy Anti-Cheat via Epic Online Services (supports Windows, Linux/Proton and macOS). Dedicated servers run as Linux containers on a game-server host (Edgegap, Hathora or AWS GameLift, picked on price at the beta).
+| Area | Choice |
+|---|---|
+| Rigid bodies and collision | Avian 3D (ECS-native, works with lightyear rollback). Rapier is the fallback. |
+| Vehicle dynamics | `racer-dynamics`, our own crate (section 4) |
+| Networking | lightyear (client prediction, rollback, interpolation, Avian integration), over UDP/WebTransport |
+| UI | bevy_ui for the in-game HUD, egui for debug and tuning tools |
+| Particles | bevy_hanabi (spray, smoke, sparks, rain) |
+| Audio | Kira (via bevy_kira_audio) with custom engine-sound synthesis DSP |
+| Input / force feedback | gilrs for gamepads. SDL3 (via `sdl3` crate) for steering wheels and force feedback on all three OSes. |
+| Backend | axum, tokio, sqlx, Postgres |
+
+**Platform services stay optional so the agent never blocks on an account.** The core game, its own Rust backend and dedicated servers need no third-party accounts, with direct-connect and invite-code lobbies built in. Steam (identity, overlay, store) and a hosting provider are plugged in behind traits at release. Anti-cheat relies on server authority (inputs, not positions, are trusted) instead of a kernel anti-cheat that needs a vendor account.
 
 ## 3. Game design
 
 **Modes:** Circuit (laps), Sprint (point to point), Time Trial (solo, ghosts), and Free Roam of the track corridor for practice. Every mode is available solo vs AI and online. Online lobbies can be public matchmade or private with an invite code, and humans can be mixed with AI fill.
 
-**Race options (all available from the start):** time of day (dawn, day, golden hour, night), weather (dry, overcast, rain, wet-drying), track direction (forward and reverse), traffic (off, light; ambient AI cars on non-racing lanes as obstacles), collisions (full, ghosted for the first lap, off), damage (cosmetic or cosmetic + mechanical), AI difficulty, and assists (ABS, TCS, stability control, steering assist, racing line). Assists are per player and shown in the results screen so times stay comparable.
+**Race options (all available from the start):** time of day (dawn, day, golden hour, night), weather (dry, overcast, rain, wet-drying), track direction (forward and reverse), traffic (off or light), collisions (full, ghosted for the first lap, off), damage (cosmetic, cosmetic + mechanical, off), AI difficulty, and assists (ABS, TCS, stability control, steering assist, racing line). Assists are per player and shown in the results screen so times stay comparable.
 
-**Contact:** Ramming is first-class. Car-to-car contact is fully physical. Damage is visual (mesh deformation, detachable bumpers, mirrors, hoods and doors, broken glass and lights). With mechanical damage on, contact also bends steering alignment, cuts engine power and punctures tires. A "wreck" (car flipped or stuck for 3 s) triggers a reset to the last valid track position after a short delay.
+**Contact:** Ramming is first-class, and car-to-car contact is fully physical. Visual damage covers deformation, detachable bumpers, mirrors, hoods and doors, and broken glass and lights. With mechanical damage on, contact also bends alignment, cuts power and punctures tires. A car flipped or stuck for 3 s resets to the last valid track position.
 
-**Content at launch:**
+**Cars (16 real production cars, 6 classes).** The list is provisional and may change based on licensing.
 
-| Content | Count | Notes |
-|---|---|---|
-| Cars | 16 fictional cars across 6 classes | Hot hatch, sport sedan, muscle, sports/GT, supercar, hypercar. Each class has 2 to 3 cars with distinct handling (FWD/RWD/AWD, mid/front engine). Races can be class-locked or open. |
-| City districts | 4 | Downtown (glass towers, tight 90° grids, tunnels), Harbor (docks, containers, wide industrial roads, a drawbridge), Hills (switchbacks, canyon road, overlook), Old Town/Strip (neon, narrow streets, cobbles). |
-| Tracks | 12 base layouts (3 per district) | Each also runs in reverse, for 24 drivable layouts, and each supports all time and weather combinations. |
-| Liveries | 8 per car + color picker | Purely cosmetic. Also unlocked from the start. |
+| Class | Cars |
+|---|---|
+| Hot hatch | Volkswagen Golf GTI (Mk8), Honda Civic Type R (FL5), Toyota GR Yaris |
+| Sport sedan | BMW M3 Competition (G80), Audi RS 3 Sedan, Cadillac CT5-V Blackwing |
+| Muscle | Ford Mustang GT (S650), Dodge Challenger SRT Hellcat, Chevrolet Camaro ZL1 |
+| Sports / GT | Porsche 911 Carrera S (992), Nissan GT-R (R35), Toyota GR Supra (A90) |
+| Supercar | Lamborghini Huracán EVO, McLaren 750S |
+| Hypercar | Bugatti Chiron Super Sport, Koenigsegg Jesko Absolut |
 
-**AI difficulty (5 levels):** Novice, Amateur, Pro, Expert, Alien. The levels scale racing-line precision, braking-point margin, corner-speed fraction, mistake rate, overtaking aggression and contact willingness (an Alien rams back, a Novice avoids contact). There is no rubber-banding by default, with a lobby option for mild catch-up. AI drives the exact same physics as players, with no grip or power cheats.
+Races can be class-locked or open, and each car has 8 liveries plus a color picker.
+
+**City and tracks:** 4 districts: Downtown (glass towers, tight 90° grids, tunnels), Harbor (docks, containers, a drawbridge), Hills (switchbacks, canyon road, overlook), and Old Town/Strip (neon, narrow cobbled streets). Each has 3 track layouts, for 12 layouts and 24 with reverse, all drivable in every time and weather combination.
+
+**AI difficulty (5 levels):** Novice, Amateur, Pro, Expert, Alien. The levels scale racing-line precision, braking-point margin, corner-speed fraction, mistake rate, overtaking aggression and contact willingness. There is no rubber-banding by default, with a lobby option for mild catch-up. AI drives the exact same physics as players.
 
 ## 4. Vehicle physics (realism core)
 
-The Chaos rigid body owns the chassis (mass, inertia tensor, collisions with the world and other cars). `racer-dynamics` computes all wheel, tire, suspension, drivetrain and aero forces, which are applied to the chassis in UE's async physics tick.
+Avian owns the chassis rigid body (mass, inertia tensor, collisions with the world and other cars). `racer-dynamics` is a pure Rust crate with no Bevy dependency. It computes wheel, tire, suspension, drivetrain and aero forces from chassis state + inputs, and a thin Bevy plugin applies them each fixed step. The same code runs on client, server and AI, and in headless tests.
 
 | Subsystem | Model |
 |---|---|
-| Physics rate | Fixed 240 Hz chassis step. Wheel spin and drivetrain substepped ×4 (960 Hz) inside Rust for stiff-system stability. |
-| Tires | Pacejka Magic Formula 5.2-style combined slip (longitudinal + lateral via friction ellipse/combined slip weighting), load sensitivity, camber thrust, relaxation length for transient response. Surface grip multipliers per physical material (asphalt, wet asphalt, cobbles, painted lines, metal plates, grass, dirt). Temperature/wear are out of scope. |
+| Rate | Fixed 240 Hz chassis step. Wheel spin and drivetrain substepped ×4 (960 Hz) inside the crate for stiff-system stability. |
+| Tires | Pacejka Magic Formula combined slip, load sensitivity, camber thrust, relaxation length. Grip multipliers per surface (dry/wet asphalt, painted lines, cobbles, metal plates, grass, dirt). Tire temperature and wear are out of scope. |
 | Contact | Wheel shape-casts (not single raycasts), so curbs and potholes read correctly at speed. |
-| Suspension | Per-wheel spring, bump/rebound damper, bump stop, anti-roll bars. Geometry approximated via camber/toe curves vs travel. |
-| Drivetrain | Torque curve per engine, rev limiter, flywheel inertia, clutch, gearbox (manual/auto/sequential), differentials (open, LSD with preload/ramps, locked, AWD center split). |
-| Aero | Drag, downforce front/rear with ride-height sensitivity, slipstream from cars ahead (sampled from the server's car positions). |
-| Assists | ABS, TCS, ESC implemented as controllers inside `racer-dynamics`, so they behave identically for AI and players. |
-| Input | Keyboard, gamepad (with steering filtering/speed-sensitive steering when steering assist is on), and steering wheels with force feedback via SDL3 (Windows, Linux, macOS) driven by the self-aligning torque from the tire model. |
+| Suspension | Spring, bump/rebound damper, bump stop, anti-roll bars, camber/toe curves vs travel. |
+| Drivetrain | Real torque curve, rev limiter, flywheel inertia, clutch, gearbox (manual/auto/DCT), differentials (open, LSD, e-diff approximation, AWD split including torque-vectoring approximations for cars like the GR Yaris and GT-R). |
+| Aero | Drag, front/rear downforce with ride-height sensitivity, active aero where the real car has it (simplified), slipstream. |
+| Assists | ABS, TCS, ESC as controllers inside the crate, so they behave identically for AI and players. |
+| Input | Keyboard, gamepad (speed-sensitive steering filter with assist on), steering wheels with force feedback from the tire model's self-aligning torque. |
 
-Each car is a `car.toml` in the repo (mass, CG, inertia, suspension, tire coefficients, torque curve, gear ratios, aero), so an agent can tune it from text. Validation is automated with a set of reference maneuvers run headlessly in `cargo test`: 0 to 100 km/h, 100 to 0 braking distance, steady-state skidpad g, step-steer response, and a lap time on a reference track spline. Each car has target bands per class, so a tuning change that breaks realism fails CI.
+**Real-car data.** Each car is `data/cars/<id>/car.toml`, holding the published specs with a source citation per field: curb weight, weight distribution, dimensions, wheelbase and track, tire sizes, power and torque curves, gear and final-drive ratios, top speed, drivetrain layout, and brake sizes. Values that are never published (inertia tensor, damper curves, tire coefficients) are estimated from class norms and then fitted.
+
+**Validation against reality.** `cargo test` runs reference maneuvers headlessly for every car: 0 to 100 km/h, quarter mile, 100 to 0 braking, skidpad lateral g, and top speed. Results must land within tolerance of the real car's published performance figures and reputable magazine test data, stored next to the specs. An agent changing a tire coefficient gets a failing test if the M3 suddenly stops in 30 m or the Chiron loses 40 km/h of top speed. A fuzz/soak suite catches NaNs, explosions and jitter at extreme inputs.
 
 ## 5. Multiplayer architecture
 
-**Topology:** dedicated, server-authoritative Linux servers, one process per race (8 players + AI fill). The server runs the same physics at 240 Hz and sends snapshots at 60 Hz.
+**Topology:** dedicated, server-authoritative headless servers (`racer-server`, the same Bevy app without rendering, built for Linux containers). One process per race, 240 Hz simulation, 60 Hz snapshots.
 
-**Netcode:** UE's networked physics with resimulation (Chaos physics prediction). The local car is fully predicted. On correction, the client rewinds to the server's state and resimulates its buffered inputs. Remote cars are extrapolated from the latest snapshot plus their last input (throttle/steer/brake are sent, which predicts far better than pure dead reckoning) and smoothed over 100 to 150 ms. Car-to-car contact is predicted locally against the extrapolated remote car and authoritatively resolved by the server. Corrections are blended visually over a few frames so ramming feels physical without snapping. Target: playable to 150 ms RTT. Above 250 ms the player gets a warning and matchmaking prefers lower-latency regions.
+**Netcode (lightyear):** the local car is predicted with rollback, so on correction the client rewinds to the server's state and resimulates buffered inputs through Avian + `racer-dynamics`. Remote cars are extrapolated from the latest snapshot plus their last inputs (throttle/steer/brake predict far better than dead reckoning) and smoothed over 100 to 150 ms. Car-to-car contact is predicted locally against the extrapolated remote car and resolved authoritatively by the server, with corrections blended visually over a few frames. Target: playable to 150 ms RTT, with a warning above 250 ms.
 
-**Fairness:** the server validates inputs, not positions, so speed hacks and teleports are structurally impossible. Collision griefing is mitigated by the ghosted-first-lap option and a vote-kick in public lobbies. Easy Anti-Cheat covers memory tampering and input bots.
+**Fairness:** the server trusts inputs only, so speed hacks and teleports are structurally impossible. Collision griefing is mitigated by the ghosted-first-lap option and vote-kick.
 
-**Backend (Rust):** Steam auth ticket → session token. Matchmaking by region, mode and class, with skill-agnostic quick play plus optional private lobbies. Allocation of a server container per race. Per-track/per-class/per-assist-level lap-time leaderboards with replay ghosts stored in object storage. Leaderboards are not progression, they only rank times.
+**Backend (`racer-backend`, Rust):** anonymous device-key accounts (Steam auth added at release), region/mode/class matchmaking, invite-code lobbies, server allocation behind a `Fleet` trait (local process spawner for dev and tests, Kubernetes/hosting provider later), and per-track/class/assist lap-time leaderboards with ghost replays. Leaderboards rank times and are not progression.
 
-**Replays:** both server and client record input streams + periodic state keyframes. These provide full race replays with free camera and ghost data for Time Trial.
+**Replays:** input streams + periodic state keyframes, used for full replays with free camera and Time Trial ghosts.
 
 ## 6. Graphics plan
 
 | Area | Approach |
 |---|---|
-| Lighting | Lumen with hardware ray tracing on capable GPUs (software Lumen fallback), MegaLights for street/neon/headlights, Virtual Shadow Maps. Time of day via a sky atmosphere + volumetric clouds setup, with baked "look" profiles per time/weather combination tuned by color-graded reference images. |
-| Wet roads | Weather drives a global wetness parameter: material-level puddle masks, darkened albedo, roughness drop, ray-traced/Lumen reflections, rain particles, tire spray, wipers. This is the single biggest "GTA VI" visual signal and gets dedicated polish time. |
-| Cars | Substrate car paint (base + metallic flake + clearcoat), real glass with refraction, interior visible through windows, emissive light clusters with lens-flare-free bloom, tire sidewall deformation, brake disc glow, dynamic dirt and water accumulation. LOD0 around 300 to 500k triangles, Nanite where supported for static parts (Nanite does not deform, so skinned/deformable panels stay standard meshes with LODs). |
-| Damage | Pre-authored deformation via vertex-offset damage zones driven by impact impulses, plus detachable parts as physics bodies. Chaos Destruction is used only for breakable props (fences, bins, signs, glass). |
-| City | Nanite everything static, World Partition streaming, high density at track corridors, impostor/HLOD skyline beyond. Ambient pedestrians on sidewalks behind barriers (non-interactive, flee animation), ambient traffic optional. |
-| Camera/Post | TSR/DLSS/FSR/XeSS, physically based motion blur, depth of field in replays only, camera shake from suspension. Chase, hood, bumper and cockpit cameras. |
-| Audio | Granular engine synthesis from recorded/generated RPM loops per engine type (MetaSounds), tire squeal driven by slip ratio and angle, impact sounds driven by impulse, convolution reverb per district (tunnels!). |
+| Lighting | Physical sky + atmosphere with time-of-day presets. Solari ray-traced GI and reflections on RT GPUs. Baked irradiance volumes + reflection probes per track and time-of-day preset for non-RT GPUs and macOS. PCSS cascaded sun shadows. Clustered lights for street, neon and headlights. A per-preset color-grading LUT built from reference mood boards. |
+| Wet roads | A global wetness parameter drives a custom material extension: puddle masks, darkened albedo, roughness drop, ripple normals, SSR/RT reflections, plus rain, tire spray and wipers. This is the single biggest "GTA VI" visual signal and gets dedicated polish time. |
+| Car paint | Custom material: base + metallic flake (procedural normal sparkle) + clearcoat, with dirt and water layers. Real glass with transmission, an interior visible through windows, emissive light clusters, brake disc glow. LOD0 around 300 to 500k triangles. |
+| Damage | Vertex-shader deformation from impact-driven damage zones + detachable panels as physics bodies. Breakable props (fences, bins, signs). |
+| City | Streaming per district cell, high density along the track corridor, HLOD impostors for the skyline, meshlets for static geometry if stable. Non-interactive pedestrians behind barriers, optional ambient traffic. |
+| Post / camera | TAA or DLSS, motion blur, bloom, exposure, DoF in replays. Chase, hood, bumper and cockpit cameras with suspension-driven shake. |
+| Audio | Engine synthesis per real engine type (V8, flat-six, turbo I4, W16, …) from RPM/load-mapped grains, tire squeal driven by slip, impacts driven by impulse, reverb zones (tunnels). |
 
-**Performance targets:** 1080p/60 at High on an RTX 3060/RX 6700 class GPU. 1440p/60 at Ultra with hardware RT on an RTX 4070 class GPU. 4K/60 with upscaling on an RTX 4080+. Apple M2 Pro or later at 1440p/60 with MetalFX/TSR at High, software Lumen. Minimum 16 GB RAM and an SSD (required for streaming).
+**Performance targets:** 1080p/60 High on an RTX 3060/RX 6700 class GPU, 1440p/60 Ultra with ray tracing on an RTX 4070, 4K/60 with DLSS on an RTX 4080+, and Apple M2 Pro or later at 1440p/60 High with baked GI. 16 GB RAM and an SSD are required.
 
-## 7. Content pipeline (AI-generated assets)
+## 7. Content pipeline (AI-generated, real-car accurate)
 
-All asset generation runs as scripted pipelines whose inputs live in the repo as text, so an agent can regenerate or iterate any asset.
+Every asset is produced by scripts whose inputs live in the repo as text, so an agent can regenerate or iterate any asset unattended. Blender runs headless (`blender -b --python …`, installable from the official tarball with no account). Assets ship to Bevy as glTF/GLB + KTX2 textures.
 
-**Cars:** design brief (`cars/<id>/brief.md`) → concept images from an image model (multiple angles, consistent design) → image-to-3D for the base form → **Blender headless Python pipeline** (retopology to clean quads, separation into body panels, doors, hood, bumpers, wheels and glass, UV unwrap, LODs, collision hulls, socket placement for wheels/lights/exhaust) → material assignment to the shared Substrate car-paint master material → UE import via Python. The hand-quality bar is set by a checklist validator (triangle budgets, part naming, wheel radius matching `car.toml`, no non-manifold geometry, UV density range).
+**Real cars.** Reference set per car (`data/cars/<id>/refs/`): orthographic blueprints, published dimensions, and multi-angle photos. Image-to-3D generation produces a base form, and the Blender pipeline then fits it to the blueprints (the length, width, height, wheelbase and track from `car.toml` are hard constraints). It retopologizes, splits the car into panels (doors, hood, bumpers, mirrors, glass, lights, wheels), unwraps UVs, builds LODs and collision hulls, and places wheel/light/exhaust sockets. Accuracy is gated automatically: the pipeline renders orthographic silhouettes from front, side, top and rear and compares them with the blueprints, requiring an IoU above a threshold. A multimodal review then compares beauty renders against reference photos for signature details (grille, light signatures, badges, wheel design). Cars failing either gate are regenerated or fixed by the pipeline, never shipped.
 
-**City:** the city is described as data. `city/roads.json` is a road graph (nodes, lanes, widths, elevation, bridges, tunnels). `city/districts/*.toml` holds building style rules, density and prop palettes. `tracks/<id>/track.toml` holds the route over the road graph, checkpoints, start grid, barriers, shortcuts and spectator areas. A Rust compiler validates the data, and UE PCG plus Python generation produce road meshes, intersections, curbs, markings, sidewalks and lots. Buildings are assembled from modular kits (AI-generated façade/trim modules, plus Fab/Megascans assets where licensing permits) by rules per district, and hero landmarks per district (stadium, bridge, observation tower) are generated individually and placed by hand-written placement data. The track corridor gets a dedicated decoration pass, while areas outside it get lower-cost HLOD dressing.
+**City.** `data/city/roads.json` is a road graph (lanes, widths, elevation, bridges, tunnels), `data/city/districts/*.toml` holds style rules, density and prop palettes, and `data/tracks/<id>/track.toml` holds the route, checkpoints, start grid, barriers and spectator areas. The Rust tool `racer-trackc` validates this data and generates road meshes, intersections, curbs, markings and sidewalks. Buildings are assembled from AI-generated modular façade kits by district rules. District landmarks are generated individually. The track corridor gets a dedicated decoration pass, and everything beyond it gets cheaper HLOD dressing. GI bakes run as a headless job per track and time-of-day preset.
 
-**Audio:** engine sounds from synthesis + generated samples, impacts and ambience from generative audio, music from licensed/generated tracks with stems for dynamic intensity.
+**Audio:** engine sounds synthesized per engine type and tuned against reference recordings, plus generated impacts and ambience. Music is generated, with stems for dynamic intensity.
 
-## 8. Making it AI-buildable
-
-This section is what makes the rest feasible without humans at the editor.
+## 8. Making it run without humans
 
 | Need | Solution |
 |---|---|
-| No GUI dependency | All assets created/modified via UE Python editor scripts and commandlets run with `UnrealEditor-Cmd`. Levels built by generation scripts from text data, never hand-edited, so `.umap` files are build outputs regenerable from the repo. |
-| Diffable sources | Gameplay in C++. Tuning in TOML/JSON → DataTables/DataAssets via import scripts. Blueprint use limited to thin, generated bindings. |
-| Fast inner loop | `racer-dynamics` and the backend iterate with `cargo test` in seconds. Track data validated with the Rust CLI before UE ever loads it. |
-| The agent can see | A capture harness runs a packaged build headlessly on a GPU CI runner, flies scripted cameras over each track at each time/weather, and saves screenshots + Unreal Insights/CSV profiler output. Visual review by a multimodal model compares results against reference mood boards and flags regressions (golden-image diffs with tolerance). |
-| The agent can feel physics | Bot drivers run every track automatically with telemetry export (speed, slip angles, g-forces, lap times). Plots are generated as images for review. |
-| Netcode is testable | Automated multi-client tests: one server + 8 headless bot clients with injected latency, jitter and loss (UE network emulation). Gates measure correction magnitude, desync frequency and collision outcome agreement. |
-| Builds | GitHub Actions with self-hosted GPU runners (Windows + Linux, plus a Mac runner) building client, server and tests via RunUAT BuildCookRun. Large binaries in Git LFS. |
+| Unattended setup | `tools/setup.sh` installs everything with apt and cargo (the list in section 2) on a fresh Ubuntu container, plus headless Blender. The same script runs in CI and in agent sessions. No accounts, keys or GUIs. |
+| Diffable sources | Everything is Rust, WGSL, TOML/JSON/RON and Python Blender scripts. Generated binaries (GLB, KTX2, baked GI) are build outputs cached by content hash and regenerable from the repo. |
+| Fast inner loop | `cargo test` on `racer-dynamics`, `racer-trackc` and the backend runs in seconds with no rendering. |
+| The agent can see | `racer-capture` runs the game under Xvfb + lavapipe, flies scripted cameras over each track at each time/weather, and saves screenshots. A multimodal model reviews them against mood boards, and golden-image diffs catch regressions. CI also runs captures on GitHub-hosted Windows (WARP software D3D12) and macOS runners. |
+| The agent can feel physics | Bots drive every car on every track headlessly and export telemetry (speed, slip angles, g-forces, lap times), plotted to images for review. |
+| Netcode is testable | One server + 8 headless bot clients in one process tree, with injected latency, jitter and loss. Gates on correction magnitude, desync frequency and collision outcome agreement. |
+| Performance | Software rendering can't measure GPU performance, so CPU frame time, draw calls, triangle and light counts are budgeted and gated in CI. If GPU hardware ever becomes available (a credential for a cloud GPU runner), it adds hardware-RT captures and real GPU timing. Every other step works without it. |
+| Builds | GitHub Actions on hosted runners for Linux, Windows and macOS: client, server, tests and captures. |
+
+Release-time steps that are inherently human (signing up for Steam, Apple notarization, Windows code-signing certificates, hosting billing, car manufacturer licensing) are kept out of the build and test loop. The game is fully buildable, testable and playable (including online via self-hosted servers) without any of them.
 
 ## 9. Repository layout
 
 ```
 racer/
-  game/                  UE project (Source/ C++, Config/, generated Content/)
-    Source/Racer/        gameplay, vehicles, race rules, UI, netcode glue
-    Source/RacerDynamicsFFI/   ThirdParty module linking the Rust static lib
+  Cargo.toml               workspace
   crates/
-    racer-dynamics/      vehicle physics core (Rust, no_std-friendly, cxx bridge)
-    racer-trackc/        city/track data compiler + validator
-    racer-backend/       matchmaking, lobbies, leaderboards, fleet API
+    racer-game/            Bevy client app (rendering, UI, audio, input)
+    racer-sim/             shared gameplay: race rules, vehicles plugin, AI drivers, netcode protocol
+    racer-dynamics/        vehicle physics core (pure Rust, no Bevy)
+    racer-render/          custom materials (car paint, wet road), GI baking, post
+    racer-server/          headless dedicated server
+    racer-backend/         matchmaking, lobbies, leaderboards, fleet
+    racer-trackc/          city/track compiler + validator
+    racer-capture/         screenshot/telemetry harness for agents and CI
+  assets/                  generated runtime assets (LFS / cache)
   data/
-    cars/<id>/           car.toml, brief.md, livery definitions
-    city/                roads.json, districts/*.toml
-    tracks/<id>/         track.toml, AI racing lines (generated)
-  pipelines/
-    blender/             headless car/prop processing scripts
-    unreal/              editor Python: import, level generation, capture
-  tools/                 CI scripts, capture/review harness
-  docs/                  design docs, art direction mood boards
+    cars/<id>/             car.toml (specs + sources), refs/, liveries
+    city/                  roads.json, districts/*.toml
+    tracks/<id>/           track.toml, generated racing lines
+  pipelines/blender/       headless car and prop processing
+  tools/                   setup.sh, CI scripts
+  docs/                    design docs, art-direction mood boards
 ```
 
 ## 10. Milestones
 
-Each milestone ends with a playable, automatically verified build. Exit criteria are checked by CI, not by opinion.
+Each milestone ends with a playable build verified automatically by CI.
 
 | # | Milestone | Scope | Exit criteria |
 |---|---|---|---|
-| M0 | Foundations | UE project, CI on all 3 OSes, Rust↔UE FFI, capture harness, Git LFS | A packaged empty level builds and runs headless on Win/Linux/Mac. A Rust function is called from C++ in a shipping build. |
-| M1 | Driving feel | `racer-dynamics` v1, one test car (greybox), flat test track + skidpad, gamepad + wheel FFB, chase camera | Reference maneuver tests pass within target bands. Physics stable at 240 Hz under fuzzing. Telemetry plots match expected vehicle behavior. |
-| M2 | Single-player race loop | One greybox city track, race rules (laps, checkpoints, positions, reset, finish), AI racing-line generation + driver controller with 5 difficulties, basic HUD/menus | AI completes 100 automated laps per difficulty without getting stuck. Lap-time spread across difficulties is in the target ranges. |
-| M3 | Multiplayer | Dedicated server, prediction/resimulation, remote car smoothing, contact, lobbies (direct connect first), backend matchmaking v1 | An 8-bot networked race at 150 ms/1% loss completes with corrections under thresholds and car-contact outcomes agreeing between server and clients. |
-| M4 | Vertical slice | Downtown district fully art-complete with 1 track, 3 hero cars through the asset pipeline, full lighting/weather/time-of-day, damage, audio | Hits performance targets on the reference hardware. Screenshot review passes the art-direction rubric. This is the go/no-go for visual quality, and the pipeline is fixed here before scaling. |
-| M5 | Content scale-up | Remaining 3 districts, 12 tracks (+reverse), 16 cars, liveries, traffic, pedestrians | Every track/car combination passes automated AI lap and capture runs. Asset validators are green. |
-| M6 | Online polish | Steam integration, EAC, leaderboards + ghosts, replays, private lobbies, server fleet autoscaling, settings/accessibility, remapping | A 48-hour soak test with bot lobbies passes without server crashes. Crash reporting is in place. |
-| M7 | Beta → launch | Closed beta, tuning from player telemetry, performance passes per OS, store page | Crash-free rate ≥ 99.5% and performance targets met on the hardware survey's top GPUs. |
-
-M4 is the critical gate. If AI-generated cars or the city don't reach the visual bar there, the fallback is to buy hero car models and Fab environment kits and keep the generative pipeline for long-tail props.
+| M0 | Foundations | Workspace, `tools/setup.sh`, CI on 3 OSes, `racer-capture` with Xvfb/lavapipe, crate versions pinned | A fresh container goes from `setup.sh` to a rendered screenshot with no human steps. Builds pass on Win/Linux/Mac. |
+| M1 | Driving feel | `racer-dynamics` v1, Avian integration, 3 greybox cars with real specs (GTI, M3, 911), skidpad + test track, gamepad + wheel FFB, chase camera | Reference-maneuver tests match real-car data within tolerance. Stable at 240 Hz under fuzzing. |
+| M2 | Single-player race loop | One greybox city track, race rules, AI racing-line generation + driver with 5 difficulties, basic HUD/menus | AI completes 100 automated laps per difficulty without getting stuck. Lap-time spread across difficulties is in the target ranges. |
+| M3 | Multiplayer | Dedicated server, lightyear prediction/rollback, contact, invite lobbies, backend matchmaking v1 | An 8-bot race at 150 ms/1% loss completes with corrections under thresholds and contact outcomes agreeing. |
+| M4 | Vertical slice | Downtown district art-complete with 1 track, 3 hero cars through the full pipeline, wet road, car paint, baked GI + Solari path, time of day, damage, audio | Car accuracy gates pass. Screenshot review passes the art-direction rubric. CPU budgets are met. This is the go/no-go for visuals, and the renderer work found here is scheduled before scale-up. |
+| M5 | Content scale-up | 3 more districts, 12 tracks (+reverse), all 16 cars, liveries, traffic, pedestrians | Every car/track combination passes automated AI laps, captures and accuracy gates. |
+| M6 | Online polish | Leaderboards + ghosts, replays, server fleet autoscaling, settings, accessibility, remapping | A 48-hour bot-lobby soak test passes without crashes. Crash reporting is in place. |
+| M7 | Release prep | Steam and hosting adapters, signing and notarization hooks, licensing outcomes applied to the car list | Waits on the human release steps in section 8. Everything else is green. |
 
 ## 11. Main risks
 
 | Risk | Mitigation |
 |---|---|
-| AI-generated hero assets fall short of the GTA VI bar (topology, panel separation, consistency) | Strict validators, M4 gate, fallback to purchased base meshes run through the same Blender pipeline. Cars are the most-viewed asset, so they get the most budget. |
-| UE editor automation gaps (some operations are GUI-only) | Decide early in M0 which operations need C++ editor utilities. Keep a list and write those utilities once. |
-| Physics netcode with hard ramming feels bad under latency | Prototype the netcode in M3 before art investment. Tune the extrapolation from inputs. Ghosted first lap as a safety valve. |
-| macOS performance/feature parity (hardware RT, Lumen quality) | Use software Lumen on Mac from day one, keep a Mac runner in CI, and accept a tuned-down Mac preset rather than late surprises. |
-| FFI boundary between Rust and UE complicates builds | Single narrow C ABI (`step(state, inputs, dt) -> forces`), prebuilt per-target static libs cached in CI, C++ port as the escape hatch. |
+| Bevy's renderer falls short of the GTA VI bar | Tracks are fixed, so baked GI + reflections do much of the work that Lumen does dynamically. Renderer work is budgeted in M4 and goes upstream where possible. A sustained, verified gap at M4 is the trigger to reconsider the engine (UE5 would then need a one-time human setup). |
+| Real-car licensing | Shipping real makes, models and logos commercially requires licenses from each manufacturer, and licenses commonly restrict visible damage, which conflicts with ramming. Damage intensity is configurable per car, and a car-agnostic build (badges and logos as swappable decals) keeps the game shippable if a license fails. Development itself can proceed meanwhile. |
+| Image-to-3D isn't accurate enough for real cars | Blueprint fitting + silhouette IoU gates. Fallback: purchased reference-accurate base meshes run through the same pipeline. |
+| No GPU in agent containers | Raster path, CPU budgets and visuals are verified on lavapipe. Hardware-RT features are compiled and unit-tested but only visually verified once a GPU runner exists. |
+| Bevy and ecosystem version churn | Pin Bevy and every ecosystem crate. Upgrade once per milestone at most, with a capture-diff gate. |
+| Physics rollback cost with 8 cars at 240 Hz | Profile in M3. Resimulate only the local car and contacted bodies, and fall back to 120 Hz chassis steps with substepped tires if needed. |
 
 ## 12. Open questions
 
-Questions that don't block M0 to M2 but should be answered before M4: whether split-screen local multiplayer is wanted, whether players should be able to save and share custom liveries, whether VR (cockpit camera) support matters for the realism audience, and whether the soundtrack should be licensed music or fully generated.
+Questions that don't block M0 to M3: whether split-screen local multiplayer is wanted, whether players should be able to save and share custom liveries, whether VR cockpit support matters, and whether the car list above is the right mix.
