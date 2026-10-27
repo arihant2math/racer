@@ -167,7 +167,7 @@ scene.camera = cam
 aspect = size[0] / size[1]
 
 
-def perspective(direction, target, lens=50.0, fit=radius, margin=0.8):
+def perspective(direction, target, lens=50.0, fit=radius, margin=0.7):
     cam_data.type = "PERSP"
     cam_data.lens = lens
     fov = 2 * math.atan(cam_data.sensor_width / 2 / lens)
