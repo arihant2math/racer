@@ -1,0 +1,170 @@
+# BMW M3 Competition Sedan (G80), rear-wheel drive. Published values carry
+# their sources per table; everything under [estimated] is not published and
+# was estimated from class norms, then fitted to the [reference] figures.
+id = "bmw-m3-competition-g80"
+name = "BMW M3 Competition (G80)"
+variant = "Sedan, 375 kW (510 PS), 8-speed M Steptronic, RWD (not xDrive), 19/20-inch wheels"
+
+[chassis]
+sources = [
+    "mass (DIN, no driver), dimensions, wheelbase, track: BMW Media Information 03/2021 https://www.press.bmwgroup.com/global/article/attachment/T0316649EN/476823",
+    "weight distribution: not published; estimated 0.53 front (front-engine sedan, battery in the boot)",
+]
+curb_mass_kg = 1730.0
+mass_basis = "DIN, no driver"
+front_weight_fraction = 0.53
+length_m = 4.794
+width_m = 1.903
+height_m = 1.433
+wheelbase_m = 2.857
+track_front_m = 1.617
+track_rear_m = 1.605
+
+[engine]
+sources = [
+    "power, torque, top speed: BMW Media Information 03/2021 https://www.press.bmwgroup.com/global/article/attachment/T0316649EN/476823",
+    "redline: BMW USA press release https://www.press.bmwgroup.com/usa/article/detail/T0317577EN_US/the-new-2021-bmw-m3-sedan-and-m4-coupe",
+]
+description = "S58 3.0 twin-turbo inline-6, 2993 cc"
+peak_power_kw = 375.0
+peak_power_rpm = [6250.0, 6250.0]
+peak_torque_nm = 650.0
+peak_torque_rpm = [2750.0, 5500.0]
+limiter_rpm = 7200.0
+top_speed_kmh = 250.0
+top_speed_governed = true
+
+[gearbox]
+sources = ["BMW Media Information 03/2021 https://www.press.bmwgroup.com/global/article/attachment/T0316649EN/476823"]
+description = "ZF-based 8-speed M Steptronic torque-converter automatic with Drivelogic"
+ratios = [5.000, 3.200, 2.143, 1.720, 1.313, 1.000, 0.823, 0.640]
+reverse = 3.478
+final_drive = [3.154]
+
+[driveline]
+sources = ["BMW Media Information 03/2021 https://www.press.bmwgroup.com/global/article/attachment/T0316649EN/476823"]
+layout = "rwd"
+description = "Active M Differential (electronically controlled rear locking differential)"
+
+[brakes]
+sources = ["BMW USA press release https://www.press.bmwgroup.com/usa/article/detail/T0317577EN_US/the-new-2021-bmw-m3-sedan-and-m4-coupe"]
+front_disc_mm = 380.0
+rear_disc_mm = 370.0
+
+[steering]
+sources = [
+    "ratio: BMW Media Information 03/2021 https://www.press.bmwgroup.com/global/article/attachment/T0316649EN/476823",
+    "turns lock to lock: not published; estimated 2.4",
+]
+lock_to_lock_turns = 2.4
+ratio = 15.0
+
+[tires]
+sources = [
+    "Competition sizes: BMW USA press release https://www.press.bmwgroup.com/usa/article/detail/T0317577EN_US/the-new-2021-bmw-m3-sedan-and-m4-coupe",
+    "the EU sheet lists 275/40 ZR18 / 285/35 ZR19; the test cars ran 19/20 inch Michelin Pilot Sport 4S https://www.caranddriver.com/reviews/a37286079/2021-bmw-m3-competition-by-the-numbers/",
+]
+front = "275/35 ZR19"
+rear = "285/30 ZR20"
+model = "Michelin Pilot Sport 4S"
+
+[aero]
+sources = ["BMW Media Information 03/2021 https://www.press.bmwgroup.com/global/article/attachment/T0316649EN/476823"]
+drag_coefficient = 0.33
+
+[estimated]
+notes = "Not published (frontal area is published: 2.34 m2). Class norms for a front-engine RWD sport sedan, then fitted to the reference figures."
+
+[estimated.chassis]
+payload_kg = 80.0
+cg_height_m = 0.50
+gyration_roll_m = 0.62
+gyration_pitch_m = 1.25
+gyration_yaw_m = 1.30
+
+[estimated.engine]
+# Shaped to the published plateau (650 Nm 2750-5500) and 375 kW at 6250.
+torque_curve = [[800.0, 300.0], [2750.0, 650.0], [5500.0, 650.0], [6250.0, 573.0], [7200.0, 470.0]]
+idle_rpm = 750.0
+launch_rpm = 3500.0
+inertia_kgm2 = 0.25
+drag_nm = [30.0, 90.0]
+
+[estimated.gearbox]
+shift_time_s = 0.15
+upshift_rpm = [7000.0, 2500.0]
+downshift_rpm = 1400.0
+clutch_max_torque_nm = 1000.0
+efficiency = 0.88
+
+[estimated.differentials]
+rear = { kind = "lsd", preload_nm = 80.0, power_ramp = 0.5, coast_ramp = 0.3 }
+
+[estimated.brakes]
+front_torque_nm = 4200.0
+rear_torque_nm = 2800.0
+handbrake_torque_nm = 2000.0
+
+[estimated.steering]
+ackermann = 0.5
+
+[estimated.aero]
+frontal_area_m2 = 2.34      # published (BMW), kept here with the aero fit
+lift_area_front_m2 = 0.03
+lift_area_rear_m2 = 0.02
+
+[estimated.suspension.front]
+ride_frequency_hz = 1.7
+damping_ratio_bump = 0.3
+damping_ratio_rebound = 0.55
+bump_travel_m = 0.065
+droop_travel_m = 0.08
+anti_roll_n_per_m = 26000.0
+roll_center_height_m = 0.06
+
+[estimated.suspension.rear]
+ride_frequency_hz = 1.9
+damping_ratio_bump = 0.3
+damping_ratio_rebound = 0.55
+bump_travel_m = 0.065
+droop_travel_m = 0.08
+anti_roll_n_per_m = 16000.0
+roll_center_height_m = 0.10
+
+[estimated.tires.front]
+mu_long = 1.15
+mu_lat = 1.22
+reference_load_n = 4500.0
+load_sensitivity = 0.12
+peak_slip_ratio = 0.11
+peak_slip_angle_deg = 7.0
+shape_long = 1.5
+shape_lat = 1.3
+curvature = 0.2
+relaxation_long_m = 0.12
+relaxation_lat_m = 0.35
+rolling_resistance = 0.012
+pneumatic_trail_m = 0.035
+inertia_kgm2 = 1.4
+
+[estimated.tires.rear]
+mu_long = 1.55
+mu_lat = 1.22
+reference_load_n = 4500.0
+load_sensitivity = 0.12
+peak_slip_ratio = 0.11
+peak_slip_angle_deg = 7.0
+shape_long = 1.5
+shape_lat = 1.3
+curvature = 0.2
+relaxation_long_m = 0.12
+relaxation_lat_m = 0.35
+rolling_resistance = 0.012
+pneumatic_trail_m = 0.035
+inertia_kgm2 = 1.5
+
+[reference]
+zero_to_100_s = { value = 3.9, source = "https://www.press.bmwgroup.com/global/article/attachment/T0316649EN/476823", note = "manufacturer claim" }
+braking_100_to_0_m = { value = 36.0, source = "https://www.caranddriver.com/reviews/a37286079/2021-bmw-m3-competition-by-the-numbers/", note = "Car and Driver 70-0 mph 150 ft (carbon-ceramic brakes), scaled by v^2 to 100-0 km/h" }
+skidpad_g = { value = 1.03, source = "https://www.caranddriver.com/reviews/a37286079/2021-bmw-m3-competition-by-the-numbers/", note = "Car and Driver 300-ft skidpad" }
+top_speed_kmh = { value = 250.0, source = "https://www.press.bmwgroup.com/global/article/attachment/T0316649EN/476823", note = "electronically limited (290 with M Driver's Package)" }

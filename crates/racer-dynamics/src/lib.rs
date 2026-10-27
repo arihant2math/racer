@@ -1,5 +1,25 @@
 //! Vehicle physics core. Pure Rust with no Bevy dependency so the same code
 //! runs on client, server, AI and in headless tests.
+//!
+//! [`Vehicle::step`] is a pure function of plain data: chassis state,
+//! controls, wheel contacts and `dt` in; chassis force and torque plus the
+//! new [`VehicleState`] out. The caller integrates the rigid body (Avian in
+//! the game, [`testbed`] in tests) and does the wheel shape casts.
+
+pub mod assists;
+pub mod drivetrain;
+pub mod spec;
+pub mod testbed;
+pub mod tire;
+pub mod vehicle;
+
+pub use assists::Assists;
+pub use glam::{DQuat, DVec3};
+pub use spec::{CarSpec, load_car};
+pub use tire::Surface;
+pub use vehicle::{
+    ChassisState, Controls, StepOutput, Telemetry, Vehicle, VehicleState, WheelContact,
+};
 
 /// Chassis rigid-body step rate (Hz). Every simulation, client or server, ticks at this rate.
 pub const CHASSIS_HZ: u32 = 240;
