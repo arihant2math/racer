@@ -18,15 +18,18 @@ laps="${2:-100}"
 races="${3:-12}"
 race_laps="${4:-10}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$ROOT"
-cargo build --release -p racer-capture
+# <out-dir> stays relative to the caller's directory; only cargo runs in the
+# repository, and the binary is taken from wherever cargo puts it.
+target_dir="$(cd "$ROOT" && cargo metadata --format-version 1 --no-deps | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')"
+capture="$target_dir/release/racer-capture"
+(cd "$ROOT" && cargo build --release -p racer-capture)
 status=0
-target/release/racer-capture ai-laps "$out" --laps "$laps" || status=1
-target/release/racer-capture ai-races "$out" --races "$races" --laps "$race_laps" || status=1
+"$capture" ai-laps "$out" --laps "$laps" || status=1
+"$capture" ai-races "$out" --races "$races" --laps "$race_laps" || status=1
 
 for py in python3 python3.12; do
   if command -v "$py" >/dev/null && "$py" -c "import matplotlib" 2>/dev/null; then
-    "$py" tools/plot_race.py "$out"
+    "$py" "$ROOT"/tools/plot_race.py "$out"
     exit "$status"
   fi
 done
