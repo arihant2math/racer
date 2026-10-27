@@ -219,12 +219,13 @@ impl Drivetrain {
         state.since_shift = 0.0;
     }
 
-    /// Automatic gear selection among the forward gears.
+    /// Automatic gear selection among the forward gears; no upshifts while braking.
     pub fn auto_shift(
         &self,
         state: &mut DriveState,
         omega: &[f64; 4],
         throttle: f64,
+        braking: bool,
         forward_speed: f64,
     ) {
         let gb = &self.gearbox;
@@ -234,7 +235,7 @@ impl Drivetrain {
         let rpm = |gear| gb.ratio(gear) * self.output_speed(omega);
         let up = gb.upshift[1] + (gb.upshift[0] - gb.upshift[1]) * throttle;
         let down = gb.downshift + (0.55 * gb.upshift[0] - gb.downshift) * throttle * throttle;
-        if state.gear < gb.forward_gears() && rpm(state.gear) >= up {
+        if !braking && state.gear < gb.forward_gears() && rpm(state.gear) >= up {
             self.shift(state, 1, forward_speed);
         } else if state.gear > 1 && rpm(state.gear) < down && rpm(state.gear - 1) < 0.92 * up {
             self.shift(state, -1, forward_speed);

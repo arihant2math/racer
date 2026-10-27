@@ -340,7 +340,13 @@ impl Vehicle {
         }
         let omegas = state.wheels.map(|w| w.omega);
         if controls.automatic {
-            drive.auto_shift(ds, &omegas, controls.throttle, forward_speed);
+            drive.auto_shift(
+                ds,
+                &omegas,
+                controls.throttle,
+                controls.brake > 0.1,
+                forward_speed,
+            );
         }
 
         // Suspension: travel and load per wheel.

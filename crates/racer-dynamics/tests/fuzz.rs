@@ -260,3 +260,27 @@ fn cruise_is_smooth() {
         assert!(std < 0.05, "{id}: vertical acceleration std {std} m/s^2");
     }
 }
+
+/// Rollback: restoring a copied state and replaying the same inputs
+/// reproduces the run bit for bit.
+#[test]
+fn replay_from_a_snapshot_is_bit_identical() {
+    let vehicle = Vehicle::from_spec(&load_car("bmw-m3-competition-g80").unwrap()).unwrap();
+    let mut sim = Sim::new(&vehicle, &Course);
+    sim.launch_at(30.0);
+    let mut rng = Rng(42);
+    let inputs: Vec<Controls> = (0..1200).map(|_| random_controls(&mut rng)).collect();
+    for c in &inputs[..600] {
+        sim.step(c);
+    }
+    let snapshot = (sim.state, sim.body, sim.time);
+    let mut run = |sim: &mut Sim| {
+        for c in &inputs[600..] {
+            sim.step(c);
+        }
+        (sim.state, sim.body)
+    };
+    let first = run(&mut sim);
+    (sim.state, sim.body, sim.time) = snapshot;
+    assert_eq!(run(&mut sim), first);
+}
