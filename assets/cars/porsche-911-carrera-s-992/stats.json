@@ -1,33 +1,33 @@
 {
-  "build_seconds": 13.0,
+  "build_seconds": 13.5,
   "collision_tris": 552,
   "dimensions": {
     "center_x_m": 0.0,
     "ground_clearance_m": 0.12,
-    "height_m": 1.3031,
+    "height_m": 1.3005,
     "length_m": 4.519,
     "nose_y_m": 2.265,
     "tail_y_m": -2.254,
     "wheels_min_z_m": 0.0,
     "width_body_m": 1.852,
-    "width_with_mirrors_m": 1.99
+    "width_with_mirrors_m": 2.006
   },
   "files": {
-    "car.glb": 9064332,
-    "car_lod1.glb": 3007376,
-    "car_lod2.glb": 1161600
+    "car.glb": 9034440,
+    "car_lod1.glb": 2993844,
+    "car_lod2.glb": 1155540
   },
   "lod0": {
-    "body": 150722,
+    "body": 149950,
     "brake_fl": 700,
     "brake_fr": 700,
     "brake_rl": 700,
     "brake_rr": 700,
-    "bumper_front": 16186,
-    "bumper_rear": 6262,
+    "bumper_front": 16170,
+    "bumper_rear": 6260,
     "door_l": 9712,
     "door_r": 9712,
-    "glass": 36232,
+    "glass": 36524,
     "hood": 17820,
     "interior": 30334,
     "lights_front": 6460,
@@ -40,9 +40,9 @@
     "wheel_rl": 17400,
     "wheel_rr": 17400
   },
-  "lod0_total_tris": 363874,
+  "lod0_total_tris": 363376,
   "lod1_ratio": 0.3,
-  "lod1_total_tris": 109148,
+  "lod1_total_tris": 109002,
   "lod2_ratio": 0.102,
-  "lod2_total_tris": 37293
+  "lod2_total_tris": 37244
 }

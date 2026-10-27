@@ -171,7 +171,7 @@ class Body:
             sel = (xs >= a[0, 0]) & (xs <= a[-1, 0])
             top[sel] = pchip(a[:, 0], a[:, 1])(xs[sel])
         sg = b.get("smooth_sigma", 0.03)
-        hw = gauss(xt, hw, sg)
+        hw = gauss(xt, hw, b.get("smooth_sigma_width", sg))
         top = gauss(xs, top, sg, keep=b.get("smooth_keep", []))
         hw = hw * self.half_width / hw.max()
         self.bp_side_s, self.bp_top, self.bp_bottom = xs, top, bottom
@@ -284,6 +284,23 @@ class Body:
             secs.append(np.column_stack([np.full(len(p), s), p]))
             bands = b
         g = np.asarray(secs)
+        # Fair the loft along the length: the section construction is per
+        # station, so tiny station-to-station differences show as ripples in
+        # reflections. Rows above the widest point are smoothed over stations
+        # (the wheel-arch rows below are left alone).
+        sig = self.cfg["body"].get("fair_sigma_stations", 0.0)
+        if sig > 0:
+            rows = np.nonzero(bands >= self.cfg["body"].get("fair_min_band", 4))[0]
+            n = len(st)
+            k = np.arange(-int(3 * sig), int(3 * sig) + 1)
+            w = np.exp(-0.5 * (k / sig) ** 2)
+            for _ in range(self.cfg["body"].get("fair_passes", 1)):
+                sm = g.copy()
+                for i in range(2, n - 2):
+                    j = np.clip(i + k, 0, n - 1)
+                    ww = w * (np.abs(st[j] - st[i]) < 0.2)
+                    sm[i, rows, 1:] = (ww[:, None, None] * g[j][:, rows, 1:]).sum(0) / ww.sum()
+                g = sm
         # Close the nose and tail: the end stations collapse onto the centre plane.
         g[0, :, 1] = 0.0
         g[-1, :, 1] = 0.0
