@@ -105,6 +105,9 @@ pub struct Photo {
     /// Flip horizontally so the car faces the same way as the render.
     #[serde(default)]
     pub mirror: bool,
+    /// `[x0, y0, x1, y1]` to cut the car out of a wide shot.
+    #[serde(default)]
+    pub crop: Option<[u32; 4]>,
 }
 
 /// One aligned reference view.

@@ -225,6 +225,10 @@ pub fn run(o: &ReviewOptions) -> Gate {
             ) else {
                 continue;
             };
+            if let Some([x0, y0, x1, y1]) = photo.crop {
+                p = imageops::crop_imm(&p, x0, y0, x1.saturating_sub(x0), y1.saturating_sub(y0))
+                    .to_image();
+            }
             if photo.mirror {
                 p = imageops::flip_horizontal(&p);
             }

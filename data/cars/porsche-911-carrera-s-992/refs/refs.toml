@@ -120,6 +120,7 @@ note = "Same car, rear left three-quarter: light bar, engine-lid grille, oval ex
 image = "photos/bretwa-911-carrera-s-side.png"
 angle = "side"
 mirror = true
+crop = [150, 245, 770, 475]
 source = "https://commons.wikimedia.org/wiki/File:Porsche_911_Carrera_S_(992)_-_2025-11-21.jpg (1280 px thumbnail)"
 license = "CC0 1.0, Bretwa"
 note = "992 Carrera S coupe, right side (mirrored to face left), slight perspective."
