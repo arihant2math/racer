@@ -66,7 +66,11 @@ pub fn manifold_report_of(m: &MeshData, indices: &[u32]) -> ManifoldReport {
             continue;
         }
         report.signed_volume += pa.dot(pb.cross(pc)) / 6.0;
-        let w = [welded[t[0] as usize], welded[t[1] as usize], welded[t[2] as usize]];
+        let w = [
+            welded[t[0] as usize],
+            welded[t[1] as usize],
+            welded[t[2] as usize],
+        ];
         for k in 0..3 {
             let (a, b) = (w[k], w[(k + 1) % 3]);
             if a == b {
@@ -175,9 +179,12 @@ pub fn check_asset(name: &str, lods: &[Vec<Part>], budget: Budget) -> Findings {
                 continue;
             }
             if m.positions.iter().any(|p| !p.is_finite())
-                || m.normals.iter().any(|n| !n.is_finite() || (n.length() - 1.0).abs() > 1e-3)
+                || m.normals
+                    .iter()
+                    .any(|n| !n.is_finite() || (n.length() - 1.0).abs() > 1e-3)
             {
-                f.errors.push(format!("{tag}: non-finite position or bad normal"));
+                f.errors
+                    .push(format!("{tag}: non-finite position or bad normal"));
             }
             let atlas = part.material.uv_policy() == UvPolicy::Atlas;
             let bad_uv = m.uvs.iter().any(|uv| {
@@ -189,14 +196,21 @@ pub fn check_asset(name: &str, lods: &[Vec<Part>], budget: Budget) -> Findings {
                     }
             });
             if bad_uv {
-                f.errors.push(format!("{tag}: UVs out of range for {:?}", part.material.uv_policy()));
+                f.errors.push(format!(
+                    "{tag}: UVs out of range for {:?}",
+                    part.material.uv_policy()
+                ));
             }
             for (k, range) in part.closed.iter().enumerate() {
                 let r = manifold_report_of(m, &m.indices[range.clone()]);
                 if !r.is_closed() {
-                    f.errors.push(format!("{tag} piece {k}: not watertight: {r:?}"));
+                    f.errors
+                        .push(format!("{tag} piece {k}: not watertight: {r:?}"));
                 } else if r.signed_volume <= 0.0 {
-                    f.errors.push(format!("{tag} piece {k}: inside out (volume {})", r.signed_volume));
+                    f.errors.push(format!(
+                        "{tag} piece {k}: inside out (volume {})",
+                        r.signed_volume
+                    ));
                 }
             }
         }

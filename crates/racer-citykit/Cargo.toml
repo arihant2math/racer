@@ -8,7 +8,7 @@ publish.workspace = true
 
 [dependencies]
 bevy = { workspace = true, features = ["3d"] }
-image.workspace = true
+image = { workspace = true, features = ["jpeg"] }
 racer-render.workspace = true
 serde.workspace = true
 toml.workspace = true

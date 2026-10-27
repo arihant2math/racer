@@ -5,10 +5,7 @@
 use std::collections::BTreeMap;
 
 use bevy::{
-    camera::visibility::VisibilityRange,
-    light::NotShadowCaster,
-    math::Affine3A,
-    prelude::*,
+    camera::visibility::VisibilityRange, light::NotShadowCaster, math::Affine3A, prelude::*,
 };
 use racer_render::surface::SurfaceMaterial;
 
@@ -38,7 +35,13 @@ pub enum Band {
     Far,
     /// Small props: only up to `NEAR` metres, nothing beyond.
     NearOnly,
+    /// Building LOD0: up to `BUILDING_FAR` metres.
+    BuildingNear,
+    /// Building LOD1 (massing shell) beyond `BUILDING_FAR`.
+    BuildingFar,
 }
+
+pub const BUILDING_FAR: f32 = 180.0;
 
 pub const NEAR: f32 = 70.0;
 pub const FAR: f32 = 450.0;
@@ -67,21 +70,42 @@ impl Batcher {
     pub fn new(cell: f32) -> Self {
         Self {
             cell,
-            no_shadow: vec![Slot::Road, Slot::RoadPlain, Slot::Decal, Slot::Sidewalk, Slot::CurbPaint, Slot::Window, Slot::ShopGlass, Slot::ShopSign],
+            no_shadow: vec![
+                Slot::Road,
+                Slot::RoadPlain,
+                Slot::Decal,
+                Slot::Sidewalk,
+                Slot::CurbPaint,
+                Slot::Window,
+                Slot::ShopGlass,
+                Slot::ShopSign,
+            ],
             ..default()
         }
     }
 
     fn cell_of(&self, p: Vec3) -> (i32, i32) {
-        ((p.x / self.cell).floor() as i32, (p.z / self.cell).floor() as i32)
+        (
+            (p.x / self.cell).floor() as i32,
+            (p.z / self.cell).floor() as i32,
+        )
     }
 
     /// Adds `parts` transformed by `t`, binned by the transformed origin.
-    pub fn add(&mut self, parts: &Parts, t: Affine3A, band: Band, variant: impl Fn(Slot) -> Variant) {
+    pub fn add(
+        &mut self,
+        parts: &Parts,
+        t: Affine3A,
+        band: Band,
+        variant: impl Fn(Slot) -> Variant,
+    ) {
         let (cx, cz) = self.cell_of(t.translation.into());
         for (slot, mesh) in &parts.by_slot {
             let m = mesh.transformed(t);
-            self.bins.entry((cx, cz, band, *slot, variant(*slot))).or_default().append(&m);
+            self.bins
+                .entry((cx, cz, band, *slot, variant(*slot)))
+                .or_default()
+                .append(&m);
         }
     }
 
@@ -89,29 +113,39 @@ impl Batcher {
     /// (for long sweeps such as barriers, call per segment).
     pub fn add_world(&mut self, parts: &Parts, band: Band, variant: impl Fn(Slot) -> Variant) {
         for (slot, mesh) in &parts.by_slot {
-            let Some((lo, hi)) = mesh.bounds() else { continue };
+            let Some((lo, hi)) = mesh.bounds() else {
+                continue;
+            };
             let (cx, cz) = self.cell_of((lo + hi) / 2.0);
-            self.bins.entry((cx, cz, band, *slot, variant(*slot))).or_default().append(mesh);
+            self.bins
+                .entry((cx, cz, band, *slot, variant(*slot)))
+                .or_default()
+                .append(mesh);
         }
     }
 
     /// Adds one mesh with an explicit material.
     pub fn add_mesh(&mut self, mesh: MeshData, slot: Slot, mat: Mat, band: Band) {
-        let Some((lo, hi)) = mesh.bounds() else { return };
+        let Some((lo, hi)) = mesh.bounds() else {
+            return;
+        };
         let (cx, cz) = self.cell_of((lo + hi) / 2.0);
         self.custom.push(mat);
         let v = Variant::Custom(self.custom.len() - 1);
-        self.bins.entry((cx, cz, band, slot, v)).or_default().append(&mesh);
+        self.bins
+            .entry((cx, cz, band, slot, v))
+            .or_default()
+            .append(&mesh);
     }
 
     pub fn stats(&self) -> BatchStats {
         let mut s = BatchStats::default();
         for ((_, _, band, _, _), m) in &self.bins {
             s.entities += 1;
-            if *band != Band::Far {
+            if !matches!(band, Band::Far | Band::BuildingFar) {
                 s.triangles_lod0 += m.triangle_count();
             }
-            if matches!(band, Band::All | Band::Far) {
+            if matches!(band, Band::All | Band::Far | Band::BuildingFar) {
                 s.triangles_far += m.triangle_count();
             }
         }
@@ -150,13 +184,39 @@ impl Batcher {
             match band {
                 Band::All => {}
                 Band::Near => {
-                    e.insert(VisibilityRange { start_margin: 0.0..0.0, end_margin: NEAR..NEAR + 8.0, use_aabb: false });
+                    e.insert(VisibilityRange {
+                        start_margin: 0.0..0.0,
+                        end_margin: NEAR..NEAR + 8.0,
+                        use_aabb: false,
+                    });
                 }
                 Band::Far => {
-                    e.insert(VisibilityRange { start_margin: NEAR..NEAR + 8.0, end_margin: FAR..FAR + 20.0, use_aabb: false });
+                    e.insert(VisibilityRange {
+                        start_margin: NEAR..NEAR + 8.0,
+                        end_margin: FAR..FAR + 20.0,
+                        use_aabb: false,
+                    });
                 }
                 Band::NearOnly => {
-                    e.insert(VisibilityRange { start_margin: 0.0..0.0, end_margin: NEAR + 40.0..NEAR + 50.0, use_aabb: false });
+                    e.insert(VisibilityRange {
+                        start_margin: 0.0..0.0,
+                        end_margin: NEAR + 40.0..NEAR + 50.0,
+                        use_aabb: false,
+                    });
+                }
+                Band::BuildingNear => {
+                    e.insert(VisibilityRange {
+                        start_margin: 0.0..0.0,
+                        end_margin: BUILDING_FAR..BUILDING_FAR + 20.0,
+                        use_aabb: false,
+                    });
+                }
+                Band::BuildingFar => {
+                    e.insert(VisibilityRange {
+                        start_margin: BUILDING_FAR..BUILDING_FAR + 20.0,
+                        end_margin: 1.0e6..1.0e6,
+                        use_aabb: false,
+                    });
                 }
             }
             if self.no_shadow.contains(&slot) {

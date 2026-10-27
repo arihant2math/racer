@@ -55,7 +55,9 @@ pub fn extrude_x(profile: &[Vec2], w: f32) -> MeshData {
 /// at most `step` metres (straights get only their ends unless `dense`).
 pub fn run_frames(path: &Path, s0: f32, s1: f32, offset: f32, step: f32) -> Vec<Frame> {
     let n = ((s1 - s0) / step).ceil().max(1.0) as usize;
-    let st: Vec<f32> = (0..=n).map(|k| s0 + (s1 - s0) * k as f32 / n as f32).collect();
+    let st: Vec<f32> = (0..=n)
+        .map(|k| s0 + (s1 - s0) * k as f32 / n as f32)
+        .collect();
     path.frames(&st, offset)
 }
 
@@ -74,7 +76,11 @@ pub fn disc_z(r: f32, thickness: f32, seg: u32, rect: (Vec2, Vec2), back: bool) 
     for k in 0..seg {
         let a = k as f32 / seg as f32 * std::f32::consts::TAU;
         let (y, x) = a.sin_cos();
-        m.vertex(Vec3::new(x * r, y * r, thickness), Vec3::Z, uv(x * r, y * r));
+        m.vertex(
+            Vec3::new(x * r, y * r, thickness),
+            Vec3::Z,
+            uv(x * r, y * r),
+        );
     }
     for k in 0..seg {
         m.tri(c, first + k, first + (k + 1) % seg);
@@ -98,7 +104,12 @@ pub fn panel_z(min: Vec2, max: Vec2, z: f32, rect: (Vec2, Vec2)) -> MeshData {
             Vec3::new(max.x, max.y, z),
             Vec3::new(min.x, max.y, z),
         ],
-        [Vec2::new(a.x, b.y), Vec2::new(b.x, b.y), Vec2::new(b.x, a.y), Vec2::new(a.x, a.y)],
+        [
+            Vec2::new(a.x, b.y),
+            Vec2::new(b.x, b.y),
+            Vec2::new(b.x, a.y),
+            Vec2::new(a.x, a.y),
+        ],
         Vec3::Z,
     );
     m
@@ -165,7 +176,11 @@ pub fn truss(a: Vec3, b: Vec3, w: f32, chord_r: f32, seg: u32) -> MeshData {
     let d = b - a;
     let len = d.length();
     let dir = d / len;
-    let side = if dir.y.abs() > 0.9 { Vec3::X } else { dir.cross(Vec3::Y).normalize() };
+    let side = if dir.y.abs() > 0.9 {
+        Vec3::X
+    } else {
+        dir.cross(Vec3::Y).normalize()
+    };
     let up = side.cross(dir).normalize();
     let corners = [
         (side + up) * w / 2.0,
@@ -176,12 +191,23 @@ pub fn truss(a: Vec3, b: Vec3, w: f32, chord_r: f32, seg: u32) -> MeshData {
     for c in corners {
         m.append(&MeshData::tube(a + c, b + c, chord_r, seg, true));
     }
-    let n = if seg > 4 { (len / w).round().max(1.0) as usize } else { 0 };
+    let n = if seg > 4 {
+        (len / w).round().max(1.0) as usize
+    } else {
+        0
+    };
     for k in 0..n {
-        let (p0, p1) = (a + dir * (len * k as f32 / n as f32), a + dir * (len * (k + 1) as f32 / n as f32));
+        let (p0, p1) = (
+            a + dir * (len * k as f32 / n as f32),
+            a + dir * (len * (k + 1) as f32 / n as f32),
+        );
         for f in 0..4 {
             let (c0, c1) = (corners[f], corners[(f + 1) % 4]);
-            let (from, to) = if k % 2 == 0 { (p0 + c0, p1 + c1) } else { (p0 + c1, p1 + c0) };
+            let (from, to) = if k % 2 == 0 {
+                (p0 + c0, p1 + c1)
+            } else {
+                (p0 + c1, p1 + c0)
+            };
             m.append(&MeshData::tube(from, to, chord_r * 0.5, seg.min(5), false));
         }
     }

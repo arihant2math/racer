@@ -131,7 +131,9 @@ impl MeshData {
             normals: self
                 .normals
                 .iter()
-                .map(|n| Vec3::from(normal_matrix * bevy::math::Vec3A::from(*n)).normalize_or(Vec3::Y))
+                .map(|n| {
+                    Vec3::from(normal_matrix * bevy::math::Vec3A::from(*n)).normalize_or(Vec3::Y)
+                })
                 .collect(),
             uvs: self.uvs.clone(),
             indices,
@@ -263,11 +265,7 @@ impl MeshData {
                 for k in 0..n {
                     let a = k as f32 / n as f32 * std::f32::consts::TAU;
                     let (s, c) = a.sin_cos();
-                    m.vertex(
-                        Vec3::new(c * r, y, -s * r),
-                        normal,
-                        Vec2::new(c * r, s * r),
-                    );
+                    m.vertex(Vec3::new(c * r, y, -s * r), normal, Vec2::new(c * r, s * r));
                 }
                 for k in 0..n {
                     m.tri(centre, first + k, first + (k + 1) % n);
@@ -335,7 +333,11 @@ impl MeshData {
                     m.vertex(f.at(*p), n, *p);
                 }
                 for t in &tris {
-                    m.tri(first + t[0] as u32, first + t[1] as u32, first + t[2] as u32);
+                    m.tri(
+                        first + t[0] as u32,
+                        first + t[1] as u32,
+                        first + t[2] as u32,
+                    );
                 }
             }
         }
@@ -397,21 +399,24 @@ impl MeshData {
     /// Bevy mesh with positions, normals, UVs and tangents.
     pub fn to_bevy(&self) -> Mesh {
         let to = |v: &[Vec3]| v.iter().map(|p| p.to_array()).collect::<Vec<_>>();
-        Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::default())
-            .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, to(&self.positions))
-            .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, to(&self.normals))
-            .with_inserted_attribute(
-                Mesh::ATTRIBUTE_UV_0,
-                self.uvs.iter().map(|u| u.to_array()).collect::<Vec<_>>(),
-            )
-            .with_inserted_attribute(
-                Mesh::ATTRIBUTE_TANGENT,
-                self.tangents()
-                    .iter()
-                    .map(|t| t.to_array())
-                    .collect::<Vec<_>>(),
-            )
-            .with_inserted_indices(Indices::U32(self.indices.clone()))
+        Mesh::new(
+            PrimitiveTopology::TriangleList,
+            RenderAssetUsages::default(),
+        )
+        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, to(&self.positions))
+        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, to(&self.normals))
+        .with_inserted_attribute(
+            Mesh::ATTRIBUTE_UV_0,
+            self.uvs.iter().map(|u| u.to_array()).collect::<Vec<_>>(),
+        )
+        .with_inserted_attribute(
+            Mesh::ATTRIBUTE_TANGENT,
+            self.tangents()
+                .iter()
+                .map(|t| t.to_array())
+                .collect::<Vec<_>>(),
+        )
+        .with_inserted_indices(Indices::U32(self.indices.clone()))
     }
 
     /// Order-independent-of-nothing content hash, for determinism tests.
@@ -488,14 +493,30 @@ mod tests {
 
     #[test]
     fn concave_profile_sweeps_watertight() {
-        let l = [Vec2::new(0.0, 0.0), Vec2::new(1.0, 0.0), Vec2::new(1.0, 0.2), Vec2::new(0.2, 0.2), Vec2::new(0.2, 1.0), Vec2::new(0.0, 1.0)];
+        let l = [
+            Vec2::new(0.0, 0.0),
+            Vec2::new(1.0, 0.0),
+            Vec2::new(1.0, 0.2),
+            Vec2::new(0.2, 0.2),
+            Vec2::new(0.2, 1.0),
+            Vec2::new(0.0, 1.0),
+        ];
         assert_eq!(triangulate(&l).len(), 4);
         let frames: Vec<Frame> = [0.0, 2.0]
             .iter()
-            .map(|z| Frame { pos: Vec3::Z * -*z, forward: Vec3::NEG_Z, right: Vec3::X, up: Vec3::Y, s: *z })
+            .map(|z| Frame {
+                pos: Vec3::Z * -*z,
+                forward: Vec3::NEG_Z,
+                right: Vec3::X,
+                up: Vec3::Y,
+                s: *z,
+            })
             .collect();
         let r = manifold_report(&MeshData::sweep(&frames, &l, true, true));
-        assert!(r.is_closed() && (r.signed_volume - 0.72).abs() < 1e-4, "{r:?}");
+        assert!(
+            r.is_closed() && (r.signed_volume - 0.72).abs() < 1e-4,
+            "{r:?}"
+        );
     }
 
     #[test]

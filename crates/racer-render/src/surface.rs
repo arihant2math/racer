@@ -151,6 +151,10 @@ impl MaterialExtension for Surface {
     fn fragment_shader() -> ShaderRef {
         "embedded://racer_render/surface.wgsl".into()
     }
+
+    fn deferred_fragment_shader() -> ShaderRef {
+        "embedded://racer_render/surface.wgsl".into()
+    }
 }
 
 fn apply_wetness(wetness: Res<Wetness>, mut materials: ResMut<Assets<SurfaceMaterial>>) {

@@ -25,6 +25,91 @@ pub enum TimeOfDay {
     Night,
 }
 
+/// Where tiling ground and wall textures come from.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub enum TextureSource {
+    /// Generated from noise in [`crate::texture`] (default; nothing to download).
+    #[default]
+    Procedural,
+    /// CC0 scans listed in `data/city/textures/polyhaven.toml`, downloaded by
+    /// `tools/fetch_textures.sh` into this directory (one folder per asset id).
+    /// Missing files fall back to the procedural texture.
+    PolyHaven(std::path::PathBuf),
+}
+
+#[derive(serde::Deserialize)]
+struct Manifest {
+    texture: Vec<ManifestEntry>,
+}
+
+#[derive(serde::Deserialize)]
+struct ManifestEntry {
+    kit: String,
+    id: String,
+    tile_m: f32,
+}
+
+/// Loads a downloaded scan (albedo, normal, orm JPGs) as a [`PbrTex`].
+fn load_scan(dir: &std::path::Path) -> Result<PbrTex, String> {
+    let load = |name: &str, srgb: bool| -> Result<texture::Tex, String> {
+        let path = dir.join(format!("{name}.jpg"));
+        let img = image::open(&path)
+            .map_err(|e| format!("{}: {e}", path.display()))?
+            .to_rgba8();
+        let (w, h) = img.dimensions();
+        if w != h || !w.is_power_of_two() {
+            return Err(format!(
+                "{}: {w}x{h} is not a square power of two",
+                path.display()
+            ));
+        }
+        let px = img
+            .pixels()
+            .map(|p| {
+                let c = |v: u8| {
+                    if srgb {
+                        texture::srgb_to_linear(v as f32 / 255.0)
+                    } else {
+                        v as f32 / 255.0
+                    }
+                };
+                [c(p[0]), c(p[1]), c(p[2]), p[3] as f32 / 255.0]
+            })
+            .collect();
+        Ok(texture::Tex { size: w, px })
+    };
+    let mut albedo = load("albedo", true)?;
+    // Keep height-like information in alpha for the puddle mask (luminance).
+    for p in &mut albedo.px {
+        p[3] = (p[0] + p[1] + p[2]).min(1.0);
+    }
+    Ok(PbrTex {
+        albedo,
+        normal: load("normal", false)?,
+        orm: load("orm", false)?,
+    })
+}
+
+/// Scanned replacements by kit texture name: (texture set, tile size in m).
+fn scans(source: &TextureSource) -> HashMap<String, (PbrTex, f32)> {
+    let TextureSource::PolyHaven(dir) = source else {
+        return HashMap::new();
+    };
+    let manifest: Manifest =
+        toml::from_str(include_str!("../../../data/city/textures/polyhaven.toml"))
+            .expect("data/city/textures/polyhaven.toml is valid");
+    let mut out = HashMap::new();
+    for t in manifest.texture {
+        match load_scan(&dir.join(&t.id)) {
+            Ok(tex) => {
+                out.insert(t.kit, (tex, t.tile_m));
+            }
+            Err(e) => warn!("{}: {e}; using the procedural texture", t.id),
+        }
+    }
+    out
+}
+
 /// Either material type used by the kit.
 #[derive(Clone, Debug)]
 pub enum Mat {
@@ -105,9 +190,33 @@ impl TimeOfDay {
             // Interiors are emissive at every time of day (they are lit rooms
             // seen from outside, not sunlit albedo); their luminance only
             // looks different because the exposure changes.
-            TimeOfDay::Day => Glow { lamp: 0.0, signal: 6000.0, window: 300.0, shop: 900.0, sign: 0.0, lightbox: 1500.0, led: 5000.0 },
-            TimeOfDay::Golden => Glow { lamp: 3000.0, signal: 4000.0, window: 150.0, shop: 450.0, sign: 60.0, lightbox: 800.0, led: 3000.0 },
-            TimeOfDay::Night => Glow { lamp: 25000.0, signal: 150.0, window: 2.2, shop: 6.0, sign: 7.0, lightbox: 15.0, led: 100.0 },
+            TimeOfDay::Day => Glow {
+                lamp: 0.0,
+                signal: 6000.0,
+                window: 300.0,
+                shop: 900.0,
+                sign: 0.0,
+                lightbox: 1500.0,
+                led: 5000.0,
+            },
+            TimeOfDay::Golden => Glow {
+                lamp: 3000.0,
+                signal: 4000.0,
+                window: 150.0,
+                shop: 450.0,
+                sign: 60.0,
+                lightbox: 800.0,
+                led: 3000.0,
+            },
+            TimeOfDay::Night => Glow {
+                lamp: 25000.0,
+                signal: 150.0,
+                window: 2.2,
+                shop: 6.0,
+                sign: 7.0,
+                lightbox: 15.0,
+                led: 100.0,
+            },
         }
     }
 }
@@ -117,17 +226,29 @@ impl KitMaterials {
     pub fn new(
         time: TimeOfDay,
         wetness: f32,
+        source: &TextureSource,
         images: &mut Assets<Image>,
         std_mats: &mut Assets<StandardMaterial>,
         surf: &mut Assets<SurfaceMaterial>,
     ) -> Self {
         let glow = time.glow();
-        let asphalt = upload(images, &texture::asphalt(1024, 11));
-        let paving = upload(images, &texture::paving(1024, 12));
-        let concrete = upload(images, &texture::concrete(512, 13, 0.34));
+        let mut scans = scans(source);
+        let mut pick =
+            |name: &str, procedural: &dyn Fn() -> PbrTex, tile: f32| match scans.remove(name) {
+                Some((t, scan_tile)) => (upload(images, &t), Vec2::splat(scan_tile)),
+                None => (upload(images, &procedural()), Vec2::splat(tile)),
+            };
+        let (asphalt, asphalt_tile) =
+            pick("asphalt", &|| texture::asphalt(1024, 11), tile::ASPHALT);
+        let (paving, paving_tile) = pick("paving", &|| texture::paving(1024, 12), tile::PAVING);
+        let (concrete, concrete_tile) = pick(
+            "concrete",
+            &|| texture::concrete(512, 13, 0.34),
+            tile::CONCRETE,
+        );
+        let (brick, brick_tile) = pick("brick", &|| texture::brick(512, 15), tile::BRICK);
+        let (plaster, plaster_tile) = pick("plaster", &|| texture::plaster(512, 16), tile::PLASTER);
         let kerb = upload(images, &texture::concrete(512, 14, 0.33));
-        let brick = upload(images, &texture::brick(512, 15));
-        let plaster = upload(images, &texture::plaster(512, 16));
         let roof = upload(images, &texture::roof(512, 17));
         let curb = upload(images, &texture::curb(512, 18));
         let decals = upload(images, &texture::decal_atlas(1024, 19));
@@ -145,8 +266,16 @@ impl KitMaterials {
             // Emissive values are physical luminances (nits): let exposure apply.
             m.emissive_exposure_weight = 1.0;
             // Rain darkens and smooths exposed, non-emissive materials.
-            if wet > 0.0 && m.emissive == LinearRgba::BLACK && !matches!(slot, Slot::Window | Slot::CurtainGlass | Slot::Glass | Slot::CarGlass) {
-                m.base_color = m.base_color.mix(&(m.base_color.to_linear() * 0.6).into(), wet);
+            if wet > 0.0
+                && m.emissive == LinearRgba::BLACK
+                && !matches!(
+                    slot,
+                    Slot::Window | Slot::CurtainGlass | Slot::Glass | Slot::CarGlass
+                )
+            {
+                m.base_color = m
+                    .base_color
+                    .mix(&(m.base_color.to_linear() * 0.6).into(), wet);
                 m.perceptual_roughness *= 1.0 - 0.45 * wet;
             }
             by_slot.insert(slot, Mat::Std(std_mats.add(m)));
@@ -154,13 +283,14 @@ impl KitMaterials {
         let lamp_rgb = kelvin_to_rgb(STREET_LIGHT_K);
         let lamp = LinearRgba::from(Color::srgb(lamp_rgb.x, lamp_rgb.y, lamp_rgb.z)) * glow.lamp;
 
-        std(Slot::Concrete, textured(&concrete, Vec2::splat(tile::CONCRETE)));
+        std(Slot::Concrete, textured(&concrete, concrete_tile));
         std(Slot::Galvanised, plain(0.62, 0.63, 0.64, 0.42, 0.9));
         std(
             Slot::Fence,
             StandardMaterial {
                 base_color_texture: Some(fence),
-                alpha_mode: AlphaMode::AlphaToCoverage,
+                // Alpha-to-coverage needs MSAA; the wet (deferred) preset has none.
+                alpha_mode: if wet > 0.0 { AlphaMode::Mask(0.3) } else { AlphaMode::AlphaToCoverage },
                 double_sided: true,
                 cull_mode: None,
                 metallic: 0.8,
@@ -181,17 +311,59 @@ impl KitMaterials {
         );
         std(Slot::BoardWhite, plain(0.85, 0.85, 0.83, 0.55, 0.0));
         std(Slot::BoardDark, plain(0.025, 0.027, 0.03, 0.45, 0.0));
-        std(Slot::Led, emissive(Color::srgb(0.3, 0.2, 0.05), LinearRgba::rgb(1.0, 0.45, 0.05) * glow.led, 0.4));
+        std(
+            Slot::Led,
+            emissive(
+                Color::srgb(0.3, 0.2, 0.05),
+                LinearRgba::rgb(1.0, 0.45, 0.05) * glow.led,
+                0.4,
+            ),
+        );
         std(Slot::SeatBlue, plain(0.04, 0.17, 0.55, 0.4, 0.0));
+        std(
+            Slot::Banner,
+            StandardMaterial {
+                base_color_texture: Some(signs.clone()),
+                perceptual_roughness: 0.7,
+                double_sided: true,
+                cull_mode: None,
+                ..default()
+            },
+        );
+        std(Slot::Crowd, plain(1.0, 1.0, 1.0, 0.8, 0.0));
         std(Slot::DarkMetal, plain(0.035, 0.045, 0.04, 0.45, 0.2));
         std(Slot::PaintYellow, plain(0.85, 0.6, 0.05, 0.45, 0.0));
         std(Slot::PaintRed, plain(0.6, 0.05, 0.04, 0.45, 0.0));
         std(Slot::PaintWhite, plain(0.85, 0.85, 0.85, 0.35, 0.0));
         std(Slot::Wood, plain(0.33, 0.21, 0.12, 0.75, 0.0));
-        std(Slot::LampLens, emissive(Color::srgb(0.9, 0.9, 0.85), lamp, 0.2));
-        std(Slot::SignalRed, emissive(Color::srgb(0.5, 0.02, 0.02), LinearRgba::rgb(1.0, 0.03, 0.01) * glow.signal, 0.15));
-        std(Slot::SignalAmber, emissive(Color::srgb(0.5, 0.3, 0.02), LinearRgba::rgb(1.0, 0.4, 0.02) * glow.signal, 0.15));
-        std(Slot::SignalGreen, emissive(Color::srgb(0.02, 0.4, 0.3), LinearRgba::rgb(0.02, 1.0, 0.55) * glow.signal, 0.15));
+        std(
+            Slot::LampLens,
+            emissive(Color::srgb(0.9, 0.9, 0.85), lamp, 0.2),
+        );
+        std(
+            Slot::SignalRed,
+            emissive(
+                Color::srgb(0.5, 0.02, 0.02),
+                LinearRgba::rgb(1.0, 0.03, 0.01) * glow.signal,
+                0.15,
+            ),
+        );
+        std(
+            Slot::SignalAmber,
+            emissive(
+                Color::srgb(0.5, 0.3, 0.02),
+                LinearRgba::rgb(1.0, 0.4, 0.02) * glow.signal,
+                0.15,
+            ),
+        );
+        std(
+            Slot::SignalGreen,
+            emissive(
+                Color::srgb(0.02, 0.4, 0.3),
+                LinearRgba::rgb(0.02, 1.0, 0.55) * glow.signal,
+                0.15,
+            ),
+        );
         std(Slot::SignalOff, plain(0.02, 0.02, 0.02, 0.1, 0.0));
         std(
             Slot::RoadSign,
@@ -200,7 +372,11 @@ impl KitMaterials {
                 alpha_mode: AlphaMode::Mask(0.5),
                 perceptual_roughness: 0.35,
                 // Retroreflective sheeting glows faintly in headlights/streetlights.
-                emissive: if time == TimeOfDay::Night { LinearRgba::gray(0.4) } else { LinearRgba::BLACK },
+                emissive: if time == TimeOfDay::Night {
+                    LinearRgba::gray(0.4)
+                } else {
+                    LinearRgba::BLACK
+                },
                 ..default()
             },
         );
@@ -229,8 +405,8 @@ impl KitMaterials {
         std(Slot::CarGlass, plain(0.015, 0.018, 0.02, 0.05, 0.0));
         std(Slot::Foliage, plain(0.09, 0.17, 0.05, 0.8, 0.0));
         std(Slot::Bark, plain(0.11, 0.085, 0.065, 0.9, 0.0));
-        std(Slot::Brick, textured(&brick, Vec2::splat(tile::BRICK)));
-        std(Slot::Plaster, textured(&plaster, Vec2::splat(tile::PLASTER)));
+        std(Slot::Brick, textured(&brick, brick_tile));
+        std(Slot::Plaster, textured(&plaster, plaster_tile));
         std(Slot::Stone, textured(&plaster, Vec2::splat(2.0)));
         std(
             Slot::Window,
@@ -307,23 +483,52 @@ impl KitMaterials {
         // Ground surfaces share the wet surface extension.
         let surface = |base: StandardMaterial, mut params: SurfaceParams| {
             params.wetness = wet;
-            SurfaceMaterial { base, extension: Surface { params } }
+            SurfaceMaterial {
+                base,
+                extension: Surface { params },
+            }
         };
         let mut s = |slot: Slot, base: StandardMaterial, params: SurfaceParams| {
             by_slot.insert(slot, Mat::Surface(surf.add(surface(base, params))));
         };
-        s(Slot::RoadPlain, textured(&asphalt, Vec2::splat(tile::ASPHALT)), SurfaceParams::plain());
-        s(Slot::Sidewalk, textured(&paving, Vec2::splat(tile::PAVING)), SurfaceParams::plain());
-        s(Slot::Kerb, textured(&kerb, Vec2::splat(1.0)), SurfaceParams::plain());
-        s(Slot::CurbPaint, textured(&curb, Vec2::new(1.0, tile::CURB)), SurfaceParams::plain());
+        s(
+            Slot::RoadPlain,
+            textured(&asphalt, asphalt_tile),
+            SurfaceParams::plain(),
+        );
+        s(
+            Slot::Sidewalk,
+            textured(&paving, paving_tile),
+            SurfaceParams::plain(),
+        );
+        s(
+            Slot::Kerb,
+            textured(&kerb, Vec2::splat(1.0)),
+            SurfaceParams::plain(),
+        );
+        s(
+            Slot::CurbPaint,
+            textured(&curb, Vec2::new(1.0, tile::CURB)),
+            SurfaceParams::plain(),
+        );
         let mut decal = textured(&decals, Vec2::ONE);
         decal.alpha_mode = AlphaMode::Blend;
         decal.depth_bias = 50.0;
         s(Slot::Decal, decal, SurfaceParams::decal());
-        let road = textured(&asphalt, Vec2::splat(tile::ASPHALT));
-        s(Slot::Road, road, SurfaceParams::road(2, 3.4, racer_render::surface::flags::ALL));
+        let road = textured(&asphalt, asphalt_tile);
+        s(
+            Slot::Road,
+            road,
+            SurfaceParams::road(2, 3.4, racer_render::surface::flags::ALL),
+        );
 
-        Self { time, wetness, by_slot, asphalt, tinted: HashMap::new() }
+        Self {
+            time,
+            wetness,
+            by_slot,
+            asphalt,
+            tinted: HashMap::new(),
+        }
     }
 
     pub fn get(&self, slot: Slot) -> Mat {
@@ -331,18 +536,30 @@ impl KitMaterials {
     }
 
     /// A road surface material with its own marking parameters.
-    pub fn road(&self, params: SurfaceParams, surf: &mut Assets<SurfaceMaterial>) -> Handle<SurfaceMaterial> {
+    pub fn road(
+        &self,
+        params: SurfaceParams,
+        surf: &mut Assets<SurfaceMaterial>,
+    ) -> Handle<SurfaceMaterial> {
         let Mat::Surface(base) = &self.by_slot[&Slot::Road] else {
             unreachable!("road is a surface material")
         };
         let mut m = surf.get(base).expect("road material exists").clone();
-        m.extension.params = SurfaceParams { wetness: self.wetness, ..params };
+        m.extension.params = SurfaceParams {
+            wetness: self.wetness,
+            ..params
+        };
         surf.add(m)
     }
 
     /// A copy of `slot`'s standard material with its base colour multiplied
     /// by `tint` (sRGB 0..1), cached per (slot, tint).
-    pub fn tinted(&mut self, slot: Slot, tint: [f32; 3], std_mats: &mut Assets<StandardMaterial>) -> Mat {
+    pub fn tinted(
+        &mut self,
+        slot: Slot,
+        tint: [f32; 3],
+        std_mats: &mut Assets<StandardMaterial>,
+    ) -> Mat {
         let key = (slot, tint.map(f32::to_bits));
         if let Some(h) = self.tinted.get(&key) {
             return Mat::Std(h.clone());
@@ -353,7 +570,12 @@ impl KitMaterials {
         let mut m = std_mats.get(base).expect("slot material exists").clone();
         let t = Color::srgb(tint[0], tint[1], tint[2]).to_linear();
         let b = m.base_color.to_linear();
-        m.base_color = Color::LinearRgba(LinearRgba::new(b.red * t.red, b.green * t.green, b.blue * t.blue, b.alpha));
+        m.base_color = Color::LinearRgba(LinearRgba::new(
+            b.red * t.red,
+            b.green * t.green,
+            b.blue * t.blue,
+            b.alpha,
+        ));
         let h = std_mats.add(m);
         self.tinted.insert(key, h.clone());
         Mat::Std(h)

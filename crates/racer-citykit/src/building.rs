@@ -111,7 +111,13 @@ fn on_edge(p: Vec2, q: Vec2, a: Vec2, b: Vec2) -> bool {
 pub fn subdivide_block(block: &Lot, width: [f32; 2], rng: &mut Rng) -> Vec<Lot> {
     let n = block.poly.len();
     let Some(front) = (0..n).max_by(|i, j| {
-        let len = |k: usize| if block.street[k] { block.poly[k].distance(block.poly[(k + 1) % n]) } else { 0.0 };
+        let len = |k: usize| {
+            if block.street[k] {
+                block.poly[k].distance(block.poly[(k + 1) % n])
+            } else {
+                0.0
+            }
+        };
         len(*i).total_cmp(&len(*j))
     }) else {
         return Vec::new();
@@ -152,10 +158,15 @@ pub fn subdivide_block(block: &Lot, width: [f32; 2], rng: &mut Rng) -> Vec<Lot> 
         let street = (0..m)
             .map(|i| {
                 let (p, q) = (piece[i], piece[(i + 1) % m]);
-                (0..n).any(|e| block.street[e] && on_edge(p, q, block.poly[e], block.poly[(e + 1) % n]))
+                (0..n).any(|e| {
+                    block.street[e] && on_edge(p, q, block.poly[e], block.poly[(e + 1) % n])
+                })
             })
             .collect();
-        lots.push(Lot { poly: piece, street });
+        lots.push(Lot {
+            poly: piece,
+            street,
+        });
     }
     lots
 }
@@ -179,12 +190,38 @@ pub struct Building {
     pub tints: Tints,
     pub height: f32,
     pub footprint: Lot,
+    /// Massing shells (polygon, bottom, top) for the far LOD.
+    pub shells: Vec<(Vec<Vec2>, f32, f32)>,
+}
+
+impl Building {
+    /// Far LOD: each massing shell as flat walls with the distant-façade
+    /// window grid (tinted by the wall colour) and a roof slab.
+    pub fn lod1(&self) -> Parts {
+        let mut p = Parts::new();
+        for (poly, y0, y1) in &self.shells {
+            let n = poly.len();
+            let mut walls = MeshData::new();
+            for i in 0..n {
+                let (t, len) = facade_frame(poly[i], poly[(i + 1) % n], outward(poly, i));
+                let mut w = MeshData::new();
+                wall_quad(&mut w, 0.0, len, *y0, *y1, 0.0);
+                walls.append(&w.transformed(t));
+            }
+            p.add(Slot::Skyline, walls);
+            p.add(Slot::Roof, roof_slab(poly, *y1));
+        }
+        p
+    }
 }
 
 /// Window-atlas cell rectangle (lit cells are rows 0-2, dark row 3).
 fn window_cell(rng: &mut Rng, lit_fraction: f32) -> (Vec2, Vec2) {
     let lit = rng.chance(lit_fraction);
-    let (cx, cy) = (rng.index(4) as f32, if lit { rng.index(3) as f32 } else { 3.0 });
+    let (cx, cy) = (
+        rng.index(4) as f32,
+        if lit { rng.index(3) as f32 } else { 3.0 },
+    );
     let inset = 0.006;
     let min = Vec2::new(cx, cy) * 0.25 + Vec2::splat(inset);
     (min, min + Vec2::splat(0.25 - 2.0 * inset))
@@ -196,8 +233,18 @@ fn wall_quad(m: &mut MeshData, x0: f32, x1: f32, y0: f32, y1: f32, z: f32) {
         return;
     }
     m.quad_n(
-        [Vec3::new(x0, y0, z), Vec3::new(x1, y0, z), Vec3::new(x1, y1, z), Vec3::new(x0, y1, z)],
-        [Vec2::new(x0, -y0), Vec2::new(x1, -y0), Vec2::new(x1, -y1), Vec2::new(x0, -y1)],
+        [
+            Vec3::new(x0, y0, z),
+            Vec3::new(x1, y0, z),
+            Vec3::new(x1, y1, z),
+            Vec3::new(x0, y1, z),
+        ],
+        [
+            Vec2::new(x0, -y0),
+            Vec2::new(x1, -y0),
+            Vec2::new(x1, -y1),
+            Vec2::new(x0, -y1),
+        ],
         Vec3::Z,
     );
 }
@@ -206,8 +253,18 @@ fn wall_quad(m: &mut MeshData, x0: f32, x1: f32, y0: f32, y1: f32, z: f32) {
 fn atlas_quad(m: &mut MeshData, x0: f32, x1: f32, y0: f32, y1: f32, z: f32, rect: (Vec2, Vec2)) {
     let (a, b) = rect;
     m.quad_n(
-        [Vec3::new(x0, y0, z), Vec3::new(x1, y0, z), Vec3::new(x1, y1, z), Vec3::new(x0, y1, z)],
-        [Vec2::new(a.x, b.y), Vec2::new(b.x, b.y), Vec2::new(b.x, a.y), Vec2::new(a.x, a.y)],
+        [
+            Vec3::new(x0, y0, z),
+            Vec3::new(x1, y0, z),
+            Vec3::new(x1, y1, z),
+            Vec3::new(x0, y1, z),
+        ],
+        [
+            Vec2::new(a.x, b.y),
+            Vec2::new(b.x, b.y),
+            Vec2::new(b.x, a.y),
+            Vec2::new(a.x, a.y),
+        ],
         Vec3::Z,
     );
 }
@@ -235,23 +292,63 @@ fn punched(
     // Reveals.
     let d = -depth;
     w.quad_n(
-        [Vec3::new(hx0, hy0, 0.0), Vec3::new(hx0, hy0, d), Vec3::new(hx0, hy1, d), Vec3::new(hx0, hy1, 0.0)],
-        [Vec2::new(0.0, -hy0), Vec2::new(depth, -hy0), Vec2::new(depth, -hy1), Vec2::new(0.0, -hy1)],
+        [
+            Vec3::new(hx0, hy0, 0.0),
+            Vec3::new(hx0, hy0, d),
+            Vec3::new(hx0, hy1, d),
+            Vec3::new(hx0, hy1, 0.0),
+        ],
+        [
+            Vec2::new(0.0, -hy0),
+            Vec2::new(depth, -hy0),
+            Vec2::new(depth, -hy1),
+            Vec2::new(0.0, -hy1),
+        ],
         Vec3::X,
     );
     w.quad_n(
-        [Vec3::new(hx1, hy0, d), Vec3::new(hx1, hy0, 0.0), Vec3::new(hx1, hy1, 0.0), Vec3::new(hx1, hy1, d)],
-        [Vec2::new(0.0, -hy0), Vec2::new(depth, -hy0), Vec2::new(depth, -hy1), Vec2::new(0.0, -hy1)],
+        [
+            Vec3::new(hx1, hy0, d),
+            Vec3::new(hx1, hy0, 0.0),
+            Vec3::new(hx1, hy1, 0.0),
+            Vec3::new(hx1, hy1, d),
+        ],
+        [
+            Vec2::new(0.0, -hy0),
+            Vec2::new(depth, -hy0),
+            Vec2::new(depth, -hy1),
+            Vec2::new(0.0, -hy1),
+        ],
         Vec3::NEG_X,
     );
     w.quad_n(
-        [Vec3::new(hx0, hy0, d), Vec3::new(hx1, hy0, d), Vec3::new(hx1, hy0, 0.0), Vec3::new(hx0, hy0, 0.0)],
-        [Vec2::new(hx0, 0.0), Vec2::new(hx1, 0.0), Vec2::new(hx1, depth), Vec2::new(hx0, depth)],
+        [
+            Vec3::new(hx0, hy0, d),
+            Vec3::new(hx1, hy0, d),
+            Vec3::new(hx1, hy0, 0.0),
+            Vec3::new(hx0, hy0, 0.0),
+        ],
+        [
+            Vec2::new(hx0, 0.0),
+            Vec2::new(hx1, 0.0),
+            Vec2::new(hx1, depth),
+            Vec2::new(hx0, depth),
+        ],
         Vec3::Y,
     );
     w.quad_n(
-        [Vec3::new(hx0, hy1, 0.0), Vec3::new(hx1, hy1, 0.0), Vec3::new(hx1, hy1, d), Vec3::new(hx0, hy1, d)],
-        [Vec2::new(hx0, 0.0), Vec2::new(hx1, 0.0), Vec2::new(hx1, depth), Vec2::new(hx0, depth)],
+        [
+            Vec3::new(hx0, hy1, 0.0),
+            Vec3::new(hx1, hy1, 0.0),
+            Vec3::new(hx1, hy1, d),
+            Vec3::new(hx0, hy1, d),
+        ],
+        [
+            Vec2::new(hx0, 0.0),
+            Vec2::new(hx1, 0.0),
+            Vec2::new(hx1, depth),
+            Vec2::new(hx0, depth),
+        ],
         Vec3::NEG_Y,
     );
     p.add(wall, w);
@@ -261,8 +358,20 @@ fn punched(
     if frame {
         // Window frame: mullion and transom bars proud of the glass.
         let (cx, ty) = ((hx0 + hx1) / 2.0, hy0 + (hy1 - hy0) * 0.68);
-        p.add_closed(Slot::Mullion, bx(Vec3::new(cx - 0.035, hy0, d), Vec3::new(cx + 0.035, hy1, d + 0.06)));
-        p.add_closed(Slot::Mullion, bx(Vec3::new(hx0, ty - 0.035, d), Vec3::new(hx1, ty + 0.035, d + 0.06)));
+        p.add_closed(
+            Slot::Mullion,
+            bx(
+                Vec3::new(cx - 0.035, hy0, d),
+                Vec3::new(cx + 0.035, hy1, d + 0.06),
+            ),
+        );
+        p.add_closed(
+            Slot::Mullion,
+            bx(
+                Vec3::new(hx0, ty - 0.035, d),
+                Vec3::new(hx1, ty + 0.035, d + 0.06),
+            ),
+        );
     }
 }
 
@@ -281,11 +390,20 @@ struct Spec<'a> {
 }
 
 /// Street façade of `len` metres in façade space.
-fn street_facade(p: &mut Parts, spec: &Spec, len: f32, y_top: f32, district: &District, rng: &mut Rng) {
+fn street_facade(
+    p: &mut Parts,
+    spec: &Spec,
+    len: f32,
+    y_top: f32,
+    district: &District,
+    rng: &mut Rng,
+) {
     let g = spec.ground;
     // Ground floor.
     if spec.shopfront && len > 3.0 {
-        let n = (len / rng.range(district.ground.bay_width[0], district.ground.bay_width[1])).round().max(1.0) as usize;
+        let n = (len / rng.range(district.ground.bay_width[0], district.ground.bay_width[1]))
+            .round()
+            .max(1.0) as usize;
         let bay = len / n as f32;
         for k in 0..n {
             let (x0, x1) = (k as f32 * bay, (k + 1) as f32 * bay);
@@ -297,7 +415,13 @@ fn street_facade(p: &mut Parts, spec: &Spec, len: f32, y_top: f32, district: &Di
         p.add(spec.wall, w);
     }
     // String course over the ground floor.
-    p.add_closed(Slot::Stone, bx(Vec3::new(-0.05, g - 0.05, 0.0), Vec3::new(len + 0.05, g + 0.3, 0.16)));
+    p.add_closed(
+        Slot::Stone,
+        bx(
+            Vec3::new(-0.05, g - 0.05, 0.0),
+            Vec3::new(len + 0.05, g + 0.3, 0.16),
+        ),
+    );
 
     match spec.style {
         Style::Curtain => curtain_bays(p, 0.0, len, g + 0.3, y_top, spec.floor_h, spec.lit, rng),
@@ -319,7 +443,11 @@ fn street_facade(p: &mut Parts, spec: &Spec, len: f32, y_top: f32, district: &Di
             }
             let bay = usable / n as f32;
             let [wf, hf] = spec.arch.window;
-            let depth = if spec.style == Style::Loft { 0.28 } else { 0.22 };
+            let depth = if spec.style == Style::Loft {
+                0.28
+            } else {
+                0.22
+            };
             for f in 0..spec.floors.saturating_sub(1) {
                 let y0 = g + 0.3 + f as f32 * spec.floor_h;
                 let y1 = (y0 + spec.floor_h).min(y_top);
@@ -338,17 +466,52 @@ fn street_facade(p: &mut Parts, spec: &Spec, len: f32, y_top: f32, district: &Di
                     let hy0 = y0 + 0.85;
                     let hy1 = (hy0 + wh).min(y1 - 0.3);
                     let rect = window_cell(rng, spec.lit);
-                    punched(p, spec.wall, (x0, x1, y0, y1), (hx0, hx1, hy0, hy1), depth, Slot::Window, rect, true);
+                    punched(
+                        p,
+                        spec.wall,
+                        (x0, x1, y0, y1),
+                        (hx0, hx1, hy0, hy1),
+                        depth,
+                        Slot::Window,
+                        rect,
+                        true,
+                    );
                     // Sill and lintel.
-                    p.add_closed(Slot::Stone, bx(Vec3::new(hx0 - 0.08, hy0 - 0.07, -0.02), Vec3::new(hx1 + 0.08, hy0, 0.07)));
-                    let lintel_h = if spec.style == Style::Loft { 0.28 } else { 0.18 };
-                    p.add_closed(Slot::Stone, bx(Vec3::new(hx0 - 0.1, hy1, -0.01), Vec3::new(hx1 + 0.1, hy1 + lintel_h, 0.04)));
+                    p.add_closed(
+                        Slot::Stone,
+                        bx(
+                            Vec3::new(hx0 - 0.08, hy0 - 0.07, -0.02),
+                            Vec3::new(hx1 + 0.08, hy0, 0.07),
+                        ),
+                    );
+                    let lintel_h = if spec.style == Style::Loft {
+                        0.28
+                    } else {
+                        0.18
+                    };
+                    p.add_closed(
+                        Slot::Stone,
+                        bx(
+                            Vec3::new(hx0 - 0.1, hy1, -0.01),
+                            Vec3::new(hx1 + 0.1, hy1 + lintel_h, 0.04),
+                        ),
+                    );
                 }
             }
             if spec.fire_escape && n >= 2 {
                 let k = rng.index(n - 1);
-                let (x0, x1) = (margin + k as f32 * bay + 0.2, margin + (k + 2) as f32 * bay - 0.2);
-                fire_escape(p, x0, x1, g + 0.3, spec.floor_h, spec.floors.saturating_sub(1));
+                let (x0, x1) = (
+                    margin + k as f32 * bay + 0.2,
+                    margin + (k + 2) as f32 * bay - 0.2,
+                );
+                fire_escape(
+                    p,
+                    x0,
+                    x1,
+                    g + 0.3,
+                    spec.floor_h,
+                    spec.floors.saturating_sub(1),
+                );
             }
         }
     }
@@ -356,17 +519,43 @@ fn street_facade(p: &mut Parts, spec: &Spec, len: f32, y_top: f32, district: &Di
 
 /// One ground-floor shop bay: pilasters, stall riser, recessed glazing with
 /// glazing bars, fascia with a sign board, optional awning.
-fn shopfront_bay(p: &mut Parts, spec: &Spec, x0: f32, x1: f32, g: f32, awning: bool, rng: &mut Rng) {
+fn shopfront_bay(
+    p: &mut Parts,
+    spec: &Spec,
+    x0: f32,
+    x1: f32,
+    g: f32,
+    awning: bool,
+    rng: &mut Rng,
+) {
     let pil = 0.22;
-    p.add_closed(Slot::Stone, bx(Vec3::new(x0, 0.0, -0.05), Vec3::new(x0 + pil, g, 0.14)));
-    p.add_closed(Slot::Stone, bx(Vec3::new(x1 - pil, 0.0, -0.05), Vec3::new(x1, g, 0.14)));
+    p.add_closed(
+        Slot::Stone,
+        bx(Vec3::new(x0, 0.0, -0.05), Vec3::new(x0 + pil, g, 0.14)),
+    );
+    p.add_closed(
+        Slot::Stone,
+        bx(Vec3::new(x1 - pil, 0.0, -0.05), Vec3::new(x1, g, 0.14)),
+    );
     let (gx0, gx1) = (x0 + pil, x1 - pil);
     let fascia_y0 = g - 1.15;
     let (rect_a, rect_b) = window_cell(rng, 0.85);
     // Brighter shop interiors: shift into the lit rows only.
     let rect = (rect_a, rect_b);
-    p.add_closed(Slot::Stone, bx(Vec3::new(gx0, 0.0, -0.3), Vec3::new(gx1, 0.5, 0.02)));
-    punched(p, spec.wall, (gx0, gx1, 0.5, fascia_y0), (gx0, gx1, 0.5, fascia_y0 - 0.12), 0.3, Slot::ShopGlass, rect, false);
+    p.add_closed(
+        Slot::Stone,
+        bx(Vec3::new(gx0, 0.0, -0.3), Vec3::new(gx1, 0.5, 0.02)),
+    );
+    punched(
+        p,
+        spec.wall,
+        (gx0, gx1, 0.5, fascia_y0),
+        (gx0, gx1, 0.5, fascia_y0 - 0.12),
+        0.3,
+        Slot::ShopGlass,
+        rect,
+        false,
+    );
     let mut w = MeshData::new();
     wall_quad(&mut w, gx0, gx1, fascia_y0 - 0.12, fascia_y0, 0.0);
     p.add(spec.wall, w);
@@ -374,17 +563,43 @@ fn shopfront_bay(p: &mut Parts, spec: &Spec, x0: f32, x1: f32, g: f32, awning: b
     let nb = ((gx1 - gx0) / 1.4).round().max(1.0) as usize;
     for k in 1..nb {
         let x = gx0 + (gx1 - gx0) * k as f32 / nb as f32;
-        p.add_closed(Slot::Mullion, bx(Vec3::new(x - 0.04, 0.5, -0.3), Vec3::new(x + 0.04, fascia_y0 - 0.12, -0.24)));
+        p.add_closed(
+            Slot::Mullion,
+            bx(
+                Vec3::new(x - 0.04, 0.5, -0.3),
+                Vec3::new(x + 0.04, fascia_y0 - 0.12, -0.24),
+            ),
+        );
     }
-    p.add_closed(Slot::Mullion, bx(Vec3::new(gx0, fascia_y0 - 0.55, -0.3), Vec3::new(gx1, fascia_y0 - 0.5, -0.24)));
+    p.add_closed(
+        Slot::Mullion,
+        bx(
+            Vec3::new(gx0, fascia_y0 - 0.55, -0.3),
+            Vec3::new(gx1, fascia_y0 - 0.5, -0.24),
+        ),
+    );
     // Fascia board with a sign.
-    p.add_closed(Slot::Stone, bx(Vec3::new(gx0, fascia_y0, 0.0), Vec3::new(gx1, g - 0.05, 0.12)));
+    p.add_closed(
+        Slot::Stone,
+        bx(
+            Vec3::new(gx0, fascia_y0, 0.0),
+            Vec3::new(gx1, g - 0.05, 0.12),
+        ),
+    );
     let cell = rng.index(16) as u32;
     let (a, b) = crate::texture::sign_cell_rect(cell);
     let mut s = MeshData::new();
     let sw = ((gx1 - gx0) * 0.8).min(5.0);
     let cx = (gx0 + gx1) / 2.0;
-    atlas_quad(&mut s, cx - sw / 2.0, cx + sw / 2.0, fascia_y0 + 0.12, g - 0.17, 0.125, (a, b));
+    atlas_quad(
+        &mut s,
+        cx - sw / 2.0,
+        cx + sw / 2.0,
+        fascia_y0 + 0.12,
+        g - 0.17,
+        0.125,
+        (a, b),
+    );
     p.add(Slot::ShopSign, s);
     if awning {
         let (y_top, out, drop) = (fascia_y0 - 0.05, 1.5, 0.7);
@@ -395,11 +610,29 @@ fn shopfront_bay(p: &mut Parts, spec: &Spec, x0: f32, x1: f32, g: f32, awning: b
             Vec3::new(gx1, y_top - drop, out),
             Vec3::new(gx0, y_top - drop, out),
         ];
-        m.quad([top[0], top[3], top[2], top[1]], [Vec2::new(0.0, 0.0), Vec2::new(0.0, 1.6), Vec2::new(gx1 - gx0, 1.6), Vec2::new(gx1 - gx0, 0.0)]);
+        m.quad(
+            [top[0], top[3], top[2], top[1]],
+            [
+                Vec2::new(0.0, 0.0),
+                Vec2::new(0.0, 1.6),
+                Vec2::new(gx1 - gx0, 1.6),
+                Vec2::new(gx1 - gx0, 0.0),
+            ],
+        );
         // Valance.
         m.quad_n(
-            [Vec3::new(gx0, y_top - drop - 0.25, out), Vec3::new(gx1, y_top - drop - 0.25, out), Vec3::new(gx1, y_top - drop, out), Vec3::new(gx0, y_top - drop, out)],
-            [Vec2::new(0.0, 0.25), Vec2::new(gx1 - gx0, 0.25), Vec2::new(gx1 - gx0, 0.0), Vec2::new(0.0, 0.0)],
+            [
+                Vec3::new(gx0, y_top - drop - 0.25, out),
+                Vec3::new(gx1, y_top - drop - 0.25, out),
+                Vec3::new(gx1, y_top - drop, out),
+                Vec3::new(gx0, y_top - drop, out),
+            ],
+            [
+                Vec2::new(0.0, 0.25),
+                Vec2::new(gx1 - gx0, 0.25),
+                Vec2::new(gx1 - gx0, 0.0),
+                Vec2::new(0.0, 0.0),
+            ],
             Vec3::Z,
         );
         p.add(Slot::Awning, m);
@@ -409,7 +642,16 @@ fn shopfront_bay(p: &mut Parts, spec: &Spec, x0: f32, x1: f32, g: f32, awning: b
 /// Curtain wall: per floor a spandrel band and vision glass in 1.5 m bays
 /// between projecting mullion fins; some bays show lit or dark interiors.
 #[allow(clippy::too_many_arguments)]
-fn curtain_bays(p: &mut Parts, x0: f32, x1: f32, y0: f32, y1: f32, floor_h: f32, lit: f32, rng: &mut Rng) {
+fn curtain_bays(
+    p: &mut Parts,
+    x0: f32,
+    x1: f32,
+    y0: f32,
+    y1: f32,
+    floor_h: f32,
+    lit: f32,
+    rng: &mut Rng,
+) {
     let n = ((x1 - x0) / 1.5).round().max(1.0) as usize;
     let bay = (x1 - x0) / n as f32;
     let floors = ((y1 - y0) / floor_h).floor().max(1.0) as usize;
@@ -432,14 +674,26 @@ fn curtain_bays(p: &mut Parts, x0: f32, x1: f32, y0: f32, y1: f32, floor_h: f32,
             }
         }
         // Floor-edge transom.
-        p.add_closed(Slot::Mullion, bx(Vec3::new(x0, fy0 + 0.86, -0.06), Vec3::new(x1, fy0 + 0.94, 0.04)));
+        p.add_closed(
+            Slot::Mullion,
+            bx(
+                Vec3::new(x0, fy0 + 0.86, -0.06),
+                Vec3::new(x1, fy0 + 0.94, 0.04),
+            ),
+        );
     }
     p.add(Slot::CurtainGlass, glass);
     p.add(Slot::Mullion, spandrel);
     p.add(Slot::Window, interior);
     for k in 0..=n {
         let x = x0 + k as f32 * bay;
-        p.add_closed(Slot::Mullion, bx(Vec3::new(x - 0.04, y0, -0.06), Vec3::new(x + 0.04, y1, 0.18)));
+        p.add_closed(
+            Slot::Mullion,
+            bx(
+                Vec3::new(x - 0.04, y0, -0.06),
+                Vec3::new(x + 0.04, y1, 0.18),
+            ),
+        );
     }
 }
 
@@ -448,18 +702,43 @@ fn fire_escape(p: &mut Parts, x0: f32, x1: f32, y0: f32, floor_h: f32, floors: u
     let depth = 1.2;
     for f in 0..floors {
         let y = y0 + f as f32 * floor_h + 0.05;
-        p.add_closed(Slot::DarkMetal, bx(Vec3::new(x0, y, 0.0), Vec3::new(x1, y + 0.06, depth)));
-        p.add_closed(Slot::DarkMetal, bx(Vec3::new(x0, y + 0.95, depth - 0.04), Vec3::new(x1, y + 1.0, depth)));
+        p.add_closed(
+            Slot::DarkMetal,
+            bx(Vec3::new(x0, y, 0.0), Vec3::new(x1, y + 0.06, depth)),
+        );
+        p.add_closed(
+            Slot::DarkMetal,
+            bx(
+                Vec3::new(x0, y + 0.95, depth - 0.04),
+                Vec3::new(x1, y + 1.0, depth),
+            ),
+        );
         let posts = ((x1 - x0) / 0.8).ceil() as usize;
         for k in 0..=posts {
             let x = x0 + (x1 - x0) * k as f32 / posts as f32;
-            p.add_closed(Slot::DarkMetal, bx(Vec3::new(x - 0.02, y, depth - 0.04), Vec3::new(x + 0.02, y + 0.95, depth)));
-        }
-        if f + 1 < floors {
-            let (sx0, sx1) = if f % 2 == 0 { (x0 + 0.3, x1 - 0.5) } else { (x1 - 0.3, x0 + 0.5) };
             p.add_closed(
                 Slot::DarkMetal,
-                MeshData::tube(Vec3::new(sx0, y + 0.06, depth * 0.5), Vec3::new(sx1, y + floor_h, depth * 0.5), 0.05, 4, true),
+                bx(
+                    Vec3::new(x - 0.02, y, depth - 0.04),
+                    Vec3::new(x + 0.02, y + 0.95, depth),
+                ),
+            );
+        }
+        if f + 1 < floors {
+            let (sx0, sx1) = if f % 2 == 0 {
+                (x0 + 0.3, x1 - 0.5)
+            } else {
+                (x1 - 0.3, x0 + 0.5)
+            };
+            p.add_closed(
+                Slot::DarkMetal,
+                MeshData::tube(
+                    Vec3::new(sx0, y + 0.06, depth * 0.5),
+                    Vec3::new(sx1, y + floor_h, depth * 0.5),
+                    0.05,
+                    4,
+                    true,
+                ),
             );
         }
     }
@@ -495,7 +774,11 @@ fn outward(poly: &[Vec2], i: usize) -> Vec2 {
     let (a, b) = (poly[i], poly[(i + 1) % poly.len()]);
     let d = (b - a).normalize_or_zero();
     let n = Vec2::new(d.y, -d.x);
-    if n.dot((a + b) / 2.0 - c) < 0.0 { -n } else { n }
+    if n.dot((a + b) / 2.0 - c) < 0.0 {
+        -n
+    } else {
+        n
+    }
 }
 
 /// Roof slab over a convex polygon at `y`, UVs in metres.
@@ -522,10 +805,18 @@ fn parapet(p: &mut Parts, wall: Slot, poly: &[Vec2], y: f32, h: f32) {
         let mut w = MeshData::new();
         wall_quad(&mut w, 0.0, len, y, y + h, 0.0);
         m.add(wall, w);
-        m.add_closed(Slot::Stone, bx(Vec3::new(-0.05, y + h, -0.3), Vec3::new(len + 0.05, y + h + 0.08, 0.04)));
+        m.add_closed(
+            Slot::Stone,
+            bx(
+                Vec3::new(-0.05, y + h, -0.3),
+                Vec3::new(len + 0.05, y + h + 0.08, 0.04),
+            ),
+        );
         let mut inner = MeshData::new();
         wall_quad(&mut inner, 0.0, len, y, y + h, 0.0);
-        let inner = inner.transformed(Affine3A::from_rotation_y(std::f32::consts::PI)).translated(Vec3::new(len, 0.0, -0.25));
+        let inner = inner
+            .transformed(Affine3A::from_rotation_y(std::f32::consts::PI))
+            .translated(Vec3::new(len, 0.0, -0.25));
         m.add(wall, inner);
         p.merge(&m, t);
     }
@@ -550,14 +841,27 @@ fn cornice(p: &mut Parts, poly: &[Vec2], i: usize, y: f32, big: bool) {
 }
 
 /// Rooftop clutter: AC units, a stair/lift bulkhead, a water tower (lofts).
-fn rooftop(p: &mut Parts, wall: Slot, poly: &[Vec2], y: f32, style: Style, district: &District, rng: &mut Rng) {
+fn rooftop(
+    p: &mut Parts,
+    wall: Slot,
+    poly: &[Vec2],
+    y: f32,
+    style: Style,
+    district: &District,
+    rng: &mut Rng,
+) {
     let inner = inset(poly, 2.0);
     if inner.len() < 3 {
         return;
     }
-    let lot = Lot { poly: inner.clone(), street: vec![false; inner.len()] };
+    let lot = Lot {
+        poly: inner.clone(),
+        street: vec![false; inner.len()],
+    };
     let area = lot.area();
-    let (lo, hi) = inner.iter().fold((Vec2::MAX, Vec2::MIN), |(l, h), q| (l.min(*q), h.max(*q)));
+    let (lo, hi) = inner
+        .iter()
+        .fold((Vec2::MAX, Vec2::MIN), |(l, h), q| (l.min(*q), h.max(*q)));
     let inside = |q: Vec2| {
         let n = inner.len();
         (0..n).all(|i| (q - inner[i]).dot(outward(&inner, i)) <= 0.0)
@@ -574,18 +878,55 @@ fn rooftop(p: &mut Parts, wall: Slot, poly: &[Vec2], y: f32, style: Style, distr
     let units = (area / 100.0 * district.roof.ac_units_per_100m2).round() as usize;
     for _ in 0..units {
         if let Some(q) = sample(rng) {
-            let (w, d, h) = (rng.range(1.0, 1.6), rng.range(1.6, 2.6), rng.range(0.9, 1.4));
-            p.add_closed(Slot::RoofMetal, bx(Vec3::new(q.x - w / 2.0, y, q.y - d / 2.0), Vec3::new(q.x + w / 2.0, y + h, q.y + d / 2.0)));
-            p.add_closed(Slot::DarkMetal, MeshData::frustum(0.35, 0.35, 0.05, 10, true).translated(Vec3::new(q.x, y + h, q.y)));
+            let (w, d, h) = (
+                rng.range(1.0, 1.6),
+                rng.range(1.6, 2.6),
+                rng.range(0.9, 1.4),
+            );
+            p.add_closed(
+                Slot::RoofMetal,
+                bx(
+                    Vec3::new(q.x - w / 2.0, y, q.y - d / 2.0),
+                    Vec3::new(q.x + w / 2.0, y + h, q.y + d / 2.0),
+                ),
+            );
+            p.add_closed(
+                Slot::DarkMetal,
+                MeshData::frustum(0.35, 0.35, 0.05, 10, true).translated(Vec3::new(
+                    q.x,
+                    y + h,
+                    q.y,
+                )),
+            );
         }
     }
     if rng.chance(district.roof.bulkhead)
         && let Some(q) = sample(rng)
     {
-        let (w, d, h) = (rng.range(3.0, 5.0), rng.range(3.0, 4.5), rng.range(2.8, 3.6));
-        let b = bx(Vec3::new(q.x - w / 2.0, y, q.y - d / 2.0), Vec3::new(q.x + w / 2.0, y + h, q.y + d / 2.0));
-        p.add_closed(if style == Style::Curtain { Slot::RoofMetal } else { wall }, b);
-        p.add_closed(Slot::Roof, bx(Vec3::new(q.x - w / 2.0 - 0.1, y + h, q.y - d / 2.0 - 0.1), Vec3::new(q.x + w / 2.0 + 0.1, y + h + 0.1, q.y + d / 2.0 + 0.1)));
+        let (w, d, h) = (
+            rng.range(3.0, 5.0),
+            rng.range(3.0, 4.5),
+            rng.range(2.8, 3.6),
+        );
+        let b = bx(
+            Vec3::new(q.x - w / 2.0, y, q.y - d / 2.0),
+            Vec3::new(q.x + w / 2.0, y + h, q.y + d / 2.0),
+        );
+        p.add_closed(
+            if style == Style::Curtain {
+                Slot::RoofMetal
+            } else {
+                wall
+            },
+            b,
+        );
+        p.add_closed(
+            Slot::Roof,
+            bx(
+                Vec3::new(q.x - w / 2.0 - 0.1, y + h, q.y - d / 2.0 - 0.1),
+                Vec3::new(q.x + w / 2.0 + 0.1, y + h + 0.1, q.y + d / 2.0 + 0.1),
+            ),
+        );
     }
     if style == Style::Loft
         && rng.chance(district.roof.water_tower)
@@ -595,15 +936,42 @@ fn rooftop(p: &mut Parts, wall: Slot, poly: &[Vec2], y: f32, style: Style, distr
         let r = rng.range(1.6, 2.2);
         for (dx, dz) in [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)] {
             let base = Vec3::new(q.x + dx * r * 0.6, y, q.y + dz * r * 0.6);
-            p.add_closed(Slot::DarkMetal, MeshData::tube(base, base + Vec3::Y * legs, 0.08, 6, true));
+            p.add_closed(
+                Slot::DarkMetal,
+                MeshData::tube(base, base + Vec3::Y * legs, 0.08, 6, true),
+            );
         }
-        p.add_closed(Slot::DarkMetal, bx(Vec3::new(q.x - r, y + legs - 0.1, q.y - r), Vec3::new(q.x + r, y + legs, q.y + r)));
+        p.add_closed(
+            Slot::DarkMetal,
+            bx(
+                Vec3::new(q.x - r, y + legs - 0.1, q.y - r),
+                Vec3::new(q.x + r, y + legs, q.y + r),
+            ),
+        );
         let tank_h = rng.range(3.5, 4.5);
-        p.add_closed(Slot::Wood, MeshData::frustum(r, r * 0.97, tank_h, 16, true).translated(Vec3::new(q.x, y + legs, q.y)));
-        p.add_closed(Slot::DarkMetal, MeshData::frustum(r * 1.05, 0.15, r * 0.6, 16, true).translated(Vec3::new(q.x, y + legs + tank_h, q.y)));
+        p.add_closed(
+            Slot::Wood,
+            MeshData::frustum(r, r * 0.97, tank_h, 16, true).translated(Vec3::new(
+                q.x,
+                y + legs,
+                q.y,
+            )),
+        );
+        p.add_closed(
+            Slot::DarkMetal,
+            MeshData::frustum(r * 1.05, 0.15, r * 0.6, 16, true).translated(Vec3::new(
+                q.x,
+                y + legs + tank_h,
+                q.y,
+            )),
+        );
         for k in 0..3 {
             let hy = y + legs + 0.6 + k as f32 * tank_h / 3.0;
-            p.add_closed(Slot::DarkMetal, MeshData::frustum(r + 0.03, r + 0.03, 0.06, 16, true).translated(Vec3::new(q.x, hy, q.y)));
+            p.add_closed(
+                Slot::DarkMetal,
+                MeshData::frustum(r + 0.03, r + 0.03, 0.06, 16, true)
+                    .translated(Vec3::new(q.x, hy, q.y)),
+            );
         }
     }
 }
@@ -617,13 +985,25 @@ pub fn pick_archetype<'a>(district: &'a District, frontage: f32, rng: &mut Rng) 
     let weights: Vec<f32> = district
         .archetypes
         .iter()
-        .map(|a| if frontage >= a.min_lot_width { a.weight } else { 0.0 })
+        .map(|a| {
+            if frontage >= a.min_lot_width {
+                a.weight
+            } else {
+                0.0
+            }
+        })
         .collect();
     &district.archetypes[rng.weighted(&weights)]
 }
 
 /// Assembles one building on `lot` with archetype `arch`.
-pub fn build(lot: &Lot, arch: &Archetype, district: &District, seed: u64, name: String) -> Building {
+pub fn build(
+    lot: &Lot,
+    arch: &Archetype,
+    district: &District,
+    seed: u64,
+    name: String,
+) -> Building {
     let mut rng = Rng::new(seed);
     let floors = arch.floors[0] + rng.index((arch.floors[1] - arch.floors[0] + 1) as usize) as u32;
     let wall = match arch.wall {
@@ -632,7 +1012,11 @@ pub fn build(lot: &Lot, arch: &Archetype, district: &District, seed: u64, name: 
     };
     let pal = &district.palette;
     let tints = Tints {
-        wall: if arch.wall == Wall::Brick { pick(&pal.brick, &mut rng) } else { pick(&pal.plaster, &mut rng) },
+        wall: if arch.wall == Wall::Brick {
+            pick(&pal.brick, &mut rng)
+        } else {
+            pick(&pal.plaster, &mut rng)
+        },
         trim: pick(&pal.stone, &mut rng),
         glass: pick(&pal.glass, &mut rng),
         awning: pick(&pal.awning, &mut rng),
@@ -643,7 +1027,8 @@ pub fn build(lot: &Lot, arch: &Archetype, district: &District, seed: u64, name: 
     let n = poly.len();
     let g = arch.ground_floor;
     let (podium_floors, tower) = if arch.style == Style::Curtain {
-        let pf = arch.podium_floors[0] + rng.index((arch.podium_floors[1] - arch.podium_floors[0] + 1) as usize) as u32;
+        let pf = arch.podium_floors[0]
+            + rng.index((arch.podium_floors[1] - arch.podium_floors[0] + 1) as usize) as u32;
         (pf.max(1), true)
     } else {
         (floors, false)
@@ -684,9 +1069,16 @@ pub fn build(lot: &Lot, arch: &Archetype, district: &District, seed: u64, name: 
             cornice(&mut parts, poly, i, base_top, false);
         }
     }
-    parapet(&mut parts, wall, poly, base_top, if tower { 0.6 } else { 1.0 });
+    parapet(
+        &mut parts,
+        wall,
+        poly,
+        base_top,
+        if tower { 0.6 } else { 1.0 },
+    );
     parts.add(Slot::Roof, roof_slab(poly, base_top + 0.02));
     let mut height = base_top + 1.0;
+    let mut shells = vec![(poly.clone(), 0.0, base_top + 1.0)];
     if tower {
         let tp = inset(poly, arch.setback);
         if tp.len() >= 3 {
@@ -695,19 +1087,57 @@ pub fn build(lot: &Lot, arch: &Archetype, district: &District, seed: u64, name: 
             for i in 0..m {
                 let (t, len) = facade_frame(tp[i], tp[(i + 1) % m], outward(&tp, i));
                 let mut f = Parts::new();
-                curtain_bays(&mut f, 0.0, len, base_top, top, arch.floor_height, lit, &mut rng);
+                curtain_bays(
+                    &mut f,
+                    0.0,
+                    len,
+                    base_top,
+                    top,
+                    arch.floor_height,
+                    lit,
+                    &mut rng,
+                );
                 // Crown: a tall glass parapet band above the last floor.
-                f.add_closed(Slot::Mullion, bx(Vec3::new(0.0, top, -0.2), Vec3::new(len, top + 2.5, 0.05)));
+                f.add_closed(
+                    Slot::Mullion,
+                    bx(Vec3::new(0.0, top, -0.2), Vec3::new(len, top + 2.5, 0.05)),
+                );
                 parts.merge(&f, t);
             }
             parts.add(Slot::Roof, roof_slab(&tp, top + 0.05));
-            rooftop(&mut parts, wall, &tp, top + 0.05, Style::Curtain, district, &mut rng);
+            rooftop(
+                &mut parts,
+                wall,
+                &tp,
+                top + 0.05,
+                Style::Curtain,
+                district,
+                &mut rng,
+            );
             height = top + 2.5;
+            shells.push((tp.clone(), base_top, top + 2.5));
         }
     } else {
-        rooftop(&mut parts, wall, poly, base_top + 0.02, arch.style, district, &mut rng);
+        rooftop(
+            &mut parts,
+            wall,
+            poly,
+            base_top + 0.02,
+            arch.style,
+            district,
+            &mut rng,
+        );
     }
-    Building { name, style: arch.style, wall: arch.wall, parts, tints, height, footprint: lot.clone() }
+    Building {
+        name,
+        style: arch.style,
+        wall: arch.wall,
+        parts,
+        tints,
+        height,
+        footprint: lot.clone(),
+        shells,
+    }
 }
 
 /// Subdivides `block` and builds every lot; deterministic per `seed`.
@@ -723,7 +1153,13 @@ pub fn assemble_block(block: &Lot, district: &District, seed: u64, prefix: &str)
                 arch = pick_archetype(district, lot.frontage(), &mut rng);
             }
             last = Some(arch.name.clone());
-            build(lot, arch, district, rng.next_u32() as u64, format!("bldg_{prefix}_{i}"))
+            build(
+                lot,
+                arch,
+                district,
+                rng.next_u32() as u64,
+                format!("bldg_{prefix}_{i}"),
+            )
         })
         .collect()
 }
@@ -735,7 +1171,12 @@ mod tests {
 
     fn block() -> Lot {
         Lot {
-            poly: vec![Vec2::new(0.0, 0.0), Vec2::new(80.0, 0.0), Vec2::new(80.0, 30.0), Vec2::new(0.0, 30.0)],
+            poly: vec![
+                Vec2::new(0.0, 0.0),
+                Vec2::new(80.0, 0.0),
+                Vec2::new(80.0, 30.0),
+                Vec2::new(0.0, 30.0),
+            ],
             street: vec![true, false, false, true],
         }
     }
@@ -744,10 +1185,16 @@ mod tests {
     fn clip_and_inset_convex() {
         let sq = block().poly;
         let half = clip(&sq, Vec2::new(40.0, 0.0), Vec2::X);
-        let lot = Lot { street: vec![false; half.len()], poly: half };
+        let lot = Lot {
+            street: vec![false; half.len()],
+            poly: half,
+        };
         assert!((lot.area() - 1200.0).abs() < 1e-2);
         let small = inset(&sq, 5.0);
-        let lot = Lot { street: vec![false; small.len()], poly: small };
+        let lot = Lot {
+            street: vec![false; small.len()],
+            poly: small,
+        };
         assert!((lot.area() - 70.0 * 20.0).abs() < 1e-2);
     }
 
@@ -776,7 +1223,14 @@ mod tests {
             for (s, m) in &x.parts.by_slot {
                 assert_eq!(m.content_hash(), y.parts.by_slot[s].content_hash(), "{s:?}");
             }
-            let f = check_asset(&x.name, &[x.parts.clone().into_parts()], Budget { max_triangles: 80_000, lod_ratio: 1.0 });
+            let f = check_asset(
+                &x.name,
+                &[x.parts.clone().into_parts()],
+                Budget {
+                    max_triangles: 80_000,
+                    lod_ratio: 1.0,
+                },
+            );
             assert!(f.errors.is_empty(), "{:?}", f.errors);
             assert!(x.height > 8.0 && x.height < 200.0);
         }
@@ -788,14 +1242,28 @@ mod tests {
     fn every_archetype_builds() {
         let d = District::downtown();
         let lot = Lot {
-            poly: vec![Vec2::new(0.0, 0.0), Vec2::new(30.0, 0.0), Vec2::new(30.0, 25.0), Vec2::new(0.0, 25.0)],
+            poly: vec![
+                Vec2::new(0.0, 0.0),
+                Vec2::new(30.0, 0.0),
+                Vec2::new(30.0, 25.0),
+                Vec2::new(0.0, 25.0),
+            ],
             street: vec![true, false, false, true],
         };
         for (i, arch) in d.archetypes.iter().enumerate() {
             let b = build(&lot, arch, &d, i as u64, format!("bldg_test_{i}"));
-            assert!(b.parts.triangles() > 500, "{} {}", arch.name, b.parts.triangles());
+            assert!(
+                b.parts.triangles() > 500,
+                "{} {}",
+                arch.name,
+                b.parts.triangles()
+            );
             for slot in [Slot::Roof, Slot::Stone] {
-                assert!(b.parts.by_slot.contains_key(&slot), "{} lacks {slot:?}", arch.name);
+                assert!(
+                    b.parts.by_slot.contains_key(&slot),
+                    "{} lacks {slot:?}",
+                    arch.name
+                );
             }
         }
     }

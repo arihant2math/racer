@@ -66,12 +66,15 @@ impl Tex {
         for y in 0..s {
             for x in 0..s {
                 let h = |dx: i32, dy: i32| self.get(x + dx, y + dy)[channel];
-                let dx = (h(1, -1) + 2.0 * h(1, 0) + h(1, 1)) - (h(-1, -1) + 2.0 * h(-1, 0) + h(-1, 1));
-                let dy = (h(-1, 1) + 2.0 * h(0, 1) + h(1, 1)) - (h(-1, -1) + 2.0 * h(0, -1) + h(1, -1));
+                let dx =
+                    (h(1, -1) + 2.0 * h(1, 0) + h(1, 1)) - (h(-1, -1) + 2.0 * h(-1, 0) + h(-1, 1));
+                let dy =
+                    (h(-1, 1) + 2.0 * h(0, 1) + h(1, 1)) - (h(-1, -1) + 2.0 * h(0, -1) + h(1, -1));
                 // +v in the texture is down the image; glTF/Bevy normal maps are
                 // +Y up (OpenGL convention), so a height rising downwards tilts -Y.
                 let n = Vec3::new(-dx * strength, dy * strength, 1.0).normalize();
-                out.px[(y * s + x) as usize] = [n.x * 0.5 + 0.5, n.y * 0.5 + 0.5, n.z * 0.5 + 0.5, 1.0];
+                out.px[(y * s + x) as usize] =
+                    [n.x * 0.5 + 0.5, n.y * 0.5 + 0.5, n.z * 0.5 + 0.5, 1.0];
             }
         }
         out
@@ -247,12 +250,12 @@ pub fn asphalt(size: u32, seed: u32) -> PbrTex {
             let stone_col = if tone > 0.93 {
                 Vec3::splat(0.30)
             } else {
-                Vec3::splat(0.07 + 0.12 * tone) * Vec3::new(1.02, 1.0, 0.97)
+                Vec3::splat(0.07 + 0.12 * tone)
             };
             let binder = Vec3::splat(0.032 + 0.012 * fine);
             let mut c = binder.lerp(stone_col, stone * 0.85);
-            c *= 0.80 + 0.45 * blotch;
-            c *= 1.0 - 0.35 * smoothstep(0.55, 0.75, stain);
+            c *= 0.88 + 0.26 * blotch;
+            c *= 1.0 - 0.2 * smoothstep(0.55, 0.75, stain);
             let h = 0.55 * stone * (0.6 + 0.4 * unit(hash(id))) + 0.25 * fine + 0.2 * blotch;
             let i = (y * size + x) as usize;
             height.px[i] = [h, h, h, 1.0];
@@ -277,7 +280,10 @@ pub fn paving(size: u32, seed: u32) -> PbrTex {
     let joint_w = 0.012 / tile::PAVING; // 12 mm joints
     for y in 0..size {
         for x in 0..size {
-            let (u, v) = ((x as f32 + 0.5) / size as f32, (y as f32 + 0.5) / size as f32);
+            let (u, v) = (
+                (x as f32 + 0.5) / size as f32,
+                (y as f32 + 0.5) / size as f32,
+            );
             let (su, sv) = (u * 2.0, v * 2.0);
             let (fu, fv) = (su.fract(), sv.fract());
             let edge = (fu.min(1.0 - fu)).min(fv.min(1.0 - fv)) / 2.0; // in tile units
@@ -316,13 +322,17 @@ pub fn concrete(size: u32, seed: u32, base: f32) -> PbrTex {
     let mut orm = Tex::new(size, [1.0, 0.85, 0.0, 1.0]);
     for y in 0..size {
         for x in 0..size {
-            let (u, v) = ((x as f32 + 0.5) / size as f32, (y as f32 + 0.5) / size as f32);
+            let (u, v) = (
+                (x as f32 + 0.5) / size as f32,
+                (y as f32 + 0.5) / size as f32,
+            );
             let grain = value(u * 400.0, v * 400.0, 400, seed);
             let (pd, _, _) = worley(u * 90.0, v * 90.0, 90, seed ^ 5);
             let pore = 1.0 - smoothstep(0.05, 0.12, pd);
             let cloud = fbm(u * 3.0, v * 3.0, 3, 5, seed ^ 7);
             let streak = fbm(u * 24.0, v * 1.0, 24, 3, seed ^ 13);
-            let mut c = Vec3::new(base, base * 0.985, base * 0.95) * (0.85 + 0.3 * cloud + 0.08 * grain);
+            let mut c =
+                Vec3::new(base, base * 0.985, base * 0.95) * (0.85 + 0.3 * cloud + 0.08 * grain);
             c *= 1.0 - 0.3 * smoothstep(0.55, 0.8, streak) * v;
             c *= 1.0 - 0.5 * pore;
             let h = 0.5 + 0.2 * grain - 0.5 * pore;
@@ -348,7 +358,10 @@ pub fn brick(size: u32, seed: u32) -> PbrTex {
     let (cols, rows) = (4.0, 12.0);
     for y in 0..size {
         for x in 0..size {
-            let (u, v) = ((x as f32 + 0.5) / size as f32, (y as f32 + 0.5) / size as f32);
+            let (u, v) = (
+                (x as f32 + 0.5) / size as f32,
+                (y as f32 + 0.5) / size as f32,
+            );
             let row = (v * rows).floor();
             let shift = if row as i32 % 2 == 0 { 0.0 } else { 0.5 };
             let bu = u * cols + shift;
@@ -362,7 +375,9 @@ pub fn brick(size: u32, seed: u32) -> PbrTex {
             let grain = value(u * 300.0, v * 300.0, 300, seed ^ 1);
             let cloud = fbm(u * 2.0, v * 2.0, 2, 4, seed ^ 2);
             let burnt = unit(hash(id));
-            let brick_c = Vec3::new(0.62, 0.42, 0.34) * (0.7 + 0.45 * unit(id)) * (0.9 + 0.2 * grain)
+            let brick_c = Vec3::new(0.62, 0.42, 0.34)
+                * (0.7 + 0.45 * unit(id))
+                * (0.9 + 0.2 * grain)
                 * if burnt > 0.85 { 0.6 } else { 1.0 };
             let mortar_c = Vec3::new(0.55, 0.53, 0.5) * (0.85 + 0.2 * grain);
             let c = brick_c.lerp(mortar_c, mortar) * (0.85 + 0.3 * cloud);
@@ -388,7 +403,10 @@ pub fn plaster(size: u32, seed: u32) -> PbrTex {
     let mut orm = Tex::new(size, [1.0, 0.8, 0.0, 1.0]);
     for y in 0..size {
         for x in 0..size {
-            let (u, v) = ((x as f32 + 0.5) / size as f32, (y as f32 + 0.5) / size as f32);
+            let (u, v) = (
+                (x as f32 + 0.5) / size as f32,
+                (y as f32 + 0.5) / size as f32,
+            );
             let grain = value(u * 350.0, v * 350.0, 350, seed);
             let cloud = fbm(u * 3.0, v * 3.0, 3, 5, seed ^ 4);
             let streak = fbm(u * 20.0, v * 1.5, 20, 3, seed ^ 8);
@@ -419,7 +437,10 @@ pub fn roof(size: u32, seed: u32) -> PbrTex {
     let cells = (size / 3) as i32;
     for y in 0..size {
         for x in 0..size {
-            let (u, v) = ((x as f32 + 0.5) / size as f32, (y as f32 + 0.5) / size as f32);
+            let (u, v) = (
+                (x as f32 + 0.5) / size as f32,
+                (y as f32 + 0.5) / size as f32,
+            );
             let (d1, d2, id) = worley(u * cells as f32, v * cells as f32, cells, seed);
             let stone = smoothstep(0.0, 0.2, d2 - d1);
             let cloud = fbm(u * 4.0, v * 4.0, 4, 4, seed ^ 3);
@@ -446,7 +467,10 @@ pub fn curb(size: u32, seed: u32) -> PbrTex {
     let white = srgb(232, 230, 222);
     for y in 0..size {
         for x in 0..size {
-            let (u, v) = ((x as f32 + 0.5) / size as f32, (y as f32 + 0.5) / size as f32);
+            let (u, v) = (
+                (x as f32 + 0.5) / size as f32,
+                (y as f32 + 0.5) / size as f32,
+            );
             let paint = if v < 0.5 { red } else { white };
             let grain = value(u * 200.0, v * 200.0, 200, seed);
             let wear = fbm(u * 8.0, v * 8.0, 8, 5, seed ^ 2);
@@ -517,16 +541,15 @@ pub fn window_atlas(size: u32, seed: u32) -> Tex {
                 }
             }
             1 => {
-                if fu < 0.3 || fu > 0.8 {
+                if !(0.3..=0.8).contains(&fu) {
                     c *= 0.35;
                 }
             }
-            2 => {
+            2
                 // Furniture silhouette: a desk and a figure-ish block.
-                if fv > 0.7 || (fu > 0.6 && fu < 0.7 && fv > 0.45) {
+                if (fv > 0.7 || (fu > 0.6 && fu < 0.7 && fv > 0.45)) => {
                     c *= 0.2;
                 }
-            }
             _ => {}
         }
         let _ = cell;
@@ -571,10 +594,10 @@ pub fn sign_atlas(size: u32, seed: u32) -> Tex {
         let glyph = hash3(gx as i32, cx * 31 + cy, seed ^ 4);
         let (gu, gv) = (gx.fract(), (fv - 0.32) / 0.36);
         let stroke = match glyph % 4 {
-            0 => gu < 0.25 || gv < 0.2 || gv > 0.8,
-            1 => gu < 0.25 || gu > 0.65 || (gv > 0.42 && gv < 0.58),
+            0 => gu < 0.25 || !(0.2..=0.8).contains(&gv),
+            1 => !(0.25..=0.65).contains(&gu) || (gv > 0.42 && gv < 0.58),
             2 => gu < 0.25 || gv > 0.8,
-            _ => (gv < 0.2 || gv > 0.8 || (gv > 0.42 && gv < 0.58)) && gu < 0.8,
+            _ => (!(0.2..=0.8).contains(&gv) || (gv > 0.42 && gv < 0.58)) && gu < 0.8,
         } && gu < 0.8;
         let mut c = if in_text && stroke { fg } else { bg };
         let frame = (fu.min(1.0 - fu)).min(fv.min(1.0 - fv));
@@ -592,7 +615,10 @@ pub fn decal_atlas(size: u32, seed: u32) -> PbrTex {
     let mut orm = Tex::new(size, [1.0, 0.85, 0.0, 1.0]);
     for y in 0..size {
         for x in 0..size {
-            let (u, v) = ((x as f32 + 0.5) / size as f32, (y as f32 + 0.5) / size as f32);
+            let (u, v) = (
+                (x as f32 + 0.5) / size as f32,
+                (y as f32 + 0.5) / size as f32,
+            );
             let (cx, cy) = ((u * 4.0).floor() as u32, (v * 4.0).floor() as u32);
             let (fu, fv) = ((u * 4.0).fract(), (v * 4.0).fract());
             let p = Vec2::new(fu - 0.5, fv - 0.5);
@@ -607,7 +633,8 @@ pub fn decal_atlas(size: u32, seed: u32) -> PbrTex {
                     let a = smoothstep(0.0, 0.01, d);
                     let seal = 1.0 - smoothstep(0.0, 0.03, d.abs());
                     let blotch = fbm(fu * 6.0, fv * 6.0, 0, 4, s ^ 3);
-                    let c = Vec3::splat(0.022 + 0.02 * grain + 0.015 * blotch).lerp(Vec3::splat(0.012), seal);
+                    let c = Vec3::splat(0.022 + 0.02 * grain + 0.015 * blotch)
+                        .lerp(Vec3::splat(0.012), seal);
                     (c, a.max(seal), 0.5 + 0.1 * grain, 0.8 - 0.25 * seal)
                 }
                 Some(DecalCell::Crack) | Some(DecalCell::CrackBranch) => {
@@ -636,19 +663,33 @@ pub fn decal_atlas(size: u32, seed: u32) -> PbrTex {
                     // Cast pattern: concentric rings or a grid of raised studs.
                     let pattern = if round {
                         let ang = p.y.atan2(p.x);
-                        (((d * 40.0).fract() < 0.5) as i32 ^ (((ang * 6.0 / std::f32::consts::PI).floor() as i32) & 1)) as f32
+                        (((d * 40.0).fract() < 0.5) as i32
+                            ^ (((ang * 6.0 / std::f32::consts::PI).floor() as i32) & 1))
+                            as f32
                     } else {
                         (((fu * 16.0).fract() < 0.35) || ((fv * 16.0).fract() < 0.35)) as i32 as f32
                     };
                     let rust = fbm(fu * 8.0, fv * 8.0, 0, 4, s);
-                    let iron = Vec3::new(0.06, 0.055, 0.05) * (0.8 + 0.4 * rust) + Vec3::new(0.03, 0.012, 0.0) * smoothstep(0.55, 0.8, rust);
-                    let c = iron * (0.8 + 0.4 * pattern) * (1.0 - 0.4 * rim * (1.0 - smoothstep(0.45, 0.46, d)));
-                    (c, a, 0.5 + 0.15 * pattern - 0.2 * rim, 0.45 + 0.3 * rust - 0.15 * pattern)
+                    let iron = Vec3::new(0.06, 0.055, 0.05) * (0.8 + 0.4 * rust)
+                        + Vec3::new(0.03, 0.012, 0.0) * smoothstep(0.55, 0.8, rust);
+                    let c = iron
+                        * (0.8 + 0.4 * pattern)
+                        * (1.0 - 0.4 * rim * (1.0 - smoothstep(0.45, 0.46, d)));
+                    (
+                        c,
+                        a,
+                        0.5 + 0.15 * pattern - 0.2 * rim,
+                        0.45 + 0.3 * rust - 0.15 * pattern,
+                    )
                 }
                 Some(DecalCell::Drain) => {
                     let a = 1.0 - smoothstep(0.44, 0.45, p.x.abs().max(p.y.abs() * 1.8));
                     let slot = ((fu * 12.0).fract() < 0.55) && p.y.abs() < 0.2;
-                    let c = if slot { Vec3::splat(0.004) } else { Vec3::new(0.07, 0.065, 0.06) };
+                    let c = if slot {
+                        Vec3::splat(0.004)
+                    } else {
+                        Vec3::new(0.07, 0.065, 0.06)
+                    };
                     (c, a, if slot { 0.0 } else { 0.6 }, 0.5)
                 }
                 Some(DecalCell::OilStain) => {
@@ -662,7 +703,8 @@ pub fn decal_atlas(size: u32, seed: u32) -> PbrTex {
                     let lane = |c: f32| 1.0 - smoothstep(0.06, 0.1, (p.x - c).abs());
                     let streaks = 0.6 + 0.4 * value(fu * 60.0, fv * 3.0, 0, s);
                     let fade = (1.0 - smoothstep(0.3, 0.5, p.y.abs())) * (0.4 + 0.6 * (0.5 - p.y));
-                    let a = (lane(-0.22) + lane(0.22)).min(1.0) * streaks * fade.clamp(0.0, 1.0) * 0.8;
+                    let a =
+                        (lane(-0.22) + lane(0.22)).min(1.0) * streaks * fade.clamp(0.0, 1.0) * 0.8;
                     (Vec3::splat(0.01), a, 0.5, 0.55)
                 }
                 Some(DecalCell::Seam) => {
@@ -677,7 +719,11 @@ pub fn decal_atlas(size: u32, seed: u32) -> PbrTex {
                     let stem = p.x.abs() < 0.05 && p.y > -0.1 && p.y < 0.45;
                     let head = p.y <= -0.1 && p.y > -0.45 && p.x.abs() < (p.y + 0.45) * 0.45;
                     let wear = fbm(fu * 10.0, fv * 10.0, 0, 4, s);
-                    let a = if stem || head { 0.9 * smoothstep(0.25, 0.5, wear + 0.2) } else { 0.0 };
+                    let a = if stem || head {
+                        0.9 * smoothstep(0.25, 0.5, wear + 0.2)
+                    } else {
+                        0.0
+                    };
                     (Vec3::splat(0.75), a, 0.55, 0.6)
                 }
                 None => (Vec3::ZERO, 0.0, 0.5, 0.9),
@@ -749,8 +795,18 @@ mod tests {
         let a = asphalt(64, 1);
         assert_eq!(a, asphalt(64, 1));
         assert_ne!(a.albedo, asphalt(64, 2).albedo);
-        for t in [&a.albedo, &a.normal, &a.orm, &paving(64, 1).albedo, &decal_atlas(64, 1).albedo] {
-            assert!(t.px.iter().flatten().all(|v| v.is_finite() && (-1e-4..=1.0 + 1e-4).contains(v)));
+        for t in [
+            &a.albedo,
+            &a.normal,
+            &a.orm,
+            &paving(64, 1).albedo,
+            &decal_atlas(64, 1).albedo,
+        ] {
+            assert!(
+                t.px.iter()
+                    .flatten()
+                    .all(|v| v.is_finite() && (-1e-4..=1.0 + 1e-4).contains(v))
+            );
         }
     }
 
@@ -777,8 +833,14 @@ mod tests {
         let t = asphalt(128, 3).albedo;
         let s = t.size as i32;
         let lum = |p: [f32; 4]| p[0] + p[1] + p[2];
-        let edge: f32 = (0..s).map(|y| (lum(t.get(0, y)) - lum(t.get(s - 1, y))).abs()).sum::<f32>() / s as f32;
-        let inner: f32 = (0..s).map(|y| (lum(t.get(60, y)) - lum(t.get(61, y))).abs()).sum::<f32>() / s as f32;
+        let edge: f32 = (0..s)
+            .map(|y| (lum(t.get(0, y)) - lum(t.get(s - 1, y))).abs())
+            .sum::<f32>()
+            / s as f32;
+        let inner: f32 = (0..s)
+            .map(|y| (lum(t.get(60, y)) - lum(t.get(61, y))).abs())
+            .sum::<f32>()
+            / s as f32;
         assert!(edge < inner * 2.0 + 0.01, "edge {edge} inner {inner}");
     }
 }
@@ -823,7 +885,9 @@ impl RoadSignCell {
     /// Plate size (width, height) in metres.
     pub fn size(self) -> (f32, f32) {
         match self {
-            RoadSignCell::SpeedLimit | RoadSignCell::NoParking | RoadSignCell::NoEntry => (0.6, 0.6),
+            RoadSignCell::SpeedLimit | RoadSignCell::NoParking | RoadSignCell::NoEntry => {
+                (0.6, 0.6)
+            }
             RoadSignCell::StreetName => (1.2, 0.3),
             RoadSignCell::OneWay => (0.9, 0.3),
             RoadSignCell::Stop | RoadSignCell::Pedestrian => (0.75, 0.75),
@@ -832,7 +896,10 @@ impl RoadSignCell {
     }
 
     pub fn round(self) -> bool {
-        matches!(self, RoadSignCell::SpeedLimit | RoadSignCell::NoParking | RoadSignCell::NoEntry)
+        matches!(
+            self,
+            RoadSignCell::SpeedLimit | RoadSignCell::NoParking | RoadSignCell::NoEntry
+        )
     }
 
     /// UV rectangle with the plate's aspect ratio, centred in the cell.
@@ -841,7 +908,11 @@ impl RoadSignCell {
         let (w, h) = self.size();
         let c = (a + b) / 2.0;
         let half = (b - a) / 2.0;
-        let half = if w >= h { Vec2::new(half.x, half.y * h / w) } else { Vec2::new(half.x * w / h, half.y) };
+        let half = if w >= h {
+            Vec2::new(half.x, half.y * h / w)
+        } else {
+            Vec2::new(half.x * w / h, half.y)
+        };
         (c - half, c + half)
     }
 }
@@ -875,11 +946,11 @@ pub fn road_sign_atlas(size: u32) -> Tex {
             let g = hash3(gx as i32, 0, seed) % 5;
             cu < 0.75
                 && match g {
-                    0 => cu < 0.18 || cv < 0.15 || cv > 0.85,
-                    1 => cu < 0.18 || cu > 0.57 || (cv > 0.42 && cv < 0.58),
+                    0 => cu < 0.18 || !(0.15..=0.85).contains(&cv),
+                    1 => !(0.18..=0.57).contains(&cu) || (cv > 0.42 && cv < 0.58),
                     2 => cv > 0.85 || (cu - 0.37).abs() < 0.1,
                     3 => cu < 0.18 || cv < 0.15,
-                    _ => cv < 0.15 || cv > 0.85 || (cv > 0.42 && cv < 0.58) || cu > 0.57,
+                    _ => !(0.15..=0.85).contains(&cv) || (cv > 0.42 && cv < 0.58) || cu > 0.57,
                 }
         };
         let (c, a) = match cell {
@@ -889,16 +960,37 @@ pub fn road_sign_atlas(size: u32) -> Tex {
                     // "35" as seven-segment-ish strokes.
                     let seg = |x0: f32| {
                         let (gx, gy) = ((x - x0) / 0.09, (y + 0.1) / 0.2);
-                        (0.0..1.0).contains(&gx) && (0.0..1.0).contains(&gy) && (gy < 0.15 || gy > 0.85 || (gy > 0.43 && gy < 0.57) || if x0 < 0.0 { gx > 0.75 } else { (gx < 0.25 && gy > 0.5) || (gx > 0.75 && gy < 0.5) })
+                        (0.0..1.0).contains(&gx)
+                            && (0.0..1.0).contains(&gy)
+                            && (!(0.15..=0.85).contains(&gy)
+                                || (gy > 0.43 && gy < 0.57)
+                                || if x0 < 0.0 {
+                                    gx > 0.75
+                                } else {
+                                    (gx < 0.25 && gy > 0.5) || (gx > 0.75 && gy < 0.5)
+                                })
                     };
                     seg(-0.11) || seg(0.02)
                 };
-                (if ring { red } else if digits { black } else { white }, (r < 0.3) as i32 as f32)
+                (
+                    if ring {
+                        red
+                    } else if digits {
+                        black
+                    } else {
+                        white
+                    },
+                    (r < 0.3) as i32 as f32,
+                )
             }
             RoadSignCell::NoParking | RoadSignCell::NoEntry => {
                 let ring = r > 0.23;
                 let c = if cell == RoadSignCell::NoEntry {
-                    if y.abs() < 0.05 && x.abs() < 0.2 { white } else { red }
+                    if y.abs() < 0.05 && x.abs() < 0.2 {
+                        white
+                    } else {
+                        red
+                    }
                 } else if ring || ((x - y).abs() < 0.05 && r < 0.25) {
                     red
                 } else {
@@ -909,30 +1001,63 @@ pub fn road_sign_atlas(size: u32) -> Tex {
             RoadSignCell::StreetName => {
                 let border = x.abs() > 0.57 || y.abs() > 0.12;
                 let text = glyphs(-0.5, -0.07, 0.14, 10, 17);
-                (if border || text { white } else { green }, (y.abs() < 0.15) as i32 as f32)
+                (
+                    if border || text { white } else { green },
+                    (y.abs() < 0.15) as i32 as f32,
+                )
             }
             RoadSignCell::OneWay => {
-                let arrow = (y.abs() < 0.04 && x > -0.4 && x < 0.25) || (x >= 0.25 && x < 0.4 && y.abs() < (0.4 - x) * 0.8);
+                let arrow = (y.abs() < 0.04 && x > -0.4 && x < 0.25)
+                    || ((0.25..0.4).contains(&x) && y.abs() < (0.4 - x) * 0.8);
                 let text = glyphs(-0.3, -0.035, 0.07, 6, 3) && arrow;
-                (if text { black } else if arrow { white } else { black }, (y.abs() < 0.15) as i32 as f32)
+                (
+                    if text {
+                        black
+                    } else if arrow {
+                        white
+                    } else {
+                        black
+                    },
+                    (y.abs() < 0.15) as i32 as f32,
+                )
             }
             RoadSignCell::Stop => {
-                let oct = x.abs().max(y.abs()).max((x.abs() + y.abs()) / std::f32::consts::SQRT_2);
+                let oct = x
+                    .abs()
+                    .max(y.abs())
+                    .max((x.abs() + y.abs()) / std::f32::consts::SQRT_2);
                 let text = glyphs(-0.25, -0.08, 0.16, 4, 1);
                 let border = oct > 0.33;
-                (if text || border { white } else { red }, (oct < 0.37) as i32 as f32)
+                (
+                    if text || border { white } else { red },
+                    (oct < 0.37) as i32 as f32,
+                )
             }
             RoadSignCell::Pedestrian => {
                 let tri = y > -0.25 && y < 0.25 && x.abs() < (0.25 - y) * 0.6;
-                let figure = (x.abs() < 0.025 && y > -0.15 && y < 0.05) || ((x * x + (y - 0.1).powi(2)).sqrt() < 0.04);
-                let c = if tri { if figure { black } else { white } } else { blue };
+                let figure = (x.abs() < 0.025 && y > -0.15 && y < 0.05)
+                    || ((x * x + (y - 0.1).powi(2)).sqrt() < 0.04);
+                let c = if tri {
+                    if figure { black } else { white }
+                } else {
+                    blue
+                };
                 (c, (x.abs() < 0.37 && y.abs() < 0.37) as i32 as f32)
             }
             RoadSignCell::BusStop => {
                 let band = y > 0.12;
                 let text = glyphs(-0.17, 0.15, 0.1, 3, 9);
-                let bus = x.abs() < 0.15 && y > -0.22 && y < 0.02 && !(y > -0.12 && y < -0.02 && x.abs() < 0.12);
-                let c = if band { if text { white } else { blue } } else if bus { blue } else { white };
+                let bus = x.abs() < 0.15
+                    && y > -0.22
+                    && y < 0.02
+                    && !(y > -0.12 && y < -0.02 && x.abs() < 0.12);
+                let c = if band {
+                    if text { white } else { blue }
+                } else if bus {
+                    blue
+                } else {
+                    white
+                };
                 (c, (x.abs() < 0.225 && y.abs() < 0.3) as i32 as f32)
             }
         };
@@ -943,7 +1068,11 @@ pub fn road_sign_atlas(size: u32) -> Tex {
 /// Black and white chequer, 2×2 cells per tile.
 pub fn chequer(size: u32) -> Tex {
     Tex::from_fn(size, |u, v| {
-        let c = if ((u * 2.0) as i32 + (v * 2.0) as i32) % 2 == 0 { 0.8 } else { 0.012 };
+        let c = if ((u * 2.0) as i32 + (v * 2.0) as i32) % 2 == 0 {
+            0.8
+        } else {
+            0.012
+        };
         [c, c, c, 1.0]
     })
 }
@@ -962,7 +1091,11 @@ pub fn skyline(size: u32, seed: u32, emissive: bool) -> Tex {
         let warm = unit(hash(id)) > 0.3;
         let c = if emissive {
             if glass && lit {
-                if warm { Vec3::new(1.0, 0.75, 0.45) } else { Vec3::new(0.7, 0.82, 1.0) }
+                if warm {
+                    Vec3::new(1.0, 0.75, 0.45)
+                } else {
+                    Vec3::new(0.7, 0.82, 1.0)
+                }
             } else {
                 Vec3::ZERO
             }

@@ -136,7 +136,13 @@ impl District {
             }
         }
         let p = &self.palette;
-        for (name, list) in [("brick", &p.brick), ("plaster", &p.plaster), ("stone", &p.stone), ("glass", &p.glass), ("awning", &p.awning)] {
+        for (name, list) in [
+            ("brick", &p.brick),
+            ("plaster", &p.plaster),
+            ("stone", &p.stone),
+            ("glass", &p.glass),
+            ("awning", &p.awning),
+        ] {
             if list.is_empty() || list.iter().flatten().any(|v| !(0.0..=1.0).contains(v)) {
                 return Err(format!("palette.{name}: empty or out of 0..1"));
             }
@@ -159,7 +165,8 @@ mod tests {
 
     #[test]
     fn bad_ranges_are_rejected() {
-        let text = include_str!("../../../data/city/districts/downtown.toml").replace("lot_width = [12.0, 30.0]", "lot_width = [30.0, 12.0]");
+        let text = include_str!("../../../data/city/districts/downtown.toml")
+            .replace("lot_width = [12.0, 30.0]", "lot_width = [30.0, 12.0]");
         assert!(District::parse(&text).unwrap_err().contains("lot_width"));
     }
 }

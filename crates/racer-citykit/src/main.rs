@@ -14,7 +14,7 @@ use racer_citykit::{
     catalogue::{self, catalogue},
     district::District,
     export,
-    materials::{KitMaterials, TimeOfDay},
+    materials::{KitMaterials, TextureSource, TimeOfDay},
     showcase::build_showcase,
     texture::{self, Encoding},
 };
@@ -46,7 +46,10 @@ fn main() -> ExitCode {
 
 fn validate() -> Result<ExitCode, String> {
     let mut failed = 0;
-    println!("{:<34} {:>8} {:>8} {:>7} {:>22}  result", "asset", "LOD0", "LOD1", "sockets", "size (m)");
+    println!(
+        "{:<34} {:>8} {:>8} {:>7} {:>22}  result",
+        "asset", "LOD0", "LOD1", "sockets", "size (m)"
+    );
     for a in catalogue() {
         let f = catalogue::check(&a);
         let size = catalogue::bounds(&a).map_or(Vec3::ZERO, |(lo, hi)| hi - lo);
@@ -54,17 +57,29 @@ fn validate() -> Result<ExitCode, String> {
             "{:<34} {:>8} {:>8} {:>7} {:>22}  {}",
             a.name,
             a.triangles(0),
-            if a.lods.len() > 1 { a.triangles(1).to_string() } else { "-".into() },
+            if a.lods.len() > 1 {
+                a.triangles(1).to_string()
+            } else {
+                "-".into()
+            },
             a.sockets.len(),
             format!("{:.1} x {:.1} x {:.1}", size.x, size.y, size.z),
-            if f.errors.is_empty() { "ok".to_string() } else { format!("FAIL ({})", f.errors.len()) }
+            if f.errors.is_empty() {
+                "ok".to_string()
+            } else {
+                format!("FAIL ({})", f.errors.len())
+            }
         );
         for e in &f.errors {
             println!("    {e}");
         }
         failed += usize::from(!f.errors.is_empty());
     }
-    Ok(if failed == 0 { ExitCode::SUCCESS } else { ExitCode::FAILURE })
+    Ok(if failed == 0 {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    })
 }
 
 fn textures(dir: &Path) -> Result<ExitCode, String> {
@@ -92,10 +107,15 @@ fn textures(dir: &Path) -> Result<ExitCode, String> {
     out.push(("signs", texture::sign_atlas(512, 21), Encoding::Srgb));
     out.push(("road_signs", texture::road_sign_atlas(512), Encoding::Srgb));
     out.push(("skyline", texture::skyline(512, 22, false), Encoding::Srgb));
-    out.push(("skyline_lit", texture::skyline(512, 22, true), Encoding::Srgb));
+    out.push((
+        "skyline_lit",
+        texture::skyline(512, 22, true),
+        Encoding::Srgb,
+    ));
     for (name, t, enc) in out {
         let path = dir.join(format!("{name}.png"));
-        t.save_png(&path, enc).map_err(|e| format!("{}: {e}", path.display()))?;
+        t.save_png(&path, enc)
+            .map_err(|e| format!("{}: {e}", path.display()))?;
         println!("wrote {}", path.display());
     }
     Ok(ExitCode::SUCCESS)
@@ -103,15 +123,37 @@ fn textures(dir: &Path) -> Result<ExitCode, String> {
 
 fn obj(dir: &Path) -> Result<ExitCode, String> {
     let files = export::write_obj(&catalogue(), dir).map_err(|e| e.to_string())?;
-    println!("wrote {} OBJ files and kit.mtl to {}", files.len(), dir.display());
+    println!(
+        "wrote {} OBJ files and kit.mtl to {}",
+        files.len(),
+        dir.display()
+    );
     Ok(ExitCode::SUCCESS)
 }
 
 fn stats() -> Result<ExitCode, String> {
-    let (mut images, mut std_mats, mut surf) = (Assets::<Image>::default(), Assets::<StandardMaterial>::default(), Assets::<SurfaceMaterial>::default());
-    let kit = KitMaterials::new(TimeOfDay::Day, 0.0, &mut images, &mut std_mats, &mut surf);
+    let (mut images, mut std_mats, mut surf) = (
+        Assets::<Image>::default(),
+        Assets::<StandardMaterial>::default(),
+        Assets::<SurfaceMaterial>::default(),
+    );
+    let kit = KitMaterials::new(
+        TimeOfDay::Day,
+        0.0,
+        &TextureSource::Procedural,
+        &mut images,
+        &mut std_mats,
+        &mut surf,
+    );
     let (batcher, lights, buildings) = build_showcase(&District::downtown(), &kit, &mut surf);
     let s = batcher.stats();
-    println!("showcase street: {} mesh entities (draws before culling), {} triangles within 70 m (LOD0 + always-on), {} beyond (LOD1 + always-on), {} buildings, {} light sockets", s.entities, s.triangles_lod0, s.triangles_far, buildings, lights.len());
+    println!(
+        "showcase street: {} mesh entities (draws before culling), {} triangles within 70 m (LOD0 + always-on), {} beyond (LOD1 + always-on), {} buildings, {} light sockets",
+        s.entities,
+        s.triangles_lod0,
+        s.triangles_far,
+        buildings,
+        lights.len()
+    );
     Ok(ExitCode::SUCCESS)
 }

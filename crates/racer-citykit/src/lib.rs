@@ -7,19 +7,19 @@
 //! Generators are pure functions of their inputs and a seed: the same
 //! inputs produce bit-identical meshes and textures.
 
+pub mod batch;
 pub mod building;
+pub mod catalogue;
 pub mod district;
+pub mod export;
 pub mod kit;
+pub mod lighting;
+pub mod materials;
 pub mod mesh;
 pub mod noise;
 pub mod path;
 pub mod props;
 pub mod road;
+pub mod showcase;
 pub mod texture;
 pub mod validate;
-pub mod batch;
-pub mod lighting;
-pub mod materials;
-pub mod showcase;
-pub mod catalogue;
-pub mod export;

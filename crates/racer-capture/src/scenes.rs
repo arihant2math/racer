@@ -3,7 +3,7 @@
 use bevy::prelude::*;
 use racer_citykit::{
     lighting::camera_bundle,
-    materials::TimeOfDay,
+    materials::{TextureSource, TimeOfDay},
     showcase::{ShowcasePlugin, camera_poses},
 };
 use racer_game::{
@@ -25,6 +25,7 @@ pub const SCENES: &[&str] = &[
     "downtown-kit-golden",
     "downtown-kit-night",
     "downtown-kit-wet",
+    "downtown-kit-cc0",
 ];
 
 /// Adds the named scene to `app` and returns its camera poses.
@@ -84,23 +85,48 @@ pub fn add_scene(app: &mut App, name: &str) -> Option<Vec<Pose>> {
                 ),
             ])
         }
-        "downtown-kit" | "downtown-kit-golden" | "downtown-kit-night" | "downtown-kit-wet" => {
+        "downtown-kit"
+        | "downtown-kit-golden"
+        | "downtown-kit-night"
+        | "downtown-kit-wet"
+        | "downtown-kit-cc0" => {
             // Track-side asset kit showcase (racer-citykit), one scene per
-            // lighting preset; the wet variant is at night.
+            // lighting preset; the wet variant is at night. The cc0 variant
+            // swaps in the Poly Haven scans (tools/fetch_textures.sh).
             let (time, wet) = match name {
-                "downtown-kit" => (TimeOfDay::Day, false),
+                "downtown-kit" | "downtown-kit-cc0" => (TimeOfDay::Day, false),
                 "downtown-kit-golden" => (TimeOfDay::Golden, false),
                 "downtown-kit-night" => (TimeOfDay::Night, false),
                 _ => (TimeOfDay::Night, true),
             };
-            app.add_plugins(ShowcasePlugin { time, wet })
-                .add_systems(Startup, move |mut commands: Commands| {
-                    commands.spawn((SceneCamera, camera_bundle(time, wet), Transform::default()));
-                });
+            let textures = if name == "downtown-kit-cc0" {
+                TextureSource::PolyHaven(
+                    concat!(
+                        env!("CARGO_MANIFEST_DIR"),
+                        "/../../assets/textures/polyhaven"
+                    )
+                    .into(),
+                )
+            } else {
+                TextureSource::Procedural
+            };
+            app.add_plugins(ShowcasePlugin {
+                time,
+                wet,
+                textures,
+            })
+            .add_systems(Startup, move |mut commands: Commands| {
+                commands.spawn((SceneCamera, camera_bundle(time, wet), Transform::default()));
+            });
             Some(
                 camera_poses()
                     .into_iter()
-                    .map(|(name, eye, at)| pose(name, Transform::from_translation(eye).looking_at(at, Vec3::Y)))
+                    .map(|(name, eye, at)| {
+                        pose(
+                            name,
+                            Transform::from_translation(eye).looking_at(at, Vec3::Y),
+                        )
+                    })
                     .collect(),
             )
         }

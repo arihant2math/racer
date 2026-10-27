@@ -212,7 +212,11 @@ pub fn build_road(path: &Path, p: &RoadProfile, gaps: &[Gap], s0: f32, s1: f32) 
                 Vec2::new(0.025, kt),
                 Vec2::new(0.0, kt - 0.025),
             ];
-            let kerb = if sg > 0.0 { kerb.to_vec() } else { mirror(&kerb) };
+            let kerb = if sg > 0.0 {
+                kerb.to_vec()
+            } else {
+                mirror(&kerb)
+            };
             out.kerbs.append(&MeshData::sweep(&kf, &kerb, true, true));
             // Sidewalk slab, top surface rising 1.5 % towards the buildings.
             let sf = path.frames(&st, sg * (rh + kw));
@@ -226,8 +230,13 @@ pub fn build_road(path: &Path, p: &RoadProfile, gaps: &[Gap], s0: f32, s1: f32) 
             ];
             // Counter-clockwise from the back-top corner, so the first edge
             // (UV u from 0) is the walking surface.
-            let slab = if sg > 0.0 { slab.to_vec() } else { mirror(&slab) };
-            out.sidewalks.append(&MeshData::sweep(&sf, &slab, true, true));
+            let slab = if sg > 0.0 {
+                slab.to_vec()
+            } else {
+                mirror(&slab)
+            };
+            out.sidewalks
+                .append(&MeshData::sweep(&sf, &slab, true, true));
         }
     }
     out
@@ -290,31 +299,63 @@ pub fn scatter_decals(p: &RoadProfile, rules: &DecalRules, s0: f32, s1: f32) -> 
         // Trench repairs: across one or two lanes or full width.
         let s = rng.range(s0 + 3.0, s1 - 3.0);
         let w = [lw, 2.0 * lw, 2.0 * ch][rng.weighted(&[0.5, 0.3, 0.2])];
-        let u = if w >= 2.0 * ch { 0.0 } else { lane_centre(&mut rng) + rng.range(-0.3, 0.3) };
-        out.push(Decal { cell: DecalCell::Patch, at: Vec2::new(u, s), size: Vec2::new(w, rng.range(1.2, 3.5)) });
+        let u = if w >= 2.0 * ch {
+            0.0
+        } else {
+            lane_centre(&mut rng) + rng.range(-0.3, 0.3)
+        };
+        out.push(Decal {
+            cell: DecalCell::Patch,
+            at: Vec2::new(u, s),
+            size: Vec2::new(w, rng.range(1.2, 3.5)),
+        });
     }
     for _ in 0..count(rules.cracks, &mut rng) {
-        let cell = if rng.chance(0.5) { DecalCell::Crack } else { DecalCell::CrackBranch };
+        let cell = if rng.chance(0.5) {
+            DecalCell::Crack
+        } else {
+            DecalCell::CrackBranch
+        };
         let s = rng.range(s0 + 2.0, s1 - 2.0);
         // Cracks follow lane joints (longitudinal) - rotate by sizing along s.
         let k = rng.index((2 * lanes + 1) as usize) as i32 - lanes;
         let size = rng.range(2.0, 5.0);
-        out.push(Decal { cell, at: Vec2::new(k as f32 * lw + rng.range(-0.2, 0.2), s), size: Vec2::new(size * 0.4, size) });
+        out.push(Decal {
+            cell,
+            at: Vec2::new(k as f32 * lw + rng.range(-0.2, 0.2), s),
+            size: Vec2::new(size * 0.4, size),
+        });
     }
     for _ in 0..count(rules.manholes, &mut rng) {
-        let cell = if rng.chance(0.75) { DecalCell::Manhole } else { DecalCell::ManholeRect };
+        let cell = if rng.chance(0.75) {
+            DecalCell::Manhole
+        } else {
+            DecalCell::ManholeRect
+        };
         let s = rng.range(s0 + 2.0, s1 - 2.0);
-        out.push(Decal { cell, at: Vec2::new(lane_centre(&mut rng) + rng.range(-0.5, 0.5), s), size: Vec2::splat(0.75) });
+        out.push(Decal {
+            cell,
+            at: Vec2::new(lane_centre(&mut rng) + rng.range(-0.5, 0.5), s),
+            size: Vec2::splat(0.75),
+        });
     }
     for _ in 0..count(rules.oil, &mut rng) {
         let s = rng.range(s0 + 2.0, s1 - 2.0);
-        out.push(Decal { cell: DecalCell::OilStain, at: Vec2::new(lane_centre(&mut rng), s), size: Vec2::splat(rng.range(0.8, 1.6)) });
+        out.push(Decal {
+            cell: DecalCell::OilStain,
+            at: Vec2::new(lane_centre(&mut rng), s),
+            size: Vec2::splat(rng.range(0.8, 1.6)),
+        });
     }
     if rules.drain_spacing > 0.0 {
         for side in [-1.0, 1.0] {
             let mut s = s0 + rng.range(5.0, rules.drain_spacing);
             while s < s1 - 2.0 {
-                out.push(Decal { cell: DecalCell::Drain, at: Vec2::new(side * (ch + p.gutter * 0.5), s), size: Vec2::new(0.45, 0.9) });
+                out.push(Decal {
+                    cell: DecalCell::Drain,
+                    at: Vec2::new(side * (ch + p.gutter * 0.5), s),
+                    size: Vec2::new(0.45, 0.9),
+                });
                 s += rules.drain_spacing * rng.range(0.8, 1.2);
             }
         }
@@ -327,7 +368,11 @@ pub fn scatter_decals(p: &RoadProfile, rules: &DecalRules, s0: f32, s1: f32) -> 
             let s = a + (b - a) * t;
             let u = rng.range(-ch + 1.2, ch - 1.2);
             if rng.chance(0.3 + 0.6 * t) {
-                out.push(Decal { cell: DecalCell::Skid, at: Vec2::new(u, s), size: Vec2::new(1.9, rng.range(4.0, 9.0)) });
+                out.push(Decal {
+                    cell: DecalCell::Skid,
+                    at: Vec2::new(u, s),
+                    size: Vec2::new(1.9, rng.range(4.0, 9.0)),
+                });
             }
         }
     }
@@ -355,9 +400,17 @@ pub fn build_decals(path: &Path, p: &RoadProfile, decals: &[Decal]) -> MeshData 
                 let tu = i as f32 / nu as f32;
                 let u = d.at.x + (tu - 0.5) * d.size.x;
                 let pos = path.point(s, u, p.height(u) + 0.015);
-                let slope = if u.abs() < p.carriage_half() { p.camber } else { 0.04 } * -u.signum();
+                let slope = if u.abs() < p.carriage_half() {
+                    p.camber
+                } else {
+                    0.04
+                } * -u.signum();
                 let n = (Vec3::Y - right * slope).normalize();
-                m.vertex(pos, n, Vec2::new(uv0.x + (uv1.x - uv0.x) * tu, uv0.y + (uv1.y - uv0.y) * tv));
+                m.vertex(
+                    pos,
+                    n,
+                    Vec2::new(uv0.x + (uv1.x - uv0.x) * tu, uv0.y + (uv1.y - uv0.y) * tv),
+                );
             }
         }
         let row = nu as u32 + 1;
@@ -378,7 +431,10 @@ mod tests {
     use crate::validate::manifold_report;
 
     fn corner() -> Path {
-        Path::new(Vec2::ZERO, 0.0).straight(60.0).arc(25.0, 90.0).straight(40.0)
+        Path::new(Vec2::ZERO, 0.0)
+            .straight(60.0)
+            .arc(25.0, 90.0)
+            .straight(40.0)
     }
 
     #[test]
@@ -391,15 +447,36 @@ mod tests {
 
     #[test]
     fn intervals_skip_gaps() {
-        let gaps = [Gap { side: Side::Right, s0: 10.0, s1: 20.0 }, Gap { side: Side::Left, s0: 0.0, s1: 5.0 }];
-        assert_eq!(solid_intervals(0.0, 50.0, Side::Right, &gaps), vec![(0.0, 10.0), (20.0, 50.0)]);
-        assert_eq!(solid_intervals(0.0, 50.0, Side::Left, &gaps), vec![(5.0, 50.0)]);
+        let gaps = [
+            Gap {
+                side: Side::Right,
+                s0: 10.0,
+                s1: 20.0,
+            },
+            Gap {
+                side: Side::Left,
+                s0: 0.0,
+                s1: 5.0,
+            },
+        ];
+        assert_eq!(
+            solid_intervals(0.0, 50.0, Side::Right, &gaps),
+            vec![(0.0, 10.0), (20.0, 50.0)]
+        );
+        assert_eq!(
+            solid_intervals(0.0, 50.0, Side::Left, &gaps),
+            vec![(5.0, 50.0)]
+        );
     }
 
     #[test]
     fn road_meshes_are_finite_and_kerbs_watertight() {
         let path = corner();
-        let gaps = [Gap { side: Side::Left, s0: 20.0, s1: 34.0 }];
+        let gaps = [Gap {
+            side: Side::Left,
+            s0: 20.0,
+            s1: 34.0,
+        }];
         let r = build_road(&path, &RoadProfile::default(), &gaps, 0.0, path.length());
         for m in [&r.carriageway, &r.mouths, &r.kerbs, &r.sidewalks] {
             assert!(!m.is_empty());
@@ -421,12 +498,22 @@ mod tests {
     #[test]
     fn decals_are_deterministic_and_on_the_road() {
         let p = RoadProfile::default();
-        let rules = DecalRules { braking_zones: vec![(30.0, 60.0)], ..Default::default() };
+        let rules = DecalRules {
+            braking_zones: vec![(30.0, 60.0)],
+            ..Default::default()
+        };
         let a = scatter_decals(&p, &rules, 0.0, 200.0);
         assert_eq!(a, scatter_decals(&p, &rules, 0.0, 200.0));
         assert!(a.len() > 20);
-        assert!(a.iter().all(|d| d.at.x.abs() <= p.road_half() && (0.0..=200.0).contains(&d.at.y)));
+        assert!(
+            a.iter()
+                .all(|d| d.at.x.abs() <= p.road_half() && (0.0..=200.0).contains(&d.at.y))
+        );
         let m = build_decals(&corner(), &p, &a);
-        assert!(m.uvs.iter().all(|uv| (0.0..=1.0).contains(&uv.x) && (0.0..=1.0).contains(&uv.y)));
+        assert!(
+            m.uvs
+                .iter()
+                .all(|uv| (0.0..=1.0).contains(&uv.x) && (0.0..=1.0).contains(&uv.y))
+        );
     }
 }

@@ -11,9 +11,14 @@ use crate::mesh::Frame;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Segment {
-    Straight { length: f32 },
+    Straight {
+        length: f32,
+    },
     /// Circular arc; positive `angle` (radians) turns right.
-    Arc { radius: f32, angle: f32 },
+    Arc {
+        radius: f32,
+        angle: f32,
+    },
 }
 
 impl Segment {
@@ -167,7 +172,9 @@ impl Path {
             let fwd = p.forward();
             let right = p.right();
             let arc = match out.last() {
-                Some(prev) => prev.s + (Vec3::new(pos2.x, 0.0, pos2.y) - prev.pos.with_y(0.0)).length(),
+                Some(prev) => {
+                    prev.s + (Vec3::new(pos2.x, 0.0, pos2.y) - prev.pos.with_y(0.0)).length()
+                }
                 None => 0.0,
             };
             out.push(Frame {
@@ -218,7 +225,11 @@ mod tests {
             .straight(50.0);
         let end = p.pose(p.length());
         // 100 m north (−z), turn right with radius 20, 50 m east (+x).
-        assert!((end.pos - Vec2::new(70.0, -120.0)).length() < 1e-3, "{:?}", end.pos);
+        assert!(
+            (end.pos - Vec2::new(70.0, -120.0)).length() < 1e-3,
+            "{:?}",
+            end.pos
+        );
         assert!((end.heading - std::f32::consts::FRAC_PI_2).abs() < 1e-5);
         assert!((end.forward() - Vec2::X).length() < 1e-5);
     }

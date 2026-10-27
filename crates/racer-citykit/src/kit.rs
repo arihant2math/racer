@@ -30,6 +30,10 @@ pub enum Slot {
     BoardDark,
     Led,
     SeatBlue,
+    /// Printed fence scrims (sign atlas, not emissive).
+    Banner,
+    /// Spectators (tinted per instance).
+    Crowd,
     // Street furniture
     DarkMetal,
     PaintYellow,
@@ -67,9 +71,13 @@ pub enum Slot {
 impl Slot {
     pub fn uv_policy(self) -> UvPolicy {
         match self {
-            Slot::Decal | Slot::Window | Slot::ShopSign | Slot::RoadSign | Slot::Lightbox | Slot::ShopGlass => {
-                UvPolicy::Atlas
-            }
+            Slot::Decal
+            | Slot::Window
+            | Slot::ShopSign
+            | Slot::RoadSign
+            | Slot::Lightbox
+            | Slot::ShopGlass
+            | Slot::Banner => UvPolicy::Atlas,
             _ => UvPolicy::Tiling,
         }
     }
@@ -187,7 +195,11 @@ impl Asset {
 /// Approximate colour temperature to linear RGB (Tanner Helland's fit).
 pub fn kelvin_to_rgb(k: f32) -> Vec3 {
     let t = k / 100.0;
-    let r = if t <= 66.0 { 1.0 } else { (1.292_936_2 * (t - 60.0).powf(-0.133_204_76)).clamp(0.0, 1.0) };
+    let r = if t <= 66.0 {
+        1.0
+    } else {
+        (1.292_936_2 * (t - 60.0).powf(-0.133_204_76)).clamp(0.0, 1.0)
+    };
     let g = if t <= 66.0 {
         (0.390_081_58 * t.ln() - 0.631_841_4).clamp(0.0, 1.0)
     } else {

@@ -9,9 +9,18 @@
 #import bevy_pbr::{
     pbr_fragment::pbr_input_from_standard_material,
     pbr_functions::alpha_discard,
+}
+#ifdef PREPASS_PIPELINE
+#import bevy_pbr::{
+    prepass_io::{VertexOutput, FragmentOutput},
+    pbr_deferred_functions::deferred_output,
+}
+#else
+#import bevy_pbr::{
     forward_io::{VertexOutput, FragmentOutput},
     pbr_functions::{apply_pbr_lighting, main_pass_post_lighting_processing},
 }
+#endif
 
 struct SurfaceParams {
     wetness: f32,
@@ -175,21 +184,29 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     if (wet > 0.0) {
         let porous = select(0.5, 0.75, surface.mode == MODE_PLAIN);
         base *= mix(1.0, mix(porous, 0.85, paint), wet);
-        rough = mix(rough, mix(0.28, 0.12, paint), wet);
+        rough = mix(rough, mix(0.34, 0.15, paint), wet);
         let n = fbm3(world.xz * 0.33 + surface.seed * 3.1) + (0.5 - height) * 0.18;
         let t = 0.78 - 0.32 * surface.puddles - puddle_bias;
         let puddle = smoothstep(t, t + 0.05, n) * wet * select(1.0, 0.0, surface.mode == MODE_DECAL && paint > 0.5);
         base *= mix(1.0, 0.7, puddle);
         rough = mix(rough, 0.02, puddle);
-        pbr_input.N = normalize(mix(pbr_input.N, geom_n, max(puddle, 0.35 * wet)));
+        // Water fills the micro-relief: flatten the normal map (also keeps
+        // the low-roughness film from sparkling).
+        pbr_input.N = normalize(mix(pbr_input.N, geom_n, max(puddle, 0.65 * wet)));
     }
 
     pbr_input.material.base_color = vec4(base, pbr_input.material.base_color.a);
     pbr_input.material.perceptual_roughness = clamp(rough, 0.02, 1.0);
     pbr_input.material.base_color = alpha_discard(pbr_input.material, pbr_input.material.base_color);
 
+#ifdef PREPASS_PIPELINE
+    // Deferred: write the modified material to the G-buffer (used with
+    // screen-space reflections on wet roads).
+    let out = deferred_output(in, pbr_input);
+#else
     var out: FragmentOutput;
     out.color = apply_pbr_lighting(pbr_input);
     out.color = main_pass_post_lighting_processing(pbr_input, out.color);
+#endif
     return out;
 }
