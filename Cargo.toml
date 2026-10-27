@@ -11,6 +11,7 @@ publish = false
 # Every external crate is pinned exactly. Bevy and its ecosystem move in
 # lockstep; upgrade at most once per milestone, behind a capture-diff gate.
 [workspace.dependencies]
+racer-data = { path = "crates/racer-data" }
 racer-dynamics = { path = "crates/racer-dynamics" }
 racer-trackc = { path = "crates/racer-trackc" }
 racer-sim = { path = "crates/racer-sim" }
@@ -21,6 +22,8 @@ bevy = { version = "=0.19.1", default-features = false }
 image = { version = "=0.25.10", default-features = false, features = ["png"] }
 glam = { version = "=0.32.1", default-features = false, features = ["std"] }
 serde = { version = "=1.0.229", features = ["derive"] }
+# Not used directly: racer-data enables its default features (QA-TOOL-16).
+serde_core = "=1.0.229"
 toml = { version = "=1.1.8", default-features = false, features = ["parse", "serde", "std"] }
 
 avian3d = { version = "=0.7.0", default-features = false, features = ["3d", "f32", "parry-f32", "parallel"] }
@@ -44,7 +47,17 @@ sdl3-sys = { version = "=0.7.2", features = [
     "sdl-unix-console-build",
 ] }
 
-axum = "=0.8.9"
+# Without `tower-log`, which turns on `tracing/log` (QA-TOOL-16, see racer-data).
+axum = { version = "=0.8.9", default-features = false, features = [
+    "form",
+    "http1",
+    "json",
+    "matched-path",
+    "original-uri",
+    "query",
+    "tokio",
+    "tracing",
+] }
 tokio = { version = "=1.54.1", features = ["macros", "rt-multi-thread", "net", "signal"] }
 tower = { version = "=0.5.3", features = ["util"] }
 

@@ -1,0 +1,17 @@
+[package]
+name = "racer-data"
+description = "Locates the game data directory (cars, tracks) at run time."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+# Feature unification (QA-TOOL-16). Cargo unifies features per build
+# invocation, and racer-backend's axum enables `serde_core/default`, which
+# Bevy's crates do not. A `cargo build -p racer-game` (or `-p racer-capture`,
+# as tools/capture.sh runs) would then compile serde_core, and with it all of
+# Bevy, a second time with a different feature set from `cargo build
+# --workspace`. Every crate that uses Bevy depends on racer-data, so enabling
+# the same features here keeps the sets equal. Nothing in this crate uses it.
+[dependencies]
+serde_core.workspace = true

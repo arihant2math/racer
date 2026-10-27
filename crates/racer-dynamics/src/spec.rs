@@ -323,9 +323,9 @@ pub const CARS: [&str; 3] = [
     "porsche-911-carrera-s-992",
 ];
 
-/// `data/cars` in the repository.
+/// `data/cars` (see `racer_data::dir` for where `data` is found).
 pub fn cars_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/cars")
+    racer_data::dir().join("cars")
 }
 
 /// Loads `data/cars/<id>/car.toml`.
