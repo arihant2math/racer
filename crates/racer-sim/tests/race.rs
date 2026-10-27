@@ -3,14 +3,14 @@
 
 use std::sync::Arc;
 
-use avian3d::prelude::{CollisionLayers, LinearVelocity, Position};
+use avian3d::prelude::{CollisionLayers, LinearVelocity, Position, Rotation};
 use bevy::prelude::*;
 use racer_dynamics::load_car;
 use racer_sim::{
     ai::Difficulty,
     race::{
-        Collisions, DriverKind, Race, RaceConfig, RacePhase, RacePlugin, RaceTrack, Racer,
-        spawn_racer,
+        Collisions, DriverKind, Race, RaceConfig, RaceMode, RacePhase, RacePlugin, RaceTrack,
+        Racer, spawn_racer,
     },
     rules::{ResetReason, Status},
     track::{Layer, city_track, spawn_track},
@@ -162,4 +162,41 @@ fn a_car_off_the_track_is_reset_ghosted_onto_the_road() {
         r.progress.distance
     );
     assert_eq!(r.resets.len(), 1);
+}
+
+#[test]
+fn a_sprint_finishes_at_the_finish_point_between_gates() {
+    let config = RaceConfig {
+        mode: RaceMode::Sprint,
+        countdown: 0.1,
+        ..default()
+    };
+    let (mut app, cars) = race_app(config, &[DriverKind::Human]);
+    run_for(&mut app, 0.5);
+    // Put the car 10 m before the finish with every gate up to there
+    // credited, rolling towards it.
+    let g = app.world().resource::<RaceTrack>().0.geometry.clone();
+    let d = g.sprint_finish - 10.0;
+    let s = racer_trackc::geometry::interpolate(&g.samples, g.length, d);
+    {
+        let world = app.world_mut();
+        world.get_mut::<Position>(cars[0]).unwrap().0 = s.at(0.0, 0.6);
+        world.get_mut::<Rotation>(cars[0]).unwrap().0 = s.rotation();
+        world.get_mut::<LinearVelocity>(cars[0]).unwrap().0 = s.tangent * 20.0;
+        let mut r = world.get_mut::<Racer>(cars[0]).unwrap();
+        r.progress.distance = d;
+        r.progress.sample = g.samples.iter().position(|x| x.s >= d).unwrap();
+        r.progress.next_gate = g.checkpoints.iter().filter(|&&c| c < d).count();
+    }
+    run_for(&mut app, 0.1);
+    assert_eq!(racer(&app, cars[0]).status, Status::Racing);
+    run_for(&mut app, 1.5);
+    let r = racer(&app, cars[0]);
+    assert!(
+        matches!(r.status, Status::Finished(_)),
+        "{:?} at {}",
+        r.status,
+        r.progress.distance
+    );
+    assert_eq!(app.world().resource::<Race>().phase, RacePhase::Finished);
 }

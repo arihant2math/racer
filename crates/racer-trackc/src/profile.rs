@@ -4,9 +4,9 @@
 //! The model's numbers come from the car's `racer-dynamics` parameters: the
 //! sustained lateral grip and the braking deceleration are measured by
 //! driving the vehicle model on the headless testbed (skidpad and 100-0
-//! stop), the drive force at each speed is the best gear's wheel force from
-//! the torque curve, ratios and driveline efficiency (capped by the driven
-//! axle's traction), and drag and lift come from the aero fit.
+//! stop), the drive acceleration at each speed comes from a full-throttle
+//! run on the testbed (shift gaps, traction control and rotating inertia
+//! included), and drag and lift come from the aero fit.
 
 use racer_dynamics::{CarSpec, Controls, DVec3, Vehicle, spec::Layout, testbed, vehicle::GRAVITY};
 

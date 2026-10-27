@@ -320,7 +320,8 @@ fn update_hud(
                 if me.progress.wrong_way {
                     "WRONG WAY".into()
                 } else if !me.progress.on_track {
-                    format!("Off track: reset in {RESET_AFTER:.0} s")
+                    let left = (RESET_AFTER - me.monitor.off_track()).max(0.0);
+                    format!("Off track: reset in {:.0} s", left.ceil())
                 } else if me.ghosted && race.phase == RacePhase::Running && me.ghost > 0.0 {
                     "Reset".into()
                 } else {

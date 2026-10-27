@@ -263,7 +263,7 @@ fn ai_laps(args: &[String]) -> Result<ExitCode, String> {
     .into_iter()
     .collect::<Result<Vec<_>, String>>()?;
     let mut report = String::new();
-    let ok = race::report_solo(&track, &runs, &mut report);
+    let ok = race::report_solo(&track, &runs, laps as usize, &mut report);
     println!("{report}");
     println!("{} s wall time", started.elapsed().as_secs());
     for run in &runs {

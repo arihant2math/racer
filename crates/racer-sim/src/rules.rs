@@ -280,6 +280,11 @@ impl ResetMonitor {
         reason
     }
 
+    /// Seconds the car has been off the track.
+    pub fn off_track(&self) -> f32 {
+        self.off_track
+    }
+
     pub fn clear(&mut self) {
         self.flipped = 0.0;
         self.stuck = 0.0;
@@ -327,6 +332,7 @@ pub struct Timing {
     pub best_sectors: Vec<f32>,
     /// Lap time at each checkpoint, current lap and best lap.
     checkpoint_times: Vec<f32>,
+    last_checkpoint_times: Vec<f32>,
     best_checkpoint_times: Vec<f32>,
     /// Current lap against the best lap at the last checkpoint (s, negative is faster).
     pub delta: Option<f32>,
@@ -371,9 +377,10 @@ impl Timing {
                 let t = elapsed - self.sector_start();
                 self.sectors.push(t);
                 self.laps.push(elapsed);
+                self.last_checkpoint_times = std::mem::take(&mut self.checkpoint_times);
                 if self.best_lap.is_none_or(|b| elapsed < b) {
                     self.best_lap = Some(elapsed);
-                    self.best_checkpoint_times = std::mem::take(&mut self.checkpoint_times);
+                    self.best_checkpoint_times = self.last_checkpoint_times.clone();
                 }
                 let sectors = std::mem::take(&mut self.sectors);
                 if self.best_sectors.len() < sectors.len() {
@@ -383,7 +390,6 @@ impl Timing {
                     *best = best.min(*t);
                 }
                 self.last_sectors = sectors;
-                self.checkpoint_times.clear();
                 self.previous_lap_start = self.lap_start;
                 self.lap_start = now;
             }
@@ -397,6 +403,7 @@ impl Timing {
                 }
                 self.sectors = std::mem::take(&mut self.last_sectors);
                 self.sectors.pop();
+                self.checkpoint_times = std::mem::take(&mut self.last_checkpoint_times);
             }
         }
     }
@@ -438,7 +445,8 @@ pub fn dnf_due(winner_time: Option<f32>, now: f32, timeout: f32) -> bool {
     winner_time.is_some_and(|w| now > w + timeout)
 }
 
-/// Standings order (indices into `cars`): finishers by finish time, then
+/// Standings order (indices into `cars`): finishers by laps then finish
+/// time (a lapped car that finishes early stays behind the lead lap), then
 /// racing cars by progress, then DNFs by progress.
 pub fn standings(cars: &[(Status, Progress)]) -> Vec<usize> {
     let mut order: Vec<usize> = (0..cars.len()).collect();
@@ -450,7 +458,9 @@ pub fn standings(cars: &[(Status, Progress)]) -> Vec<usize> {
     order.sort_by(|&a, &b| {
         let ((sa, pa), (sb, pb)) = (&cars[a], &cars[b]);
         rank(sa).cmp(&rank(sb)).then_with(|| match (sa, sb) {
-            (Status::Finished(ta), Status::Finished(tb)) => ta.total_cmp(tb),
+            (Status::Finished(ta), Status::Finished(tb)) => {
+                pb.laps.cmp(&pa.laps).then(ta.total_cmp(tb))
+            }
             _ => {
                 let (ka, kb) = (pa.key(), pb.key());
                 kb.0.cmp(&ka.0)
@@ -645,6 +655,49 @@ mod tests {
             (Status::Finished(199.5), at(3, 0, 6450.0)),
         ];
         assert_eq!(standings(&cars), [6, 4, 1, 5, 3, 0, 2]);
+        // A lapped car taking the flag before the lead-lap runner stays behind it.
+        let cars = [
+            (Status::Finished(200.0), at(3, 0, 6400.0)),
+            (Status::Finished(205.0), at(2, 0, 4300.0)),
+            (Status::Finished(220.0), at(3, 0, 6400.0)),
+        ];
+        assert_eq!(standings(&cars), [0, 2, 1]);
+    }
+
+    #[test]
+    fn jitter_across_the_line_keeps_the_lap_and_its_split_times() {
+        let t = track();
+        let mut p = Progress::new(&t, t.grid[0].position);
+        let mut timing = Timing::start(0.0);
+        let mut now = 0.0;
+        let mut drive_timed = |p: &mut Progress, timing: &mut Timing, to: f32| {
+            let from = p.distance;
+            let step = 0.25 * (to - from).signum();
+            let mut d = from;
+            while (to - d) * step.signum() > 0.0 {
+                d += step;
+                now += 0.01;
+                let s = interpolate(&t.samples, t.length, d);
+                let v = s.tangent * 25.0 * step.signum();
+                if let Some(e) = p.update(&t, s.at(0.0, 0.5), v, v.normalize(), 0.01) {
+                    timing.on_event(e, now, &t);
+                }
+            }
+        };
+        drive_timed(&mut p, &mut timing, t.length + 1.0);
+        let lap = timing.best_lap.unwrap();
+        // Rocking back and forth over the line.
+        for _ in 0..3 {
+            drive_timed(&mut p, &mut timing, t.length - 1.0);
+            assert_eq!((p.laps, timing.laps.len()), (0, 0));
+            drive_timed(&mut p, &mut timing, t.length + 1.0);
+            assert_eq!((p.laps, timing.laps.len()), (1, 1));
+        }
+        assert!(timing.best_lap.unwrap() > lap);
+        assert_eq!(timing.last_sectors.len(), t.sector_ends.len() + 1);
+        // The next lap still gets a delta at the first checkpoint.
+        drive_timed(&mut p, &mut timing, t.checkpoints[0] + t.length + 1.0);
+        assert!(timing.delta.is_some());
     }
 
     #[test]

@@ -450,7 +450,12 @@ fn menu_input(
     mut paused: ResMut<Paused>,
     mut time: ResMut<Time<Virtual>>,
     mut exit: MessageWriter<AppExit>,
+    real: Res<Time<Real>>,
+    mut entered: Local<f64>,
 ) {
+    if state.is_changed() {
+        *entered = real.elapsed_secs_f64();
+    }
     let count = items.iter().count();
     // The key that opened the pause menu must not close it again.
     if count == 0 || !just_paused.is_empty() {
@@ -460,7 +465,15 @@ fn menu_input(
     let key = |k: &[KeyCode]| keys.any_just_pressed(k.iter().copied());
     let mut activate =
         key(&[KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]) || pad(GamepadButton::South);
-    let back = key(&[KeyCode::Escape, KeyCode::Backspace]) || pad(GamepadButton::East);
+    let mut back = key(&[KeyCode::Escape, KeyCode::Backspace])
+        || pad(GamepadButton::East)
+        || (*state.get() == AppState::Race && pad(GamepadButton::Start));
+    // The results come up while the player may still be driving: a
+    // handbrake (Space, South) or pause press must not leave them at once.
+    if *state.get() == AppState::Results && real.elapsed_secs_f64() - *entered < 1.0 {
+        activate = false;
+        back = false;
+    }
     if key(&[KeyCode::ArrowUp]) || pad(GamepadButton::DPadUp) {
         cursor.0 = (cursor.0 + count - 1) % count;
     }

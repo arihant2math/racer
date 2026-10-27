@@ -487,8 +487,10 @@ pub fn target(d: Difficulty) -> (f32, f32) {
     }
 }
 
-/// Text report of solo runs, and whether every check passed.
-pub fn report_solo(track: &Track, runs: &[CarRun], out: &mut String) -> bool {
+/// Text report of solo runs, and whether every check passed: every run
+/// completed `laps` laps without a reset or a permanent stall, inside its
+/// difficulty's lap-time band, and the difficulties are ordered.
+pub fn report_solo(track: &Track, runs: &[CarRun], laps: usize, out: &mut String) -> bool {
     let mut ok = true;
     let _ = writeln!(
         out,
@@ -509,6 +511,7 @@ pub fn report_solo(track: &Track, runs: &[CarRun], out: &mut String) -> bool {
             let ratio = mean / opt;
             let (lo, hi) = target(run.difficulty);
             let pass = (lo..=hi).contains(&ratio)
+                && run.laps.len() >= laps
                 && run.longest_stall < STUCK_FOR_GOOD
                 && run.resets.is_empty();
             ok &= pass;

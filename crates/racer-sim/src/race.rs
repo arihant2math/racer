@@ -310,16 +310,14 @@ fn track_racers(
     for (entity, mut racer, (pos, rot, vel), request) in &mut racers {
         let forward = rot.0 * Vec3::NEG_Z;
         let event = racer.progress.update(g, pos.0, vel.0, forward, dt);
-        if let Some(event) = event
-            && running
-            && racer.status == Status::Racing
-        {
-            racer.timing.on_event(event, now, g);
-            // Done at the goal, or at the line once the winner is home.
-            let lapped_home = race.winner.is_some() && event == ProgressEvent::Lap;
-            if matches!(event, ProgressEvent::Lap | ProgressEvent::Checkpoint(_))
-                && (goal.reached(&racer.progress, g) || lapped_home)
-            {
+        if running && racer.status == Status::Racing {
+            if let Some(event) = event {
+                racer.timing.on_event(event, now, g);
+            }
+            // Done at the goal (a sprint finish lies between gates, so it is
+            // checked every step), or at the line once the winner is home.
+            let lapped_home = race.winner.is_some() && event == Some(ProgressEvent::Lap);
+            if goal.reached(&racer.progress, g) || lapped_home {
                 racer.status = Status::Finished(now);
                 race.winner.get_or_insert(now);
             }
@@ -390,8 +388,12 @@ fn apply_resets(
         state.0 = car.vehicle.initial_state();
         racer.ghost = rules::GHOST_AFTER_RESET;
         racer.monitor.clear();
-        for event in racer.progress.move_back_to(g, distance, lateral) {
-            racer.timing.on_event(event, now, g);
+        let events = racer.progress.move_back_to(g, distance, lateral);
+        // A finished car's times stand, even if it is reset behind the line.
+        if racer.status == Status::Racing {
+            for event in events {
+                racer.timing.on_event(event, now, g);
+            }
         }
         if let Some(mut ai) = ai {
             ai.reset();
@@ -442,7 +444,18 @@ fn update_collisions(
 
 fn standings(mut racers: Query<&mut Racer>) {
     let mut list: Vec<_> = racers.iter_mut().collect();
-    let keys: Vec<(Status, Progress)> = list.iter().map(|r| (r.status, r.progress)).collect();
+    // Finishers rank by the laps they had timed at the flag (progress goes
+    // on counting on the cool-down lap).
+    let keys: Vec<(Status, Progress)> = list
+        .iter()
+        .map(|r| {
+            let mut progress = r.progress;
+            if matches!(r.status, Status::Finished(_)) {
+                progress.laps = r.timing.laps.len() as u32;
+            }
+            (r.status, progress)
+        })
+        .collect();
     for (place, i) in rules::standings(&keys).into_iter().enumerate() {
         if list[i].position != place + 1 {
             list[i].position = place + 1;
@@ -599,7 +612,7 @@ pub fn results(racers: &[(&Racer, &Car)]) -> Vec<ResultRow> {
             status: r.status,
             best_lap: r.timing.best_lap,
             gap: None,
-            laps: r.progress.laps,
+            laps: r.timing.laps.len() as u32,
             resets: r.resets.len(),
             assists: r.assists,
         })
