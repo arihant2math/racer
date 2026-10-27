@@ -30,9 +30,8 @@ fn telemetry(app: &App, car: Entity) -> racer_dynamics::Telemetry {
 }
 
 /// A car parked, then rolling at 1 m/s, on the test track's grass (the
-/// 4000 m ground box) keeps all four wheels on the ground.
+/// 4000 m ground) keeps all four wheels on the ground, with steady loads.
 #[test]
-#[ignore = "QA-PHYS-4"]
 fn qa_phys_4_wheels_keep_contact_on_the_grass_box() {
     let track = test_track();
     // A grass spot well away from the road and the skidpad.
@@ -65,6 +64,7 @@ fn qa_phys_4_wheels_keep_contact_on_the_grass_box() {
             app.update();
         }
         let mut dropouts = 0;
+        let mut max_load: f64 = 0.0;
         for step in 0..240 * 4 {
             let rolling = step >= 240 * 2;
             let slow = telemetry(&app, car).speed < 1.0;
@@ -80,12 +80,17 @@ fn qa_phys_4_wheels_keep_contact_on_the_grass_box() {
             app.update();
             let t = telemetry(&app, car);
             dropouts += t.wheels.iter().filter(|w| !w.contact).count();
+            max_load = t.wheels.iter().map(|w| w.load).fold(max_load, f64::max);
         }
         if dropouts > 0 {
             lost.push(format!(
                 "{id}: {dropouts} of {} wheel-steps without contact",
                 4 * 240 * 4
             ));
+        }
+        // Static corner loads are 3.7-4.6 kN; the misses swung them to 16.6 kN.
+        if max_load > 6000.0 {
+            lost.push(format!("{id}: wheel load peaked at {max_load:.0} N"));
         }
     }
     assert!(

@@ -2,8 +2,8 @@
 //! chicane with curbs, fast sweeper, crest on the back straight) with the
 //! skidpad, and city tracks compiled by `racer-trackc`. Roads, aprons, curbs
 //! and walls are triangle meshes (no seams for the chassis to catch on); the
-//! ground and the test track's curbs and pad are boxes. Rendering adds
-//! meshes for each [`TrackPiece`].
+//! test track's curbs and pad are boxes, and the ground collides as a
+//! half-space. Rendering adds meshes for each [`TrackPiece`].
 
 use std::sync::Arc;
 
@@ -321,23 +321,39 @@ pub fn spawn_track(commands: &mut Commands, track: &Track) {
                 continue;
             }
         };
-        let collider = match &piece.shape {
-            Shape::Box(size) => Collider::cuboid(size.x, size.y, size.z),
-            Shape::Mesh(mesh) => Collider::trimesh_with_config(
-                mesh.vertices.clone(),
-                mesh.indices.clone(),
-                TrimeshFlags::FIX_INTERNAL_EDGES,
-            ),
-        };
-        commands.spawn((
-            piece.clone(),
-            *transform,
-            RigidBody::Static,
-            collider,
+        let physics = (
             GroundSurface(surface),
             Friction::new(friction),
             CollisionLayers::new(layer, LayerMask::ALL),
-        ));
+        );
+        let mut entity = commands.spawn((piece.clone(), *transform, RigidBody::Static));
+        match &piece.shape {
+            // The ground box is kilometres wide, too big for GJK in f32: its
+            // support points lie far beyond the cast's absolute tolerance,
+            // and about a quarter of the wheel casts miss. The ground is
+            // unbounded for driving anyway, so it collides as the half-space
+            // under the box's top face, which parry solves exactly.
+            Shape::Box(size) if piece.kind == PieceKind::Grass => {
+                entity.with_child((
+                    Collider::half_space(Vec3::Y),
+                    Transform::from_xyz(0.0, size.y / 2.0, 0.0),
+                    physics,
+                ));
+            }
+            Shape::Box(size) => {
+                entity.insert((Collider::cuboid(size.x, size.y, size.z), physics));
+            }
+            Shape::Mesh(mesh) => {
+                entity.insert((
+                    Collider::trimesh_with_config(
+                        mesh.vertices.clone(),
+                        mesh.indices.clone(),
+                        TrimeshFlags::FIX_INTERNAL_EDGES,
+                    ),
+                    physics,
+                ));
+            }
+        }
     }
 }
 
