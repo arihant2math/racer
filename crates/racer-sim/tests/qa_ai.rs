@@ -1,8 +1,9 @@
 //! QA scenarios for the AI drivers, see `docs/qa/ai-drivers.md`.
 //!
 //! Tests that reproduce an open bug are ignored with their QA-AI number so
-//! the suite stays green; slower checks that pass are ignored as "QA check".
-//! Run them in release (a few seconds to a minute each):
+//! the suite stays green; fixed ones run as regression tests (see
+//! `docs/qa/fixes-ai.md`). Slower checks that pass are ignored as "QA
+//! check". Run the ignored ones in release (a few seconds to a minute each):
 //!
 //! ```text
 //! cargo test --release -p racer-sim --test qa_ai -- --ignored
@@ -201,11 +202,10 @@ fn touches_wall(app: &App, body: Entity) -> bool {
 // ---------------------------------------------------------------- bugs --
 
 /// QA-AI-1: a player stopped on the racing line of the 470 m main avenue
-/// (13 m wide, nothing else around). The AI should drive round it. It
-/// stops 6 m behind it instead, waits with the throttle closed and is reset
-/// as `Stuck` 3 s later.
+/// (13 m wide, nothing else around). The AI drives round it. (It used to
+/// stop 6 m behind it, wait with the throttle closed and be reset as
+/// `Stuck` 3 s later.)
 #[test]
-#[ignore = "QA-AI-1"]
 fn qa_ai_1_a_stopped_car_on_the_line_is_driven_round_without_a_reset() {
     let (mut app, cars) = race_app(
         short(),
@@ -223,24 +223,39 @@ fn qa_ai_1_a_stopped_car_on_the_line_is_driven_round_without_a_reset() {
     assert!(r.progress.distance > 260.0, "{}", r.progress.distance);
 }
 
-/// QA-AI-2: first lap of `ai-races` race 0. The Alien M3 starts a pass on
-/// the inside of turn 1 under braking; the path sweeps to the inside edge
-/// as the racing line crosses the road, and the car hits the inner wall at
-/// 369.7 m at 16.5 m/s (down to 4.9 m/s in 0.05 s). It ends up pinned on
-/// the inside and is reset as `Stuck` at 20.3 s. Same mechanism at the
-/// right-hander at ~946 m (race 7, the Alien GTI, 40.65 s).
+/// QA-AI-2: first lap of `ai-races` race 0. The Alien M3 passes on the
+/// inside of turn 1 under braking. Its path used to sweep to the inside
+/// edge as the racing line crosses the road, and the car hit the inner wall
+/// at 369.7 m at 16.5 m/s, was pinned there and reset as `Stuck` at 20.3 s.
+/// No car may touch a wall in the first 17 s.
 #[test]
-#[ignore = "QA-AI-2"]
 fn qa_ai_2_an_inside_pass_at_turn_1_does_not_hit_the_wall() {
-    let entries = mixed_entries(0);
+    no_wall_hits(0, 17.0, false);
+}
+
+/// QA-AI-2, second site: race 7, where the Alien GTI went into the inner
+/// wall of the right-hander at ~946 m at 40.65 s, and an Alien hit the
+/// turn-1 inner wall at 16.6 s, both while passing. Over the first 45 s no
+/// car may touch a wall while passing or defending. (A brush on the plain
+/// racing line, such as an Amateur's line noise at the 500 m left-hander,
+/// is line tracking, not racecraft.)
+#[test]
+fn qa_ai_2_no_pass_or_defence_in_race_7_hits_the_wall() {
+    no_wall_hits(7, 45.0, true);
+}
+
+fn no_wall_hits(race: usize, until: f32, racecraft_only: bool) {
+    let entries = mixed_entries(race);
     let (mut app, cars) = race_app(RaceConfig::default(), &entries);
     let bodies = bodies(&app, &cars);
-    while time(&app) < 17.0 {
+    while time(&app) < until {
         app.update();
         for (i, &body) in bodies.iter().enumerate() {
             let r = racer(&app, cars[i]);
+            let passing = field(&app, cars[i], "overtaking") != "None"
+                || field(&app, cars[i], "defending") != "0.0";
             assert!(
-                !touches_wall(&app, body),
+                !touches_wall(&app, body) || (racecraft_only && !passing),
                 "car {i} ({:?} {}) hit the wall at {:.1} m, lateral {:.2}, {:.1} s, overtaking {}",
                 entries[i].1,
                 entries[i].0,
@@ -254,11 +269,10 @@ fn qa_ai_2_an_inside_pass_at_turn_1_does_not_hit_the_wall() {
 }
 
 /// QA-AI-3: a car reset onto the racing line stands ghosted; an AI arrives
-/// at 38 m/s. The AI ignores ghosted cars completely, the ghost ends while
-/// the AI is ~30 m away (no car within 5.5 m), and the AI cannot stop in
-/// time: it hits the standing car at ~33 m/s and knocks it to 20 m/s.
+/// at 38 m/s. The ghost ends while the AI is ~30 m away (no car within
+/// 5.5 m). The AI used to ignore ghosted cars, could not stop in time and
+/// hit the standing car at ~33 m/s; now it plans round it.
 #[test]
-#[ignore = "QA-AI-3"]
 fn qa_ai_3_a_car_turning_solid_ahead_is_not_rammed() {
     let (mut app, cars) = race_app(
         short(),
@@ -318,10 +332,9 @@ fn qa_ai_4_a_car_pushing_against_an_obstacle_is_reset_within_a_few_seconds() {
     );
 }
 
-/// QA-AI-5: a finished car on its cool-down lap still defends: with a
-/// racing Alien closing before turn 1 it moves 3 m across to the inside.
+/// QA-AI-5: a finished car on its cool-down lap does not defend (it used to
+/// move 3 m across to the inside with a racing Alien closing before turn 1).
 #[test]
-#[ignore = "QA-AI-5"]
 fn qa_ai_5_a_finished_car_does_not_defend_against_racing_cars() {
     let (mut app, cars) = race_app(
         short(),
@@ -338,12 +351,11 @@ fn qa_ai_5_a_finished_car_does_not_defend_against_racing_cars() {
     assert!(!defended, "cool-down car defended its line");
 }
 
-/// QA-AI-6: a car 0.8 m behind the leader's bumper counts as "alongside":
-/// with another car beside the leader, the leader is boxed in by the car
-/// *behind* it ("squeezed") and drops its target speed by 8 % in front of
-/// the follower.
+/// QA-AI-6: a car 0.8 m behind the leader's bumper is not "alongside". It
+/// used to be: with another car beside the leader, the leader was boxed in
+/// by the car *behind* it ("squeezed") and dropped its target speed by 8 %
+/// in front of the follower.
 #[test]
-#[ignore = "QA-AI-6"]
 fn qa_ai_6_a_car_close_behind_does_not_squeeze_the_leader() {
     let (mut app, cars) = race_app(
         short(),
@@ -364,6 +376,50 @@ fn qa_ai_6_a_car_close_behind_does_not_squeeze_the_leader() {
         "false",
         "leader squeezed by the car behind it: clear {}",
         field(&app, cars[0], "clear")
+    );
+}
+
+/// QA-AI-7: a car reversing out of trouble on the racing line, towards an
+/// AI following it at low speed. Read as "moving forward at 3 m/s" it was
+/// planned as pulling away (and not as an obstacle), and the AI ran into
+/// it. Read along the track it is closing: the AI stops short, backs off
+/// and drives round it once it has stopped.
+#[test]
+fn qa_ai_7_a_car_reversing_towards_the_ai_is_avoided() {
+    let (mut app, cars) = race_app(
+        short(),
+        &[(GTI, DriverKind::Human), (GTI, ai(Difficulty::Pro))],
+    );
+    start(&mut app);
+    place(&mut app, cars[0], 200.0, -5.24, 0.0, 0.0);
+    place(&mut app, cars[1], 182.0, -5.24, 0.0, 8.0);
+    let bodies = bodies(&app, &cars);
+    let t0 = time(&app);
+    let mut touched = false;
+    run(&mut app, 12.0, |a| {
+        // Backs away at 3 m/s for 1.6 s (as the AI's own reverse manoeuvre
+        // does), then stops.
+        if time(a) < t0 + 1.6 {
+            let world = a.world_mut();
+            let rotation = world.get::<Rotation>(cars[0]).unwrap().0;
+            world.get_mut::<LinearVelocity>(cars[0]).unwrap().0 = rotation * Vec3::Z * 3.0;
+        } else {
+            park(a, cars[0]);
+        }
+        a.world_mut()
+            .get_mut::<Racer>(cars[0])
+            .unwrap()
+            .monitor
+            .clear();
+        touched |= a
+            .world()
+            .get::<CollidingEntities>(bodies[1])
+            .is_some_and(|c| c.contains(&bodies[0]));
+    });
+    assert!(!touched, "AI ran into the reversing car");
+    assert!(
+        racer(&app, cars[1]).progress.distance > 205.0,
+        "AI did not get past"
     );
 }
 
