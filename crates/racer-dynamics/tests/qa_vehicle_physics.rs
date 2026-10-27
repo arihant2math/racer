@@ -207,7 +207,6 @@ fn qa_phys_7_nan_controls_do_not_panic_or_poison_the_state() {
 }
 
 #[test]
-#[ignore = "QA-PHYS-8"]
 fn qa_phys_8_engine_revs_freely_in_neutral() {
     let v = Vehicle::from_spec(&gti()).unwrap();
     let mut sim = Sim::new(&v, &Flat);
@@ -227,7 +226,6 @@ fn qa_phys_8_engine_revs_freely_in_neutral() {
 }
 
 #[test]
-#[ignore = "QA-PHYS-9"]
 fn qa_phys_9_automatic_gearbox_engages_drive_from_neutral() {
     let v = Vehicle::from_spec(&gti()).unwrap();
     let mut sim = Sim::new(&v, &Flat);
@@ -246,4 +244,45 @@ fn qa_phys_9_automatic_gearbox_engages_drive_from_neutral() {
         sim.state.drive.gear,
         sim.speed()
     );
+}
+
+/// QA-PHYS-8 regression: with the clutch pedal down in 1st the engine also
+/// revs freely, and the car stays put.
+#[test]
+fn qa_phys_8_engine_revs_freely_with_the_clutch_pressed() {
+    let v = Vehicle::from_spec(&gti()).unwrap();
+    let mut sim = Sim::new(&v, &Flat);
+    sim.run(2.0, |_| Controls {
+        throttle: 1.0,
+        clutch: 1.0,
+        ..Controls::default()
+    });
+    let rpm = sim.last.unwrap().telemetry.rpm;
+    assert!(
+        rpm > 6000.0,
+        "clutch pressed, full throttle holds {rpm:.0} rpm"
+    );
+    assert!(sim.speed().abs() < 0.05, "moved at {:.2} m/s", sim.speed());
+}
+
+/// QA-PHYS-9 regression: the automatic only leaves neutral forwards; reverse
+/// (two shift-downs at rest) stays engaged under throttle.
+#[test]
+fn qa_phys_9_automatic_gearbox_keeps_reverse() {
+    let v = Vehicle::from_spec(&gti()).unwrap();
+    let mut sim = Sim::new(&v, &Flat);
+    let auto = auto_controls();
+    for _ in 0..2 {
+        sim.step(&Controls {
+            shift_down: true,
+            ..auto
+        });
+    }
+    assert_eq!(sim.state.drive.gear, -1);
+    sim.run(3.0, |_| Controls {
+        throttle: 0.5,
+        ..auto
+    });
+    assert_eq!(sim.state.drive.gear, -1);
+    assert!(sim.speed() < -2.0, "reversing at {:.2} m/s", sim.speed());
 }
