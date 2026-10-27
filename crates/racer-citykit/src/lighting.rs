@@ -208,7 +208,7 @@ pub fn spawn_night_dome(
             // G-buffer (which would light and fog it).
             opaque_render_method: bevy::material::OpaqueRendererMethod::Forward,
             base_color: Color::BLACK,
-            emissive: LinearRgba::gray(0.35),
+            emissive: LinearRgba::gray(1.1),
             emissive_texture: Some(tex),
             emissive_exposure_weight: 1.0,
             fog_enabled: false,
