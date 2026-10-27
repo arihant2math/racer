@@ -29,7 +29,7 @@ pub fn build_app(config: &ServerConfig) -> App {
     .add_systems(FixedUpdate, count_ticks);
     if let Some(max) = config.max_ticks {
         app.insert_resource(MaxTicks(max))
-            .add_systems(Update, exit_after_max_ticks);
+            .add_systems(FixedUpdate, exit_after_max_ticks.after(count_ticks));
     }
     app
 }
@@ -42,8 +42,12 @@ fn exit_after_max_ticks(
     ticks: Res<TickCount>,
     max: Res<MaxTicks>,
     mut exit: MessageWriter<AppExit>,
+    mut done: Local<bool>,
 ) {
-    if ticks.0 >= max.0 {
+    // Checked every fixed step (one frame can run several) so the server
+    // stops exactly at the limit; later steps in the same frame are ignored.
+    if !*done && ticks.0 >= max.0 {
+        *done = true;
         info!("reached {} ticks, shutting down", ticks.0);
         exit.write(AppExit::Success);
     }
