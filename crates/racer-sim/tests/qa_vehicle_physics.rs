@@ -1,7 +1,6 @@
 //! QA repro tests for vehicle-physics bugs in the Avian integration
-//! (docs/qa/vehicle-physics.md). Each test fails on the current code and is
-//! ignored so the suite stays green; run them with
-//! `cargo test -p racer-sim --test qa_vehicle_physics -- --ignored`.
+//! (docs/qa/vehicle-physics.md), kept as regression tests now that the bugs
+//! are fixed (docs/qa/fixes-dynamics.md).
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
@@ -104,7 +103,6 @@ fn qa_phys_4_wheels_keep_contact_on_the_grass_box() {
 /// test track's curbs and pad): the wheel should climb the edge over several
 /// centimetres of travel, not jump to the bump stop.
 #[test]
-#[ignore = "QA-PHYS-5"]
 fn qa_phys_5_wheel_climbs_a_step_edge_smoothly() {
     let spec = load_car("vw-golf-gti-mk8").unwrap();
     let mut app = app();
@@ -160,6 +158,9 @@ fn qa_phys_5_wheel_climbs_a_step_edge_smoothly() {
         }
         prev = t.travel;
     }
+    println!(
+        "max travel drop {max_jump:.4} m per step, max load {max_load:.0} N, static {static_load:.0} N"
+    );
     assert!(
         max_jump < 0.02 && max_load < 3.0 * static_load,
         "at the step edge travel dropped {max_jump:.3} m in one step, load peaked at \

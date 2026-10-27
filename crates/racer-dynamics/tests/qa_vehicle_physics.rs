@@ -1,6 +1,6 @@
-//! QA repro tests for vehicle-physics bugs (docs/qa/vehicle-physics.md).
-//! Each test fails on the current code and is ignored so the suite stays
-//! green; run them with `cargo test -p racer-dynamics -- --ignored QA_PHYS`.
+//! QA repro tests for vehicle-physics bugs (docs/qa/vehicle-physics.md),
+//! kept as regression tests now that the bugs are fixed
+//! (docs/qa/fixes-dynamics.md).
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
