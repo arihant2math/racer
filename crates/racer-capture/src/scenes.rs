@@ -117,6 +117,8 @@ pub fn add_scene(app: &mut App, name: &str) -> Option<Vec<Pose>> {
             Some(
                 camera_poses_for(time)
                     .into_iter()
+                    // The dry night is too dark from above for the image check.
+                    .filter(|(pose, _, _)| !(name == "downtown-kit-night" && *pose == "drone"))
                     .map(|(name, eye, at)| {
                         pose(
                             name,
