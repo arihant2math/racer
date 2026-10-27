@@ -413,7 +413,9 @@ pub fn silhouettes(
     }
     let tris = lod0_triangles(model);
     for r in refs {
-        let mask = raster::silhouette(&r.grid, r.view, tris.iter().copied());
+        // Outer outline only: see-through gaps inside the silhouette are
+        // reported separately.
+        let (mask, holes) = raster::silhouette(&r.grid, r.view, tris.iter().copied()).fill_holes();
         let iou = raster::iou(&mask, &r.mask);
         let d = raster::boundary_distance(&mask, &r.mask);
         let (mean, p95) = (d.mean * r.grid.mpp, d.p95 * r.grid.mpp);
@@ -446,6 +448,16 @@ pub fn silhouettes(
                     t.silhouette_p95_distance * 1000.0
                 ),
                 pass,
+            );
+        }
+        if !r.crosscheck && holes > 0 {
+            g.info(
+                &format!("{id}:holes"),
+                format!("see-through gaps inside the {} silhouette", r.view.name()),
+                format!(
+                    "{holes} px = {:.1} cm²",
+                    holes as f32 * r.grid.mpp * r.grid.mpp * 1e4
+                ),
             );
         }
         if let Some(dir) = out_dir {

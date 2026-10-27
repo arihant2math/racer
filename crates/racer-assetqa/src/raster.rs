@@ -177,6 +177,49 @@ impl Mask {
         })
     }
 
+    /// The mask with every hole (empty region not 4-connected to the border)
+    /// filled, and the number of hole pixels filled.
+    pub fn fill_holes(&self) -> (Mask, usize) {
+        let (w, h) = (self.width, self.height);
+        let mut outside = vec![false; self.data.len()];
+        let mut stack: Vec<(u32, u32)> = Vec::new();
+        for x in 0..w {
+            stack.extend([(x, 0), (x, h - 1)]);
+        }
+        for y in 0..h {
+            stack.extend([(0, y), (w - 1, y)]);
+        }
+        while let Some((x, y)) = stack.pop() {
+            let i = (y * w + x) as usize;
+            if outside[i] || self.data[i] {
+                continue;
+            }
+            outside[i] = true;
+            if x > 0 {
+                stack.push((x - 1, y));
+            }
+            if x + 1 < w {
+                stack.push((x + 1, y));
+            }
+            if y > 0 {
+                stack.push((x, y - 1));
+            }
+            if y + 1 < h {
+                stack.push((x, y + 1));
+            }
+        }
+        let data: Vec<bool> = outside.iter().map(|o| !o).collect();
+        let holes = data.iter().filter(|&&b| b).count() - self.count();
+        (
+            Mask {
+                width: w,
+                height: h,
+                data,
+            },
+            holes,
+        )
+    }
+
     /// Pixels in the mask with a 4-neighbour outside it.
     pub fn boundary(&self) -> Vec<(u32, u32)> {
         let mut out = Vec::new();
@@ -445,6 +488,27 @@ mod tests {
         // Only the top edges differ, by 10 px.
         assert!((d.max - 10.0).abs() < 1e-3, "{d:?}");
         assert!(d.mean > 0.5 && d.mean < 5.0, "{d:?}");
+    }
+
+    #[test]
+    fn holes_are_filled() {
+        let mut m = Mask::new(5, 5);
+        for (x, y) in [
+            (1, 1),
+            (2, 1),
+            (3, 1),
+            (1, 2),
+            (3, 2),
+            (1, 3),
+            (2, 3),
+            (3, 3),
+        ] {
+            m.set(x, y, true);
+        }
+        let (f, holes) = m.fill_holes();
+        assert_eq!(holes, 1);
+        assert!(f.get(2, 2));
+        assert_eq!(f.count(), 9);
     }
 
     #[test]

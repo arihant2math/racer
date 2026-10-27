@@ -42,7 +42,10 @@ pub struct Thresholds {
     pub lod_silhouette_iou: f32,
     /// Maximum fraction of LOD0 edges shared by more than two triangles.
     pub non_manifold_fraction: f32,
-    /// Parts (base node names) that must be closed (watertight).
+    /// Parts (base node names) that must be closed (watertight). Only the
+    /// collision hull by default: render parts (panels split from the body,
+    /// tyres with open beads inside the rim) are legitimately open, and
+    /// visible openings are caught by the back-face check.
     pub closed_parts: Vec<String>,
     /// Maximum total open-boundary length on a closed part (m).
     pub closed_boundary_length: f32,
@@ -108,9 +111,7 @@ impl Default for Thresholds {
             lod_ratio: (0.1, 0.6),
             lod_silhouette_iou: 0.95,
             non_manifold_fraction: 1e-4,
-            closed_parts: ["collision", "wheel_fl", "wheel_fr", "wheel_rl", "wheel_rr"]
-                .map(String::from)
-                .to_vec(),
+            closed_parts: vec!["collision".to_string()],
             closed_boundary_length: 0.05,
             degenerate_area: 1e-8,
             degenerate_fraction: 1e-3,

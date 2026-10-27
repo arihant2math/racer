@@ -142,6 +142,49 @@ impl Model {
         Ok(model)
     }
 
+    /// Appends a separately exported LOD file (`car_lod1.glb`): every node
+    /// is tagged with at least `lod`, and its collision geometry is dropped
+    /// (the LOD0 file owns collision).
+    pub fn add_lod_file(&mut self, other: Model, lod: u8) {
+        let offset = self.nodes.len();
+        for mut n in other.nodes {
+            n.parent = n.parent.map(|p| p + offset);
+            n.end += offset;
+            n.lod = n.lod.max(lod);
+            if n.collision {
+                n.prims.clear();
+            }
+            self.nodes.push(n);
+        }
+        for m in other.materials {
+            if !self.materials.contains(&m) {
+                self.materials.push(m);
+            }
+        }
+        self.warnings.extend(
+            other
+                .warnings
+                .into_iter()
+                .map(|w| format!("LOD{lod} file: {w}")),
+        );
+    }
+
+    /// Loads `path` plus sibling LOD files named `<stem>_lod1.glb`,
+    /// `<stem>_lod2.glb`, … if present. Returns the files read.
+    pub fn load_with_lods(path: &Path) -> Result<(Model, Vec<std::path::PathBuf>), String> {
+        let mut model = Model::load(path)?;
+        let mut files = vec![path.to_path_buf()];
+        let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+        for lod in 1..=4u8 {
+            let sibling = path.with_file_name(format!("{stem}_lod{lod}.glb"));
+            if sibling.exists() {
+                model.add_lod_file(Model::load(&sibling)?, lod);
+                files.push(sibling);
+            }
+        }
+        Ok((model, files))
+    }
+
     /// Indices of `i` and its descendants.
     pub fn subtree(&self, i: usize) -> std::ops::Range<usize> {
         i..self.nodes[i].end

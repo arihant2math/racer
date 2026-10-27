@@ -78,7 +78,7 @@ All numbers live in `crates/racer-assetqa/src/thresholds.rs`.
 | `lod1_ratio`, `lod2_ratio` | LOD(n+1)/LOD(n) between 0.1 and 0.6, LOD present |
 | `lod1_silhouette`, `lod2_silhouette` | side silhouette IoU vs LOD0 ≥ 0.95 (1 cm grid) |
 | `non_manifold` | ≤ 0.01 % of LOD0 edges shared by > 2 triangles |
-| `closed_parts` | `collision` and the four wheels watertight (open edges ≤ 5 cm total), no non-manifold edges, positive volume (wound outwards) |
+| `closed_parts` | `collision` watertight (open edges ≤ 5 cm total), no non-manifold edges, positive volume (wound outwards). Render parts are legitimately open (panels split from the body, tyre beads inside the rim); openings you can see into are caught by `backfaces`. |
 | `degenerate` | ≤ 0.1 % of LOD0 triangles collapsed or < 1e-8 m² |
 | `loose` | ≤ 0.05 % of LOD0 triangles in pieces of ≤ 4 triangles |
 | `normals_vs_winding` | ≤ 1 % of LOD0 area with stored normals opposite the winding |
@@ -98,7 +98,9 @@ manifold edges with inconsistent winding.
 ### 4. Silhouette accuracy
 
 The LOD0 triangles are rasterised orthographically (exact coverage at pixel centres) into
-the pixel grid of each reference view, and compared with the reference silhouette:
+the pixel grid of each reference view, holes are filled (the gate compares outer outlines;
+see-through gaps inside the silhouette, e.g. open panel seams, are reported as
+`<sheet>:<view>:holes` in cm²), and compared with the reference silhouette:
 
 | Metric | Threshold (per view) |
 |---|---|

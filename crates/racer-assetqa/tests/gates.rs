@@ -305,3 +305,35 @@ fn committed_911_references_are_consistent() {
         );
     }
 }
+
+/// Separately exported LOD files are merged and tagged.
+#[test]
+fn sibling_lod_files_merge() {
+    let spec = spec();
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join("assetqa-lods");
+    std::fs::create_dir_all(&dir).unwrap();
+    let glb = fixture::box_car(&spec, Fault::None);
+    std::fs::write(dir.join("car.glb"), &glb).unwrap();
+    std::fs::write(dir.join("car_lod2.glb"), &glb).unwrap();
+    let single = Model::from_glb(&glb).unwrap();
+    let (merged, files) = Model::load_with_lods(&dir.join("car.glb")).unwrap();
+    assert_eq!(files.len(), 2);
+    assert_eq!(merged.nodes.len(), 2 * single.nodes.len());
+    // Everything from the LOD2 file is at least LOD2 and its collision is dropped.
+    let tail = &merged.nodes[single.nodes.len()..];
+    assert!(tail.iter().all(|n| n.lod >= 2));
+    assert!(
+        tail.iter()
+            .filter(|n| n.collision)
+            .all(|n| n.prims.is_empty())
+    );
+    assert_eq!(
+        merged.triangles(merged.collision_nodes()),
+        single.triangles(single.collision_nodes())
+    );
+    // LOD0 is untouched, so the LOD0 checks see the same car.
+    assert_eq!(
+        merged.triangles(merged.render_nodes(0)),
+        single.triangles(single.render_nodes(0))
+    );
+}

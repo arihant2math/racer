@@ -135,7 +135,7 @@ pub fn structure(model: &Model, spec: &CarSpec, t: &Thresholds) -> Gate {
         missing.is_empty() && dup.is_empty(),
     );
 
-    let (missing, dup) = names_check(model, &SOCKETS, false);
+    let (missing, dup) = names_check(model, &SOCKETS, true);
     g.check(
         "sockets",
         "required socket empties present once",
@@ -154,7 +154,7 @@ pub fn structure(model: &Model, spec: &CarSpec, t: &Thresholds) -> Gate {
     let lights: Vec<_> = model
         .nodes
         .iter()
-        .filter(|n| n.base.starts_with("socket_light_"))
+        .filter(|n| n.lod == 0 && n.base.starts_with("socket_light_"))
         .collect();
     let front = lights.iter().filter(|n| n.translation().z < 0.0).count();
     let rear = lights.iter().filter(|n| n.translation().z > 0.0).count();
@@ -313,7 +313,7 @@ pub fn structure(model: &Model, spec: &CarSpec, t: &Thresholds) -> Gate {
             match model
                 .nodes
                 .iter()
-                .find(|n| n.base == format!("socket_wheel_{w}"))
+                .find(|n| n.lod == 0 && n.base == format!("socket_wheel_{w}"))
             {
                 Some(s) => {
                     let d = s.translation().distance(h_of(&h, w));
@@ -372,7 +372,7 @@ pub fn structure(model: &Model, spec: &CarSpec, t: &Thresholds) -> Gate {
         model
             .nodes
             .iter()
-            .find(|n| n.base == name)
+            .find(|n| n.lod == 0 && n.base == name)
             .map(|n| n.translation())
     };
     side("mirror_l", "x < 0", |p| p.x < 0.0, centre("mirror_l"));

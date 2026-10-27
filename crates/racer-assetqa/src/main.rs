@@ -152,7 +152,7 @@ fn check(args: &[String]) -> Result<ExitCode, String> {
     std::fs::create_dir_all(&out).map_err(|e| format!("{}: {e}", out.display()))?;
     let t = Thresholds::default();
 
-    let model = Model::load(&glb)?;
+    let (model, files) = Model::load_with_lods(&glb)?;
     let refs_dir = root.join(format!("data/cars/{car}/refs"));
     let (refs_file, prepared) = load_refs(&refs_dir, &spec)?;
     eprintln!("racer-assetqa: gates 1-4");
@@ -191,8 +191,15 @@ fn check(args: &[String]) -> Result<ExitCode, String> {
     let report = Report {
         car_id: spec.id.clone(),
         car_name: spec.name.clone(),
-        glb: glb.display().to_string(),
-        glb_bytes: std::fs::metadata(&glb).map(|m| m.len()).unwrap_or(0),
+        glb: files
+            .iter()
+            .map(|f| f.display().to_string())
+            .collect::<Vec<_>>()
+            .join(" + "),
+        glb_bytes: files
+            .iter()
+            .map(|f| std::fs::metadata(f).map(|m| m.len()).unwrap_or(0))
+            .sum(),
         generator: model.generator.clone(),
         verdict: Report::verdict_of(&gates),
         gates,
