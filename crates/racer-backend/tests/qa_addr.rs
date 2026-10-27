@@ -1,6 +1,5 @@
 //! QA repro for `RACER_BACKEND_ADDR` handling (see
-//! `docs/qa/tooling-data-build.md`). Fails today and is ignored with its bug
-//! id so the suite stays green.
+//! `docs/qa/tooling-data-build.md`). Fixed; see `docs/qa/fixes-tooling.md`.
 
 use std::{
     process::{Command, Stdio},
@@ -8,7 +7,6 @@ use std::{
 };
 
 #[test]
-#[ignore = "QA-TOOL-11"]
 fn hostname_address_does_not_panic() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_racer-backend"))
         .env("RACER_BACKEND_ADDR", "localhost:0")
@@ -31,4 +29,18 @@ fn hostname_address_does_not_panic() {
     // Still running: it accepted the address and is listening.
     child.kill().ok();
     child.wait().ok();
+}
+
+#[test]
+fn bad_address_is_a_clean_error() {
+    let out = Command::new(env!("CARGO_BIN_EXE_racer-backend"))
+        .env("RACER_BACKEND_ADDR", "not an address")
+        .output()
+        .unwrap();
+    let err = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "{err}");
+    assert!(
+        err.contains("not an address") && !err.contains("panicked"),
+        "{err}"
+    );
 }

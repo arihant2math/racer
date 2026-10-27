@@ -1,6 +1,5 @@
 //! QA repros for racer-server argument handling (see
-//! `docs/qa/tooling-data-build.md`). Each test fails today and is ignored
-//! with its bug id so the suite stays green.
+//! `docs/qa/tooling-data-build.md`). Fixed; see `docs/qa/fixes-tooling.md`.
 
 use std::{
     process::{Command, Output, Stdio},
@@ -28,7 +27,6 @@ fn server(args: &[&str], limit: Duration) -> Option<Output> {
 }
 
 #[test]
-#[ignore = "QA-TOOL-6"]
 fn max_ticks_zero_runs_no_ticks() {
     let out = server(&["--max-ticks", "0"], Duration::from_secs(30)).expect("server kept running");
     let log = String::from_utf8_lossy(&out.stderr);
@@ -36,7 +34,6 @@ fn max_ticks_zero_runs_no_ticks() {
 }
 
 #[test]
-#[ignore = "QA-TOOL-7"]
 fn malformed_max_ticks_is_a_clean_usage_error() {
     for args in [
         &["--max-ticks"][..],

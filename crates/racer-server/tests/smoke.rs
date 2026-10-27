@@ -43,3 +43,15 @@ fn in_process_app_counts_fixed_ticks() {
     assert!(exit.is_success());
     assert!(app.world().resource::<racer_server::TickCount>().0 >= 10);
 }
+
+#[test]
+fn zero_max_ticks_exits_before_the_first_tick() {
+    let mut app = racer_server::build_app(&racer_server::ServerConfig { max_ticks: Some(0) });
+    app.finish();
+    app.cleanup();
+    // Long enough for a fixed step to be due if the first frame ran one.
+    std::thread::sleep(racer_sim::tick_duration() * 4);
+    app.update();
+    assert!(app.should_exit().is_some_and(|e| e.is_success()));
+    assert_eq!(app.world().resource::<racer_server::TickCount>().0, 0);
+}

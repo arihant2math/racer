@@ -36,7 +36,6 @@ fn server(args: &[&str], timeout: Duration) -> (Option<i32>, bool, String) {
 /// message and backtrace hint) instead of printing usage and exiting 2; a
 /// missing value is silently ignored and the server runs forever.
 #[test]
-#[ignore = "QA-EDGE-14"]
 fn qa_edge_14_bad_max_ticks_is_a_usage_error() {
     let mut failures = Vec::new();
     for args in [
