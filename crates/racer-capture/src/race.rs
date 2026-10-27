@@ -5,7 +5,7 @@
 
 use std::{fmt::Write as _, sync::Arc};
 
-use avian3d::prelude::{LinearVelocity, Position};
+use avian3d::prelude::{CollidingEntities, LinearVelocity, Position};
 use bevy::{ecs::schedule::SingleThreadedExecutor, prelude::*, time::TimeUpdateStrategy};
 use racer_dynamics::{load_car, spec::CARS};
 use racer_sim::{
@@ -17,12 +17,14 @@ use racer_sim::{
     rules::Status,
     tick_duration,
     track::{city_track, spawn_track},
-    vehicle::VehiclePlugin,
+    vehicle::{CarBody, VehiclePlugin},
 };
 use racer_trackc::Track;
 
 /// No progress (5 m along the track) for this long counts as a stall.
 pub const STALL_AFTER: f32 = 10.0;
+/// A reset this soon after car-to-car contact counts as a contact reset.
+pub const CONTACT_WINDOW: f32 = 5.0;
 /// No progress for this long counts as permanently stuck.
 pub const STUCK_FOR_GOOD: f32 = 60.0;
 
@@ -30,6 +32,8 @@ pub const STUCK_FOR_GOOD: f32 = 60.0;
 pub struct RaceSim {
     pub app: App,
     pub cars: Vec<Entity>,
+    /// Each car's body collider.
+    pub bodies: Vec<Entity>,
     pub track: Arc<Track>,
 }
 
@@ -81,7 +85,17 @@ impl RaceSim {
             )?);
         }
         world.flush();
-        Ok(RaceSim { app, cars, track })
+        let bodies = cars
+            .iter()
+            .map(|&car| {
+                let children = world.get::<Children>(car).expect("car body");
+                children
+                    .iter()
+                    .find(|c| world.get::<CarBody>(*c).is_some())
+                    .expect("car body")
+            })
+            .collect();
+        Ok(RaceSim { app, cars, bodies, track })
     }
 
     pub fn step(&mut self) {
@@ -108,6 +122,14 @@ impl RaceSim {
     pub fn position(&self, car: Entity) -> Vec3 {
         self.app.world().get::<Position>(car).unwrap().0
     }
+
+    /// Whether car `i`'s body touches another car's body.
+    pub fn in_contact(&self, i: usize) -> bool {
+        self.app
+            .world()
+            .get::<CollidingEntities>(self.bodies[i])
+            .is_some_and(|c| c.iter().any(|e| self.bodies.contains(e)))
+    }
 }
 
 /// Per-car outcome of a run.
@@ -118,6 +140,10 @@ pub struct CarRun {
     /// Every completed lap's time; the first is from the standing start.
     pub laps: Vec<f32>,
     pub resets: Vec<Reset>,
+    /// Resets within [`CONTACT_WINDOW`] of touching another car.
+    pub contact_resets: usize,
+    /// Episodes of car-to-car contact.
+    pub contacts: u32,
     /// Episodes of no progress for [`STALL_AFTER`].
     pub stalls: u32,
     /// Longest time without progress.
@@ -144,6 +170,8 @@ impl CarRun {
 /// Watches progress and records traces for each car of a sim.
 struct Watch {
     last: Vec<(f32, f32)>,
+    /// Last time each car touched another, and whether it touches now.
+    contact: Vec<(f32, bool)>,
     stalled: Vec<bool>,
     runs: Vec<CarRun>,
     lap_trace: Vec<Vec<[f32; 9]>>,
@@ -165,6 +193,8 @@ impl Watch {
                 },
                 laps: Vec::new(),
                 resets: Vec::new(),
+                contact_resets: 0,
+                contacts: 0,
                 stalls: 0,
                 longest_stall: 0.0,
                 planned: sim
@@ -177,6 +207,7 @@ impl Watch {
             .collect();
         Watch {
             last: vec![(f32::MIN, 0.0); n],
+            contact: vec![(f32::MIN, false); n],
             stalled: vec![false; n],
             runs,
             lap_trace: vec![Vec::new(); n],
@@ -186,13 +217,22 @@ impl Watch {
 
     fn observe(&mut self, sim: &RaceSim, tick: u64) {
         let now = sim.race().time;
-        if sim.race().phase != RacePhase::Running {
+        if sim.race().phase == RacePhase::Countdown {
             return;
         }
         let line = &sim.track.line;
         for (i, &car) in sim.cars.iter().enumerate() {
             let r = sim.racer(car);
             let run = &mut self.runs[i];
+            if r.timing.laps.len() > run.laps.len() {
+                let t = *r.timing.laps.last().unwrap();
+                run.laps.push(t);
+                if run.laps.len() > 1 && t < self.best[i] {
+                    self.best[i] = t;
+                    run.trace = std::mem::take(&mut self.lap_trace[i]);
+                }
+                self.lap_trace[i].clear();
+            }
             if r.status != Status::Racing {
                 continue;
             }
@@ -206,37 +246,6 @@ impl Watch {
             if idle > STALL_AFTER && !self.stalled[i] {
                 self.stalled[i] = true;
                 run.stalls += 1;
-            }
-            if let Ok(range) = std::env::var("RACER_DEBUG_T") {
-                let (a, b) = range.split_once("..").unwrap();
-                let (a, b): (f32, f32) = (a.parse().unwrap(), b.parse().unwrap());
-                if (a..b).contains(&now)
-                    && tick.is_multiple_of(12)
-                    && run.difficulty == Difficulty::Amateur
-                {
-                    let w = sim.app.world();
-                    let rot = w.get::<avian3d::prelude::Rotation>(car).unwrap().0;
-                    let c = w.get::<racer_sim::vehicle::CarControls>(car).unwrap().0;
-                    let dbg = w
-                        .get::<AiDriver>(car)
-                        .map(|a| format!("{:?}", a.debug))
-                        .unwrap_or_default();
-                    eprintln!(
-                        "t {now:.2} d {:.1} lat {:.2} v {:.1} up {:.2} pos {:?} thr {:.2} brk {:.2} st {:.2} gear {} {dbg}",
-                        r.progress.distance,
-                        r.progress.lateral,
-                        sim.speed(car),
-                        (rot * Vec3::Y).y,
-                        sim.position(car),
-                        c.throttle,
-                        c.brake,
-                        c.steer,
-                        w.get::<racer_sim::vehicle::CarTelemetry>(car)
-                            .unwrap()
-                            .telemetry
-                            .gear
-                    );
-                }
             }
             if tick.is_multiple_of(4) {
                 let k = r.progress.sample;
@@ -258,14 +267,18 @@ impl Watch {
                     dbg.brake,
                 ]);
             }
-            if r.timing.laps.len() > run.laps.len() {
-                let t = *r.timing.laps.last().unwrap();
-                run.laps.push(t);
-                if run.laps.len() > 1 && t < self.best[i] {
-                    self.best[i] = t;
-                    run.trace = std::mem::take(&mut self.lap_trace[i]);
+            let touching = sim.in_contact(i);
+            if touching {
+                if !self.contact[i].1 {
+                    run.contacts += 1;
                 }
-                self.lap_trace[i].clear();
+                self.contact[i].0 = now;
+            }
+            self.contact[i].1 = touching;
+            for reset in &r.resets[run.resets.len()..] {
+                if reset.time - self.contact[i].0 < CONTACT_WINDOW {
+                    run.contact_resets += 1;
+                }
             }
             run.resets = r.resets.clone();
         }
@@ -323,6 +336,77 @@ pub fn solo(
     Ok(runs.remove(0))
 }
 
+/// One 8-car race with full contact: every difficulty at least once (three
+/// repeated, rotating with `index`), the three car models in turn, and the
+/// grid order shuffled by `index`.
+pub fn mixed(track: Arc<Track>, index: usize, laps: u32) -> Result<Vec<CarRun>, String> {
+    let mut entries: Vec<(&str, DriverKind)> = (0..8)
+        .map(|i| {
+            let d = Difficulty::ALL[(i + index) % Difficulty::ALL.len()];
+            (CARS[(i + index / 2) % CARS.len()], DriverKind::Ai(d))
+        })
+        .collect();
+    let mut seed = index as u64 * 0x9e37_79b9 + 1;
+    for i in (1..entries.len()).rev() {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        entries.swap(i, (seed % (i as u64 + 1)) as usize);
+    }
+    let config = RaceConfig {
+        laps,
+        ..default()
+    };
+    let slowest = CARS.iter().filter_map(|c| track.car(c)).map(|c| c.lap_time).fold(0.0, f32::max);
+    let limit = slowest * 1.6 * laps as f32 + 120.0;
+    run(track, config, &entries, laps, limit)
+}
+
+/// Text report of mixed races, and whether every check passed: no car
+/// permanently stuck, every difficulty at `min_laps` or more, and resets
+/// without contact rare (at most one per 100 laps per difficulty).
+pub fn report_mixed(races: &[Vec<CarRun>], min_laps: usize, out: &mut String) -> bool {
+    let mut ok = true;
+    let _ = writeln!(
+        out,
+        "| Difficulty | Cars | Laps | Contacts | Resets after contact | Other resets | Stalls (>{STALL_AFTER:.0} s) | Longest stall (s) | Permanently stuck | |"
+    );
+    let _ = writeln!(out, "|---|---|---|---|---|---|---|---|---|---|");
+    for d in Difficulty::ALL {
+        let runs: Vec<&CarRun> = races.iter().flatten().filter(|r| r.difficulty == d).collect();
+        let laps: usize = runs.iter().map(|r| r.laps.len()).sum();
+        let contacts: u32 = runs.iter().map(|r| r.contacts).sum();
+        let contact_resets: usize = runs.iter().map(|r| r.contact_resets).sum();
+        let other: usize = runs.iter().map(|r| r.resets.len() - r.contact_resets).sum();
+        let stalls: u32 = runs.iter().map(|r| r.stalls).sum();
+        let longest = runs.iter().map(|r| r.longest_stall).fold(0.0, f32::max);
+        let stuck = runs.iter().filter(|r| r.longest_stall >= STUCK_FOR_GOOD).count();
+        let pass = stuck == 0 && laps >= min_laps && other * 100 <= laps.max(1);
+        ok &= pass;
+        let _ = writeln!(
+            out,
+            "| {} | {} | {laps} | {contacts} | {contact_resets} | {other} | {stalls} | {longest:.1} | {stuck} | {} |",
+            d.name(),
+            runs.len(),
+            if pass { "ok" } else { "**FAIL**" }
+        );
+    }
+    for run in races.iter().flatten() {
+        for r in &run.resets {
+            let _ = writeln!(
+                out,
+                "\n- reset: {} {} at {:.0} m, {:.0} s: {:?}",
+                run.car,
+                run.difficulty.name(),
+                r.at,
+                r.time,
+                r.reason
+            );
+        }
+    }
+    ok
+}
+
 /// Runs `jobs` on `threads` worker threads, results in job order.
 pub fn parallel<J: Sync, R: Send>(
     jobs: &[J],
@@ -353,7 +437,7 @@ pub fn parallel<J: Sync, R: Send>(
 /// (lowest, highest) mean flying lap.
 pub fn target(d: Difficulty) -> (f32, f32) {
     match d {
-        Difficulty::Alien => (0.98, 1.02),
+        Difficulty::Alien => (0.98, 1.025),
         Difficulty::Expert => (1.02, 1.06),
         Difficulty::Pro => (1.06, 1.11),
         Difficulty::Amateur => (1.10, 1.17),

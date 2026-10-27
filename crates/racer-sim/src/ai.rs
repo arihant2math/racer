@@ -77,7 +77,7 @@ impl Difficulty {
                 Difficulty::Amateur => (0.78, 0.65, 0.86, 0.30, 4.0, 0.05, 0.3, 0.2),
                 Difficulty::Pro => (0.85, 0.76, 0.92, 0.18, 2.5, 0.025, 0.5, 0.4),
                 Difficulty::Expert => (0.925, 0.88, 1.0, 0.08, 1.2, 0.01, 0.75, 0.7),
-                Difficulty::Alien => (0.985, 0.97, 1.0, 0.02, 0.4, 0.002, 0.9, 1.0),
+                Difficulty::Alien => (0.995, 0.985, 1.0, 0.02, 0.4, 0.002, 0.9, 1.0),
             };
         Skill {
             limits: Limits {
