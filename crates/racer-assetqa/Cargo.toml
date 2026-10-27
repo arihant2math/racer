@@ -1,0 +1,16 @@
+[package]
+name = "racer-assetqa"
+description = "Automated quality gate for generated car assets: structure, dimensions, mesh hygiene, silhouettes, review renders and an in-engine smoke test."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+bevy = { workspace = true, features = ["3d"] }
+glam.workspace = true
+gltf.workspace = true
+image.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
