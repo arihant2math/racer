@@ -48,6 +48,9 @@ axum = "=0.8.9"
 tokio = { version = "=1.54.1", features = ["macros", "rt-multi-thread", "net", "signal"] }
 tower = { version = "=0.5.3", features = ["util"] }
 
+# Property-based testing (dev-dependency only). No fork/timeout: plain in-process runs.
+proptest = { version = "=1.12.0", default-features = false, features = ["std"] }
+
 [profile.dev]
 debug = "line-tables-only"
 opt-level = 1
