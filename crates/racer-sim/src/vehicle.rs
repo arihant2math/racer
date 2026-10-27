@@ -13,11 +13,15 @@ use racer_dynamics::{
 
 use crate::track::GroundSurface;
 
-/// Adds Avian physics and the vehicle step.
+/// Adds Avian physics and the vehicle step, and [`SimPlugin`](crate::SimPlugin)
+/// if the app lacks it: the model must run at the 240 Hz chassis rate.
 pub struct VehiclePlugin;
 
 impl Plugin for VehiclePlugin {
     fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<crate::SimPlugin>() {
+            app.add_plugins(crate::SimPlugin);
+        }
         app.add_plugins(PhysicsPlugins::default()).add_systems(
             FixedUpdate,
             (drive_cars, record_acceleration)
