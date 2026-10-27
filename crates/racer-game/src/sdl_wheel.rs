@@ -20,7 +20,6 @@ use sdl3::sys::haptic as h;
 use crate::input::{WheelDevice, WheelReading};
 
 pub struct SdlWheel {
-    name: Arc<Mutex<String>>,
     reading: Arc<Mutex<Option<WheelReading>>>,
     /// Requested force as f32 bits.
     force: Arc<AtomicU32>,
@@ -32,21 +31,19 @@ impl SdlWheel {
     /// cannot initialise; succeeds with no wheel connected.
     pub fn new() -> Result<Self, String> {
         let wheel = SdlWheel {
-            name: Arc::new(Mutex::new("SDL3 (no wheel)".into())),
             reading: Arc::default(),
             force: Arc::default(),
             stop: Arc::default(),
         };
         let (ready, started) = mpsc::channel();
-        let (name, reading, force, stop) = (
-            wheel.name.clone(),
+        let (reading, force, stop) = (
             wheel.reading.clone(),
             wheel.force.clone(),
             wheel.stop.clone(),
         );
         thread::Builder::new()
             .name("sdl-wheel".into())
-            .spawn(move || run(ready, name, reading, force, stop))
+            .spawn(move || run(ready, reading, force, stop))
             .map_err(|e| e.to_string())?;
         started.recv().map_err(|e| e.to_string())??;
         Ok(wheel)
@@ -65,7 +62,14 @@ impl WheelDevice for SdlWheel {
     }
 
     fn read(&mut self) -> Option<WheelReading> {
-        *self.reading.lock().unwrap()
+        let mut reading = self.reading.lock().unwrap();
+        let out = *reading;
+        // Shift presses are latched until read once.
+        if let Some(r) = reading.as_mut() {
+            r.shift_up = false;
+            r.shift_down = false;
+        }
+        out
     }
 
     fn set_force(&mut self, force: f32) {
@@ -127,7 +131,6 @@ fn open(joysticks: &sdl3::JoystickSubsystem, haptics: &sdl3::HapticSubsystem) ->
 
 fn run(
     ready: mpsc::Sender<Result<(), String>>,
-    name: Arc<Mutex<String>>,
     reading: Arc<Mutex<Option<WheelReading>>>,
     force: Arc<AtomicU32>,
     stop: Arc<AtomicBool>,
@@ -161,7 +164,7 @@ fn run(
         if wheel.is_none() && tick.is_multiple_of(250) {
             wheel = open(&joysticks, &haptics);
             if let Some(w) = &wheel {
-                *name.lock().unwrap() = w.joystick.name();
+                bevy::log::info!("steering wheel connected: {}", w.joystick.name());
             }
         }
         if let Some(w) = &wheel {
@@ -169,7 +172,10 @@ fn run(
             let pedal = |i| ((1.0 - axis(i)) / 2.0).clamp(0.0, 1.0);
             let pressed = |b| w.joystick.button(b).unwrap_or(false);
             let now = (pressed(4), pressed(5));
-            *reading.lock().unwrap() = Some(WheelReading {
+            let mut latest = reading.lock().unwrap();
+            // Keep presses the game has not read yet: it polls slower than this thread.
+            let pending = latest.map_or((false, false), |r| (r.shift_up, r.shift_down));
+            *latest = Some(WheelReading {
                 steer: axis(0),
                 throttle: pedal(1),
                 brake: pedal(2),
@@ -178,9 +184,10 @@ fn run(
                 } else {
                     0.0
                 },
-                shift_up: now.0 && !buttons.0,
-                shift_down: now.1 && !buttons.1,
+                shift_up: pending.0 || (now.0 && !buttons.0),
+                shift_down: pending.1 || (now.1 && !buttons.1),
             });
+            drop(latest);
             buttons = now;
             if let Some((haptic, effect)) = &w.haptic {
                 let level = f32::from_bits(force.load(Ordering::Relaxed));
@@ -206,5 +213,19 @@ mod tests {
         thread::sleep(Duration::from_millis(50));
         assert_eq!(wheel.read(), None);
         wheel.set_force(0.5);
+    }
+
+    #[test]
+    fn shift_presses_are_read_once() {
+        let mut wheel = SdlWheel {
+            reading: Arc::new(Mutex::new(Some(WheelReading {
+                shift_up: true,
+                ..Default::default()
+            }))),
+            force: Arc::default(),
+            stop: Arc::default(),
+        };
+        assert!(wheel.read().unwrap().shift_up);
+        assert!(!wheel.read().unwrap().shift_up);
     }
 }

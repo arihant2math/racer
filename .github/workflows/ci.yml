@@ -37,6 +37,9 @@ jobs:
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
       - name: test
         run: cargo test --workspace --locked
+      - name: clippy (SDL3 wheel feature)
+        if: runner.os == 'Linux'
+        run: cargo clippy -p racer-game --features wheel --all-targets --locked -- -D warnings
 
   capture:
     name: capture (Linux, lavapipe)
