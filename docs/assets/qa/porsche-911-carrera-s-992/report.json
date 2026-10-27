@@ -2,7 +2,7 @@
   "car_id": "porsche-911-carrera-s-992",
   "car_name": "Porsche 911 Carrera S (992)",
   "glb": "assets/cars/porsche-911-carrera-s-992/car.glb + assets/cars/porsche-911-carrera-s-992/car_lod1.glb + assets/cars/porsche-911-carrera-s-992/car_lod2.glb",
-  "glb_bytes": 13233308,
+  "glb_bytes": 13183824,
   "generator": null,
   "verdict": "fail",
   "gates": [
@@ -63,7 +63,7 @@
         {
           "id": "up_axis",
           "what": "+Y up: height is the smallest extent, length (Z) the largest",
-          "value": "x 1.990, y 1.303, z 4.519 m",
+          "value": "x 2.006, y 1.300, z 4.519 m",
           "threshold": "y < x < z",
           "status": "pass"
         },
@@ -149,14 +149,14 @@
         {
           "id": "height",
           "what": "height (ground to roof)",
-          "value": "1.303 m (+0.24 %)",
+          "value": "1.300 m (+0.04 %)",
           "threshold": "1.300 m ± 1.5 %",
           "status": "pass"
         },
         {
           "id": "width_mirrors",
           "what": "width with mirrors",
-          "value": "1.990 m",
+          "value": "2.006 m",
           "threshold": "",
           "status": "info"
         },
@@ -249,70 +249,70 @@
         {
           "id": "lod0_budget",
           "what": "LOD0 triangles",
-          "value": "363874",
+          "value": "363376",
           "threshold": "150000 – 500000",
           "status": "pass"
         },
         {
           "id": "lod1_ratio",
           "what": "LOD1 triangles / LOD0",
-          "value": "109148 (0.300)",
+          "value": "109002 (0.300)",
           "threshold": "present, 0.1 – 0.6",
           "status": "pass"
         },
         {
           "id": "lod1_silhouette",
           "what": "LOD1 side silhouette IoU vs LOD0",
-          "value": "1.0000",
+          "value": "0.9999",
           "threshold": "≥ 0.95",
           "status": "pass"
         },
         {
           "id": "lod2_ratio",
           "what": "LOD2 triangles / LOD1",
-          "value": "37271 (0.341)",
+          "value": "37222 (0.341)",
           "threshold": "present, 0.1 – 0.6",
           "status": "pass"
         },
         {
           "id": "lod2_silhouette",
           "what": "LOD2 side silhouette IoU vs LOD0",
-          "value": "0.9984",
+          "value": "0.9980",
           "threshold": "≥ 0.95",
           "status": "pass"
         },
         {
           "id": "non_manifold",
           "what": "LOD0 edges shared by > 2 triangles",
-          "value": "0 of 550314 (0.000 %) ",
+          "value": "0 of 549538 (0.000 %) ",
           "threshold": "≤ 0.010 %",
           "status": "pass"
         },
         {
           "id": "open_edges",
           "what": "LOD0 open (boundary) edges, all parts",
-          "value": "11298 edges, 160.54 m [body 63.46 m, brake_fl 0.63 m, brake_fr 0.63 m, brake_rl 0.63 m, brake_rr 0.63 m, bumper_front 5.91 m, bumper_rear 6.12 m, door_l 4.73 m, …]",
+          "value": "11114 edges, 154.24 m [body 57.86 m, brake_fl 0.63 m, brake_fr 0.63 m, brake_rl 0.63 m, brake_rr 0.63 m, bumper_front 5.91 m, bumper_rear 5.56 m, door_l 4.73 m, …]",
           "threshold": "",
           "status": "info"
         },
         {
           "id": "winding_inconsistent",
           "what": "LOD0 manifold edges whose triangles disagree on winding",
-          "value": "618 [body 442, bumper_rear 80, lights_front 96]",
+          "value": "566 [body 390, bumper_rear 80, lights_front 96]",
           "threshold": "",
           "status": "info"
         },
         {
           "id": "closed_parts",
           "what": "closed parts watertight and wound outwards (positive volume)",
-          "value": "collision: open 0.000 m, non-manifold 0, volume +6.5848 m³",
+          "value": "collision: open 0.000 m, non-manifold 0, volume +6.5309 m³",
           "threshold": "open edges ≤ 0.05 m, 0 non-manifold, volume > 0",
           "status": "pass"
         },
         {
           "id": "degenerate",
           "what": "LOD0 triangles with area < 1e-8 m² or collapsed",
-          "value": "832 (0.229 %) [lights_front 432, mirror_l 80, mirror_r 80, interior 77, brake_fl 32, brake_fr 32, brake_rl 32, brake_rr 32, …]",
+          "value": "802 (0.221 %) [lights_front 432, mirror_l 80, mirror_r 80, body 40, brake_fl 32, brake_fr 32, brake_rl 32, brake_rr 32, …]",
           "threshold": "≤ 0.100 %",
           "status": "fail"
         },
@@ -347,42 +347,42 @@
         {
           "id": "uv_degenerate",
           "what": "LOD0 area mapped to zero UV area",
-          "value": "2.088 %",
+          "value": "2.116 %",
           "threshold": "≤ 5.000 %",
           "status": "pass"
         },
         {
           "id": "uv_stretch",
           "what": "LOD0 area with UV stretch σmax/σmin > 4",
-          "value": "12.333 % largest parts, % of LOD0 area: [body 6.4, bumper_front 1.4, bumper_rear 0.9, wheel_rl 0.6, wheel_rr 0.6, wheel_fl 0.5, wheel_fr 0.5, lights_front 0.5, …]",
+          "value": "11.934 % largest parts, % of LOD0 area: [body 6.1, bumper_front 1.3, bumper_rear 0.8, wheel_rr 0.6, wheel_rl 0.6, wheel_fr 0.5, wheel_fl 0.5, lights_front 0.5, …]",
           "threshold": "≤ 5.000 %",
           "status": "fail"
         },
         {
           "id": "texel_density",
           "what": "LOD0 area whose texel density is outside ×1/4…×4 of its material's median",
-          "value": "11.021 % largest parts, % of LOD0 area: [interior 5.6, body 1.7, brake_rr 0.5, brake_fr 0.5, bumper_front 0.3, wheel_rl 0.3, wheel_fl 0.3, wheel_fr 0.3, …] (medians, UV units per metre: brake_caliper 2.000/m, car_paint 0.199/m, chrome 4.320/m, glass 0.196/m, interior 0.981/m, light_emissive_front 17.913/m, light_emissive_rear 3.426/m, rim 1.596/m, rubber 1.936/m, trim_black 0.200/m)",
+          "value": "11.164 % largest parts, % of LOD0 area: [interior 5.6, body 1.6, brake_fr 0.5, brake_rr 0.5, bumper_front 0.4, wheel_fl 0.3, wheel_fr 0.3, wheel_rl 0.3, …] (medians, UV units per metre: brake_caliper 2.000/m, car_paint 0.199/m, chrome 4.320/m, glass 0.196/m, interior 0.979/m, light_emissive_front 17.813/m, light_emissive_rear 3.224/m, rim 1.596/m, rubber 1.936/m, trim_black 0.200/m)",
           "threshold": "≤ 5.000 %",
           "status": "fail"
         },
         {
           "id": "collision_pieces",
           "what": "collision pieces (connected components)",
-          "value": "4",
+          "value": "5",
           "threshold": "1 – 16",
           "status": "pass"
         },
         {
           "id": "collision_convex",
           "what": "largest distance of a hull vertex outside a face plane of its own piece",
-          "value": "2.3019 m; concave pieces: 276 triangles, z -1.58..1.65: 2.302 m",
+          "value": "1.3198 m; concave pieces: 184 triangles, z -0.68..1.65: 1.320 m",
           "threshold": "≤ 0.005 m",
           "status": "fail"
         },
         {
           "id": "collision_triangles",
           "what": "triangles in the largest collision piece",
-          "value": "276",
+          "value": "184",
           "threshold": "≤ 1024",
           "status": "pass"
         },
@@ -403,7 +403,7 @@
         {
           "id": "collision_coverage",
           "what": "collision bounding box / LOD0 bounding box per axis",
-          "value": "x 0.930, y 1.074, z 0.997 (collision y -0.096..1.303, x ±0.926; LOD0 y 0.000..1.303, x ±0.995)",
+          "value": "x 0.922, y 1.074, z 0.998 (collision y -0.096..1.300, x ±0.924; LOD0 y 0.000..1.300, x ±1.003)",
           "threshold": "0.85 – 1.05",
           "status": "fail"
         }
@@ -419,112 +419,112 @@
         {
           "id": "the-blueprints:side",
           "what": "side view vs the-blueprints",
-          "value": "IoU 0.974, outline mean 10.0 mm, p95 26.1 mm, max 78 mm",
+          "value": "IoU 0.973, outline mean 10.3 mm, p95 26.1 mm, max 79 mm",
           "threshold": "IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm",
           "status": "pass"
         },
         {
           "id": "the-blueprints:side:holes",
           "what": "see-through gaps and seams inside the side silhouette (filled by the closing)",
-          "value": "298 px = 101.6 cm²",
+          "value": "318 px = 108.5 cm²",
           "threshold": "",
           "status": "info"
         },
         {
           "id": "the-blueprints:front",
           "what": "front view vs the-blueprints",
-          "value": "IoU 0.949, outline mean 15.9 mm, p95 52.6 mm, max 92 mm",
+          "value": "IoU 0.954, outline mean 14.3 mm, p95 49.9 mm, max 78 mm",
           "threshold": "IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm",
           "status": "pass"
         },
         {
           "id": "the-blueprints:front:holes",
           "what": "see-through gaps and seams inside the front silhouette (filled by the closing)",
-          "value": "46 px = 15.7 cm²",
+          "value": "50 px = 17.1 cm²",
           "threshold": "",
           "status": "info"
         },
         {
           "id": "the-blueprints:rear",
           "what": "rear view vs the-blueprints",
-          "value": "IoU 0.958, outline mean 13.4 mm, p95 52.9 mm, max 89 mm",
+          "value": "IoU 0.961, outline mean 12.1 mm, p95 49.6 mm, max 76 mm",
           "threshold": "IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm",
           "status": "pass"
         },
         {
           "id": "the-blueprints:rear:holes",
           "what": "see-through gaps and seams inside the rear silhouette (filled by the closing)",
-          "value": "46 px = 15.7 cm²",
+          "value": "50 px = 17.1 cm²",
           "threshold": "",
           "status": "info"
         },
         {
           "id": "the-blueprints:top",
           "what": "top view vs the-blueprints",
-          "value": "IoU 0.972, outline mean 18.2 mm, p95 49.9 mm, max 140 mm",
+          "value": "IoU 0.972, outline mean 17.9 mm, p95 52.2 mm, max 140 mm",
           "threshold": "IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm",
           "status": "pass"
         },
         {
           "id": "the-blueprints:top:holes",
           "what": "see-through gaps and seams inside the top silhouette (filled by the closing)",
-          "value": "132 px = 45.0 cm²",
+          "value": "44 px = 15.0 cm²",
           "threshold": "",
           "status": "info"
         },
         {
           "id": "dimensions-com:side",
           "what": "side view vs dimensions-com",
-          "value": "IoU 0.969, outline mean 11.9 mm, p95 31.9 mm, max 64 mm",
+          "value": "IoU 0.969, outline mean 12.0 mm, p95 31.9 mm, max 71 mm",
           "threshold": "IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm",
           "status": "pass"
         },
         {
           "id": "dimensions-com:side:holes",
           "what": "see-through gaps and seams inside the side silhouette (filled by the closing)",
-          "value": "664 px = 103.7 cm²",
+          "value": "687 px = 107.3 cm²",
           "threshold": "",
           "status": "info"
         },
         {
           "id": "dimensions-com:front",
           "what": "front view vs dimensions-com",
-          "value": "IoU 0.955, outline mean 14.0 mm, p95 59.3 mm, max 100 mm",
+          "value": "IoU 0.961, outline mean 11.9 mm, p95 52.7 mm, max 85 mm",
           "threshold": "IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm",
           "status": "pass"
         },
         {
           "id": "dimensions-com:front:holes",
           "what": "see-through gaps and seams inside the front silhouette (filled by the closing)",
-          "value": "346 px = 54.0 cm²",
+          "value": "374 px = 58.4 cm²",
           "threshold": "",
           "status": "info"
         },
         {
           "id": "dimensions-com:rear",
           "what": "rear view vs dimensions-com",
-          "value": "IoU 0.956, outline mean 13.6 mm, p95 59.4 mm, max 100 mm",
+          "value": "IoU 0.962, outline mean 11.5 mm, p95 52.7 mm, max 85 mm",
           "threshold": "IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm",
           "status": "pass"
         },
         {
           "id": "dimensions-com:rear:holes",
           "what": "see-through gaps and seams inside the rear silhouette (filled by the closing)",
-          "value": "46 px = 7.2 cm²",
+          "value": "70 px = 10.9 cm²",
           "threshold": "",
           "status": "info"
         },
         {
           "id": "dimensions-com:top",
           "what": "top view vs dimensions-com",
-          "value": "IoU 0.968, outline mean 20.6 mm, p95 64.3 mm, max 142 mm",
+          "value": "IoU 0.968, outline mean 20.1 mm, p95 65.2 mm, max 142 mm",
           "threshold": "IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm",
           "status": "fail"
         },
         {
           "id": "dimensions-com:top:holes",
           "what": "see-through gaps and seams inside the top silhouette (filled by the closing)",
-          "value": "474 px = 74.0 cm²",
+          "value": "402 px = 62.8 cm²",
           "threshold": "",
           "status": "info"
         }
@@ -558,7 +558,7 @@
         {
           "id": "blender_stats",
           "what": "scene as Blender imports it",
-          "value": "LOD0 363874 triangles, per LOD {\"0\":363874}, 22 mesh objects, import 1.1 s",
+          "value": "LOD0 363376 triangles, per LOD {\"0\":363376}, 22 mesh objects, import 0.9 s",
           "threshold": "",
           "status": "info"
         }
@@ -600,7 +600,7 @@
         {
           "id": "loads",
           "what": "GLB loads in Bevy (glTF loader, all dependencies)",
-          "value": "loaded; 48 mesh entities, 12 materials, 45 frames in 11 s",
+          "value": "loaded; 48 mesh entities, 12 materials, 44 frames in 13 s",
           "threshold": "loads without error",
           "status": "pass"
         },
@@ -614,7 +614,7 @@
         {
           "id": "non_blank",
           "what": "frame not blank: car coverage and luma spread",
-          "value": "coverage 8.8 %, luma stddev 14.1",
+          "value": "coverage 8.8 %, luma stddev 13.9",
           "threshold": "coverage ≥ 2 %, stddev ≥ 4",
           "status": "pass"
         }

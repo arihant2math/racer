@@ -22,7 +22,7 @@ Asset `assets/cars/porsche-911-carrera-s-992/car.glb + assets/cars/porsche-911-c
 | `materials_extra` | other materials | brake_caliper |  | info |
 | `material_assigned` | render primitives without a material (collision exempt) | 0 | 0 | PASS |
 | `units` | LOD0 length (Z extent) in metres | 4.519 m | 2.5 – 7 m | PASS |
-| `up_axis` | +Y up: height is the smallest extent, length (Z) the largest | x 1.990, y 1.303, z 4.519 m | y < x < z | PASS |
+| `up_axis` | +Y up: height is the smallest extent, length (Z) the largest | x 2.006, y 1.300, z 4.519 m | y < x < z | PASS |
 | `ground` | lowest LOD0 point on the ground (y = 0) | 0.000 m | \|y\| ≤ 0.03 | PASS |
 | `mirrored` | mesh nodes with a mirroring (negative determinant) transform | none | none | PASS |
 | `facing` | front wheels at −Z, left wheels at −X | front axle z -1.225, rear 1.225; left x -0.794/-0.779, right 0.794/0.779 | front z < rear z, left x < 0 < right x | PASS |
@@ -39,8 +39,8 @@ Asset `assets/cars/porsche-911-carrera-s-992/car.glb + assets/cars/porsche-911-c
 |---|---|---|---|---|
 | `length` | overall length (Z extent) | 4.519 m (+0.00 %) | 4.519 m ± 1.5 % | PASS |
 | `width` | width without mirrors (X extent) | 1.862 m (+0.54 %) | 1.852 m ± 1.5 % | PASS |
-| `height` | height (ground to roof) | 1.303 m (+0.24 %) | 1.300 m ± 1.5 % | PASS |
-| `width_mirrors` | width with mirrors | 1.990 m |  | info |
+| `height` | height (ground to roof) | 1.300 m (+0.04 %) | 1.300 m ± 1.5 % | PASS |
+| `width_mirrors` | width with mirrors | 2.006 m |  | info |
 | `wheelbase` | wheelbase (hub Z distance) | 2.450 m (+0.000) | 2.450 ± 0.02 m | PASS |
 | `track_front` | front track (hub X distance) | 1.589 m (+0.000) | 1.589 ± 0.02 m | PASS |
 | `track_rear` | rear track (hub X distance) | 1.557 m (+0.000) | 1.557 ± 0.02 m | PASS |
@@ -58,51 +58,51 @@ Asset `assets/cars/porsche-911-carrera-s-992/car.glb + assets/cars/porsche-911-c
 
 | Check | What | Value | Threshold | Result |
 |---|---|---|---|---|
-| `lod0_budget` | LOD0 triangles | 363874 | 150000 – 500000 | PASS |
-| `lod1_ratio` | LOD1 triangles / LOD0 | 109148 (0.300) | present, 0.1 – 0.6 | PASS |
-| `lod1_silhouette` | LOD1 side silhouette IoU vs LOD0 | 1.0000 | ≥ 0.95 | PASS |
-| `lod2_ratio` | LOD2 triangles / LOD1 | 37271 (0.341) | present, 0.1 – 0.6 | PASS |
-| `lod2_silhouette` | LOD2 side silhouette IoU vs LOD0 | 0.9984 | ≥ 0.95 | PASS |
-| `non_manifold` | LOD0 edges shared by > 2 triangles | 0 of 550314 (0.000 %)  | ≤ 0.010 % | PASS |
-| `open_edges` | LOD0 open (boundary) edges, all parts | 11298 edges, 160.54 m [body 63.46 m, brake_fl 0.63 m, brake_fr 0.63 m, brake_rl 0.63 m, brake_rr 0.63 m, bumper_front 5.91 m, bumper_rear 6.12 m, door_l 4.73 m, …] |  | info |
-| `winding_inconsistent` | LOD0 manifold edges whose triangles disagree on winding | 618 [body 442, bumper_rear 80, lights_front 96] |  | info |
-| `closed_parts` | closed parts watertight and wound outwards (positive volume) | collision: open 0.000 m, non-manifold 0, volume +6.5848 m³ | open edges ≤ 0.05 m, 0 non-manifold, volume > 0 | PASS |
-| `degenerate` | LOD0 triangles with area < 1e-8 m² or collapsed | 832 (0.229 %) [lights_front 432, mirror_l 80, mirror_r 80, interior 77, brake_fl 32, brake_fr 32, brake_rl 32, brake_rr 32, …] | ≤ 0.100 % | FAIL |
+| `lod0_budget` | LOD0 triangles | 363376 | 150000 – 500000 | PASS |
+| `lod1_ratio` | LOD1 triangles / LOD0 | 109002 (0.300) | present, 0.1 – 0.6 | PASS |
+| `lod1_silhouette` | LOD1 side silhouette IoU vs LOD0 | 0.9999 | ≥ 0.95 | PASS |
+| `lod2_ratio` | LOD2 triangles / LOD1 | 37222 (0.341) | present, 0.1 – 0.6 | PASS |
+| `lod2_silhouette` | LOD2 side silhouette IoU vs LOD0 | 0.9980 | ≥ 0.95 | PASS |
+| `non_manifold` | LOD0 edges shared by > 2 triangles | 0 of 549538 (0.000 %)  | ≤ 0.010 % | PASS |
+| `open_edges` | LOD0 open (boundary) edges, all parts | 11114 edges, 154.24 m [body 57.86 m, brake_fl 0.63 m, brake_fr 0.63 m, brake_rl 0.63 m, brake_rr 0.63 m, bumper_front 5.91 m, bumper_rear 5.56 m, door_l 4.73 m, …] |  | info |
+| `winding_inconsistent` | LOD0 manifold edges whose triangles disagree on winding | 566 [body 390, bumper_rear 80, lights_front 96] |  | info |
+| `closed_parts` | closed parts watertight and wound outwards (positive volume) | collision: open 0.000 m, non-manifold 0, volume +6.5309 m³ | open edges ≤ 0.05 m, 0 non-manifold, volume > 0 | PASS |
+| `degenerate` | LOD0 triangles with area < 1e-8 m² or collapsed | 802 (0.221 %) [lights_front 432, mirror_l 80, mirror_r 80, body 40, brake_fl 32, brake_fr 32, brake_rl 32, brake_rr 32, …] | ≤ 0.100 % | FAIL |
 | `loose` | LOD0 triangles in pieces of ≤ 4 triangles | 0 (0.000 %)  | ≤ 0.050 % | PASS |
 | `normals_vs_winding` | LOD0 area whose stored normals point against the winding | 0.005 % | ≤ 1.000 % | PASS |
 | `backfaces` | visible pixels showing a single-sided back face (worst of front, rear, sides, top; bottom reported) | front 0.000 %, rear 0.000 %, side 0.000 %, side-right 0.000 %, top 0.000 %, bottom 0.000 % | ≤ 2.000 % | PASS |
 | `uv_present` | render primitives (all LODs) with TEXCOORD_0 | all | all | PASS |
-| `uv_degenerate` | LOD0 area mapped to zero UV area | 2.088 % | ≤ 5.000 % | PASS |
-| `uv_stretch` | LOD0 area with UV stretch σmax/σmin > 4 | 12.333 % largest parts, % of LOD0 area: [body 6.4, bumper_front 1.4, bumper_rear 0.9, wheel_rl 0.6, wheel_rr 0.6, wheel_fl 0.5, wheel_fr 0.5, lights_front 0.5, …] | ≤ 5.000 % | FAIL |
-| `texel_density` | LOD0 area whose texel density is outside ×1/4…×4 of its material's median | 11.021 % largest parts, % of LOD0 area: [interior 5.6, body 1.7, brake_rr 0.5, brake_fr 0.5, bumper_front 0.3, wheel_rl 0.3, wheel_fl 0.3, wheel_fr 0.3, …] (medians, UV units per metre: brake_caliper 2.000/m, car_paint 0.199/m, chrome 4.320/m, glass 0.196/m, interior 0.981/m, light_emissive_front 17.913/m, light_emissive_rear 3.426/m, rim 1.596/m, rubber 1.936/m, trim_black 0.200/m) | ≤ 5.000 % | FAIL |
-| `collision_pieces` | collision pieces (connected components) | 4 | 1 – 16 | PASS |
-| `collision_convex` | largest distance of a hull vertex outside a face plane of its own piece | 2.3019 m; concave pieces: 276 triangles, z -1.58..1.65: 2.302 m | ≤ 0.005 m | FAIL |
-| `collision_triangles` | triangles in the largest collision piece | 276 | ≤ 1024 | PASS |
+| `uv_degenerate` | LOD0 area mapped to zero UV area | 2.116 % | ≤ 5.000 % | PASS |
+| `uv_stretch` | LOD0 area with UV stretch σmax/σmin > 4 | 11.934 % largest parts, % of LOD0 area: [body 6.1, bumper_front 1.3, bumper_rear 0.8, wheel_rr 0.6, wheel_rl 0.6, wheel_fr 0.5, wheel_fl 0.5, lights_front 0.5, …] | ≤ 5.000 % | FAIL |
+| `texel_density` | LOD0 area whose texel density is outside ×1/4…×4 of its material's median | 11.164 % largest parts, % of LOD0 area: [interior 5.6, body 1.6, brake_fr 0.5, brake_rr 0.5, bumper_front 0.4, wheel_fl 0.3, wheel_fr 0.3, wheel_rl 0.3, …] (medians, UV units per metre: brake_caliper 2.000/m, car_paint 0.199/m, chrome 4.320/m, glass 0.196/m, interior 0.979/m, light_emissive_front 17.813/m, light_emissive_rear 3.224/m, rim 1.596/m, rubber 1.936/m, trim_black 0.200/m) | ≤ 5.000 % | FAIL |
+| `collision_pieces` | collision pieces (connected components) | 5 | 1 – 16 | PASS |
+| `collision_convex` | largest distance of a hull vertex outside a face plane of its own piece | 1.3198 m; concave pieces: 184 triangles, z -0.68..1.65: 1.320 m | ≤ 0.005 m | FAIL |
+| `collision_triangles` | triangles in the largest collision piece | 184 | ≤ 1024 | PASS |
 | `collision_open` | collision open-edge length | 0.000 m |  | info |
 | `collision_ground` | lowest collision point vs the ground (y = 0) | -0.096 m | ≥ −0.03 m | FAIL |
-| `collision_coverage` | collision bounding box / LOD0 bounding box per axis | x 0.930, y 1.074, z 0.997 (collision y -0.096..1.303, x ±0.926; LOD0 y 0.000..1.303, x ±0.995) | 0.85 – 1.05 | FAIL |
+| `collision_coverage` | collision bounding box / LOD0 bounding box per axis | x 0.922, y 1.074, z 0.998 (collision y -0.096..1.300, x ±0.924; LOD0 y 0.000..1.300, x ±1.003) | 0.85 – 1.05 | FAIL |
 
 
 ## 4. Silhouette accuracy: FAIL
 
 | Check | What | Value | Threshold | Result |
 |---|---|---|---|---|
-| `the-blueprints:side` | side view vs the-blueprints | IoU 0.974, outline mean 10.0 mm, p95 26.1 mm, max 78 mm | IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm | PASS |
-| `the-blueprints:side:holes` | see-through gaps and seams inside the side silhouette (filled by the closing) | 298 px = 101.6 cm² |  | info |
-| `the-blueprints:front` | front view vs the-blueprints | IoU 0.949, outline mean 15.9 mm, p95 52.6 mm, max 92 mm | IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm | PASS |
-| `the-blueprints:front:holes` | see-through gaps and seams inside the front silhouette (filled by the closing) | 46 px = 15.7 cm² |  | info |
-| `the-blueprints:rear` | rear view vs the-blueprints | IoU 0.958, outline mean 13.4 mm, p95 52.9 mm, max 89 mm | IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm | PASS |
-| `the-blueprints:rear:holes` | see-through gaps and seams inside the rear silhouette (filled by the closing) | 46 px = 15.7 cm² |  | info |
-| `the-blueprints:top` | top view vs the-blueprints | IoU 0.972, outline mean 18.2 mm, p95 49.9 mm, max 140 mm | IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm | PASS |
-| `the-blueprints:top:holes` | see-through gaps and seams inside the top silhouette (filled by the closing) | 132 px = 45.0 cm² |  | info |
-| `dimensions-com:side` | side view vs dimensions-com | IoU 0.969, outline mean 11.9 mm, p95 31.9 mm, max 64 mm | IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm | PASS |
-| `dimensions-com:side:holes` | see-through gaps and seams inside the side silhouette (filled by the closing) | 664 px = 103.7 cm² |  | info |
-| `dimensions-com:front` | front view vs dimensions-com | IoU 0.955, outline mean 14.0 mm, p95 59.3 mm, max 100 mm | IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm | PASS |
-| `dimensions-com:front:holes` | see-through gaps and seams inside the front silhouette (filled by the closing) | 346 px = 54.0 cm² |  | info |
-| `dimensions-com:rear` | rear view vs dimensions-com | IoU 0.956, outline mean 13.6 mm, p95 59.4 mm, max 100 mm | IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm | PASS |
-| `dimensions-com:rear:holes` | see-through gaps and seams inside the rear silhouette (filled by the closing) | 46 px = 7.2 cm² |  | info |
-| `dimensions-com:top` | top view vs dimensions-com | IoU 0.968, outline mean 20.6 mm, p95 64.3 mm, max 142 mm | IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm | FAIL |
-| `dimensions-com:top:holes` | see-through gaps and seams inside the top silhouette (filled by the closing) | 474 px = 74.0 cm² |  | info |
+| `the-blueprints:side` | side view vs the-blueprints | IoU 0.973, outline mean 10.3 mm, p95 26.1 mm, max 79 mm | IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm | PASS |
+| `the-blueprints:side:holes` | see-through gaps and seams inside the side silhouette (filled by the closing) | 318 px = 108.5 cm² |  | info |
+| `the-blueprints:front` | front view vs the-blueprints | IoU 0.954, outline mean 14.3 mm, p95 49.9 mm, max 78 mm | IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm | PASS |
+| `the-blueprints:front:holes` | see-through gaps and seams inside the front silhouette (filled by the closing) | 50 px = 17.1 cm² |  | info |
+| `the-blueprints:rear` | rear view vs the-blueprints | IoU 0.961, outline mean 12.1 mm, p95 49.6 mm, max 76 mm | IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm | PASS |
+| `the-blueprints:rear:holes` | see-through gaps and seams inside the rear silhouette (filled by the closing) | 50 px = 17.1 cm² |  | info |
+| `the-blueprints:top` | top view vs the-blueprints | IoU 0.972, outline mean 17.9 mm, p95 52.2 mm, max 140 mm | IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm | PASS |
+| `the-blueprints:top:holes` | see-through gaps and seams inside the top silhouette (filled by the closing) | 44 px = 15.0 cm² |  | info |
+| `dimensions-com:side` | side view vs dimensions-com | IoU 0.969, outline mean 12.0 mm, p95 31.9 mm, max 71 mm | IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm | PASS |
+| `dimensions-com:side:holes` | see-through gaps and seams inside the side silhouette (filled by the closing) | 687 px = 107.3 cm² |  | info |
+| `dimensions-com:front` | front view vs dimensions-com | IoU 0.961, outline mean 11.9 mm, p95 52.7 mm, max 85 mm | IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm | PASS |
+| `dimensions-com:front:holes` | see-through gaps and seams inside the front silhouette (filled by the closing) | 374 px = 58.4 cm² |  | info |
+| `dimensions-com:rear` | rear view vs dimensions-com | IoU 0.962, outline mean 11.5 mm, p95 52.7 mm, max 85 mm | IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm | PASS |
+| `dimensions-com:rear:holes` | see-through gaps and seams inside the rear silhouette (filled by the closing) | 70 px = 10.9 cm² |  | info |
+| `dimensions-com:top` | top view vs dimensions-com | IoU 0.968, outline mean 20.1 mm, p95 65.2 mm, max 142 mm | IoU ≥ 0.9, mean ≤ 20 mm, p95 ≤ 60 mm | FAIL |
+| `dimensions-com:top:holes` | see-through gaps and seams inside the top silhouette (filled by the closing) | 402 px = 62.8 cm² |  | info |
 
 Overlays: dark grey = both, red = model only, blue = reference only. References are scaled by the wheelbase and aligned on the ground line (see `data/cars/<id>/refs/refs.toml`).
 
@@ -120,7 +120,7 @@ Overlays: dark grey = both, red = model only, blue = reference only. References 
 | Check | What | Value | Threshold | Result |
 |---|---|---|---|---|
 | `renders` | beauty renders from the fixed cameras | 12 renders | front-three-quarter, rear-three-quarter, side, front, rear, top, front-low | PASS |
-| `blender_stats` | scene as Blender imports it | LOD0 363874 triangles, per LOD {"0":363874}, 22 mesh objects, import 1.1 s |  | info |
+| `blender_stats` | scene as Blender imports it | LOD0 363376 triangles, per LOD {"0":363376}, 22 mesh objects, import 0.9 s |  | info |
 
 The renders and side-by-sides need a reviewer: score them with `rubric.md` (left = render, right = reference in every side-by-side).
 
@@ -152,9 +152,9 @@ The renders and side-by-sides need a reviewer: score them with `rubric.md` (left
 
 | Check | What | Value | Threshold | Result |
 |---|---|---|---|---|
-| `loads` | GLB loads in Bevy (glTF loader, all dependencies) | loaded; 48 mesh entities, 12 materials, 45 frames in 11 s | loads without error | PASS |
+| `loads` | GLB loads in Bevy (glTF loader, all dependencies) | loaded; 48 mesh entities, 12 materials, 44 frames in 13 s | loads without error | PASS |
 | `log_errors` | ERROR lines or panics in the Bevy log | none | none | PASS |
-| `non_blank` | frame not blank: car coverage and luma spread | coverage 8.8 %, luma stddev 14.1 | coverage ≥ 2 %, stddev ≥ 4 | PASS |
+| `non_blank` | frame not blank: car coverage and luma spread | coverage 8.8 %, luma stddev 13.9 | coverage ≥ 2 %, stddev ≥ 4 | PASS |
 
 Full log: `smoke.log` in the report directory.
 
