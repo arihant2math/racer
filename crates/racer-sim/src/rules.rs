@@ -324,26 +324,34 @@ pub fn reset_pose(track: &Geometry, last_valid: (f32, f32), others: &[Vec3]) -> 
 pub struct Timing {
     /// Race time the current lap started.
     pub lap_start: f32,
-    previous_lap_start: f32,
     pub laps: Vec<f32>,
     pub best_lap: Option<f32>,
     /// Sector times of the current lap so far, and of the last full lap.
     pub sectors: Vec<f32>,
     pub last_sectors: Vec<f32>,
+    /// Best time of each sector over the laps that stand.
     pub best_sectors: Vec<f32>,
-    /// Lap time at each checkpoint, current lap and best lap.
+    /// Lap time at each checkpoint of the current lap.
     checkpoint_times: Vec<f32>,
-    last_checkpoint_times: Vec<f32>,
-    best_checkpoint_times: Vec<f32>,
+    /// Every completed lap that stands, so laps taken back (as many as the
+    /// car reverses over) restore the lap before exactly.
+    history: Vec<LapRecord>,
     /// Current lap against the best lap at the last checkpoint (s, negative is faster).
     pub delta: Option<f32>,
+}
+
+/// A completed lap as [`Timing`] keeps it.
+#[derive(Clone, Debug)]
+struct LapRecord {
+    start: f32,
+    sectors: Vec<f32>,
+    checkpoint_times: Vec<f32>,
 }
 
 impl Timing {
     pub fn start(now: f32) -> Self {
         Timing {
             lap_start: now,
-            previous_lap_start: now,
             ..Default::default()
         }
     }
@@ -356,13 +364,41 @@ impl Timing {
         now - self.lap_start
     }
 
+    /// The best standing lap's record (the reference for the delta).
+    fn best_record(&self) -> Option<&LapRecord> {
+        let best = self.best_lap?;
+        let i = self.laps.iter().position(|&t| t == best)?;
+        self.history.get(i)
+    }
+
+    /// The current lap against the best lap at checkpoint `i`.
+    fn delta_at(&self, i: usize) -> Option<f32> {
+        let now = self.checkpoint_times.get(i)?;
+        let best = self.best_record()?.checkpoint_times.get(i)?;
+        Some(now - best)
+    }
+
+    /// Recomputes the bests from the laps that stand.
+    fn update_bests(&mut self) {
+        self.best_lap = self.laps.iter().copied().reduce(f32::min);
+        self.best_sectors.clear();
+        for lap in &self.history {
+            if self.best_sectors.len() < lap.sectors.len() {
+                self.best_sectors.resize(lap.sectors.len(), f32::MAX);
+            }
+            for (best, t) in self.best_sectors.iter_mut().zip(&lap.sectors) {
+                *best = best.min(*t);
+            }
+        }
+    }
+
     pub fn on_event(&mut self, event: ProgressEvent, now: f32, track: &Geometry) {
         let elapsed = now - self.lap_start;
         match event {
             ProgressEvent::Checkpoint(i) => {
                 self.checkpoint_times.truncate(i);
                 self.checkpoint_times.push(elapsed);
-                self.delta = self.best_checkpoint_times.get(i).map(|best| elapsed - best);
+                self.delta = self.delta_at(i);
                 if track.sector_ends.contains(&i) {
                     let t = elapsed - self.sector_start();
                     self.sectors.push(t);
@@ -378,33 +414,36 @@ impl Timing {
                 let t = elapsed - self.sector_start();
                 self.sectors.push(t);
                 self.laps.push(elapsed);
-                self.last_checkpoint_times = std::mem::take(&mut self.checkpoint_times);
-                if self.best_lap.is_none_or(|b| elapsed < b) {
-                    self.best_lap = Some(elapsed);
-                    self.best_checkpoint_times = self.last_checkpoint_times.clone();
-                }
-                let sectors = std::mem::take(&mut self.sectors);
-                if self.best_sectors.len() < sectors.len() {
-                    self.best_sectors.resize(sectors.len(), f32::MAX);
-                }
-                for (best, t) in self.best_sectors.iter_mut().zip(&sectors) {
-                    *best = best.min(*t);
-                }
-                self.last_sectors = sectors;
-                self.previous_lap_start = self.lap_start;
+                self.last_sectors = std::mem::take(&mut self.sectors);
+                self.history.push(LapRecord {
+                    start: self.lap_start,
+                    sectors: self.last_sectors.clone(),
+                    checkpoint_times: std::mem::take(&mut self.checkpoint_times),
+                });
+                self.update_bests();
                 self.lap_start = now;
             }
             ProgressEvent::LapUndone => {
-                // Back over the line: the lap did not happen.
-                if let Some(t) = self.laps.pop() {
-                    self.lap_start = self.previous_lap_start;
-                    if self.best_lap == Some(t) {
-                        self.best_lap = self.laps.iter().copied().reduce(f32::min);
-                    }
+                // Back over the line: the lap did not happen, and the car is
+                // at the end of it again.
+                self.laps.pop();
+                if let Some(mut lap) = self.history.pop() {
+                    self.lap_start = lap.start;
+                    lap.sectors.pop();
+                    self.sectors = lap.sectors;
+                    self.checkpoint_times = lap.checkpoint_times;
+                    self.last_sectors = self
+                        .history
+                        .last()
+                        .map(|l| l.sectors.clone())
+                        .unwrap_or_default();
+                    self.update_bests();
+                    self.delta = self
+                        .checkpoint_times
+                        .len()
+                        .checked_sub(1)
+                        .and_then(|i| self.delta_at(i));
                 }
-                self.sectors = std::mem::take(&mut self.last_sectors);
-                self.sectors.pop();
-                self.checkpoint_times = std::mem::take(&mut self.last_checkpoint_times);
             }
         }
     }

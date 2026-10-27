@@ -149,7 +149,6 @@ fn rejoining_further_on_is_reset_or_counted_never_frozen() {
 /// undo restores the wrong lap start and no sectors, so the re-driven lap is
 /// timed from the end of lap 1 and has a single "sector".
 #[test]
-#[ignore = "QA-RULES-4"]
 fn timing_survives_a_full_lap_driven_backwards() {
     let t = track();
     let mut p = Progress::new(&t, t.grid[0].position);
@@ -178,9 +177,10 @@ fn timing_survives_a_full_lap_driven_backwards() {
     // be measured from the race start, not from the end of lap 1.
     let end = go(&mut p, &mut timing, t.length + 5.0, 1.0);
     assert_eq!(p.laps, 1);
+    // The line is 5 m (20 steps of 0.01 s) before `end`.
     let lap = timing.laps[0];
     assert!(
-        (lap - end).abs() < 0.05,
+        (lap - (end - 0.2)).abs() < 0.05,
         "lap 1 re-credited as {lap} s, race time {end} s"
     );
     assert_eq!(

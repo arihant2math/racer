@@ -533,7 +533,6 @@ fn qa_edge_11_reset_after_reversing_skips_an_uncredited_gate() {
 /// next lap is then timed from the wrong point. Shrunk case: two laps
 /// (Timing events alone), undo both, redo one.
 #[test]
-#[ignore = "QA-EDGE-9"]
 fn qa_edge_9_second_lap_undone_restores_the_wrong_lap_start() {
     let g = &TRACKS[0];
     let mut t = Timing::start(0.0);
@@ -562,7 +561,6 @@ fn qa_edge_9_second_lap_undone_restores_the_wrong_lap_start() {
 /// no longer counts keeps its sector times as "best" on the HUD. Shrunk case:
 /// one fast lap, taken back over the line.
 #[test]
-#[ignore = "QA-EDGE-10"]
 fn qa_edge_10_undone_lap_keeps_its_best_sectors_and_delta_reference() {
     let g = &TRACKS[0];
     let mut t = Timing::start(0.0);
@@ -578,9 +576,14 @@ fn qa_edge_10_undone_lap_keeps_its_best_sectors_and_delta_reference() {
         "no lap stands, yet best sectors are {:?}",
         t.best_sectors
     );
-    // The redone lap's first checkpoint still gets a delta, against the
-    // checkpoint times of the lap that was taken back.
-    t.on_event(ProgressEvent::Lap, 51.0, g);
-    t.on_event(ProgressEvent::Checkpoint(0), 60.0, g);
+    // Back over the last checkpoint and forwards again: no lap stands, so
+    // there is nothing to measure a delta against.
+    t.on_event(ProgressEvent::CheckpointUndone(n - 1), 51.0, g);
+    t.on_event(ProgressEvent::Checkpoint(n - 1), 52.0, g);
     assert_eq!(t.delta, None, "delta against a lap that does not count");
+    // The lap redone stands again, with its own sectors as the bests.
+    t.on_event(ProgressEvent::Lap, 53.0, g);
+    assert_eq!(t.best_lap, Some(53.0));
+    assert_eq!(t.best_sectors, t.last_sectors);
+    assert!((t.last_sectors.iter().sum::<f32>() - 53.0).abs() < 1e-3);
 }
