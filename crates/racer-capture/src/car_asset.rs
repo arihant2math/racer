@@ -48,7 +48,7 @@ fn setup(
         })),
     ));
     commands.insert_resource(Paint(materials.add(racer_render::car_paint(PAINT))));
-    commands.spawn(SceneRoot(
+    commands.spawn(WorldAssetRoot(
         assets.load(GltfAssetLabel::Scene(0).from_asset(CAR_GLB)),
     ));
 }

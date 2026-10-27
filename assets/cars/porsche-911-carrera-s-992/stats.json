@@ -1,21 +1,21 @@
 {
-  "build_seconds": 16.0,
-  "collision_tris": 718,
+  "build_seconds": 13.0,
+  "collision_tris": 552,
   "dimensions": {
-    "center_x_m": -0.0,
+    "center_x_m": 0.0,
     "ground_clearance_m": 0.12,
     "height_m": 1.3031,
-    "length_m": 4.5192,
+    "length_m": 4.519,
     "nose_y_m": 2.265,
-    "tail_y_m": -2.2541,
-    "wheels_min_z_m": -0.0021,
-    "width_body_m": 1.8521,
-    "width_with_mirrors_m": 2.0544
+    "tail_y_m": -2.254,
+    "wheels_min_z_m": 0.0,
+    "width_body_m": 1.852,
+    "width_with_mirrors_m": 1.99
   },
   "files": {
-    "car.glb": 9083316,
-    "car_lod1.glb": 3026332,
-    "car_lod2.glb": 1180344
+    "car.glb": 9064332,
+    "car_lod1.glb": 3007376,
+    "car_lod2.glb": 1161600
   },
   "lod0": {
     "body": 150722,
@@ -42,7 +42,7 @@
   },
   "lod0_total_tris": 363874,
   "lod1_ratio": 0.3,
-  "lod1_total_tris": 109149,
+  "lod1_total_tris": 109148,
   "lod2_ratio": 0.102,
-  "lod2_total_tris": 37288
+  "lod2_total_tris": 37293
 }

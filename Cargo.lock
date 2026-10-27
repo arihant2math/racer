@@ -4722,6 +4722,7 @@ dependencies = [
  "image",
  "racer-dynamics",
  "racer-game",
+ "racer-render",
  "racer-sim",
 ]
 
