@@ -1085,7 +1085,19 @@ fn add_building(b: &mut Batcher, bld: &crate::building::Building) {
 
 /// Scripted camera poses for the captures (name, eye, target).
 pub fn camera_poses() -> Vec<(&'static str, Vec3, Vec3)> {
+    camera_poses_for(TimeOfDay::Day)
+}
+
+/// Poses for a preset: at night the drone flies lower, down in the lit
+/// street canyon (from roof height the frame is almost uniformly black).
+pub fn camera_poses_for(time: TimeOfDay) -> Vec<(&'static str, Vec3, Vec3)> {
     let m = main_path();
+    let drone_h = if time == TimeOfDay::Night { 16.0 } else { 42.0 };
+    let drone_u = if time == TimeOfDay::Night {
+        -4.0
+    } else {
+        -30.0
+    };
     vec![
         (
             "start-straight",
@@ -1114,7 +1126,7 @@ pub fn camera_poses() -> Vec<(&'static str, Vec3, Vec3)> {
         ),
         (
             "drone",
-            m.point(CORNER_IN + 22.0, -30.0, 42.0),
+            m.point(CORNER_IN + 22.0, drone_u, drone_h),
             m.point(CORNER_IN - 110.0, 2.0, 0.0),
         ),
         (

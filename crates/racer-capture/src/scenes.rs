@@ -4,7 +4,7 @@ use bevy::prelude::*;
 use racer_citykit::{
     lighting::camera_bundle,
     materials::{TextureSource, TimeOfDay},
-    showcase::{ShowcasePlugin, camera_poses},
+    showcase::{ShowcasePlugin, camera_poses_for},
 };
 use racer_game::{
     driving::{CameraMode, DrivingPlugin, Location, hood_camera},
@@ -115,7 +115,7 @@ pub fn add_scene(app: &mut App, name: &str) -> Option<Vec<Pose>> {
                 commands.spawn((SceneCamera, camera_bundle(time, wet), Transform::default()));
             });
             Some(
-                camera_poses()
+                camera_poses_for(time)
                     .into_iter()
                     .map(|(name, eye, at)| {
                         pose(
