@@ -150,6 +150,8 @@ pub struct WheelTelemetry {
     pub omega: f64,
     /// Suspension compression from static ride height (m).
     pub compression: f64,
+    /// Wheel-centre distance below the hardpoint (full droop when airborne).
+    pub travel: f64,
     pub steer: f64,
     pub brake_torque: f64,
 }
@@ -544,6 +546,7 @@ impl Vehicle {
             t.omega = ws.omega;
             t.steer = if i < 2 { steer[i] } else { 0.0 };
             t.brake_torque = brake[i] * ws.abs;
+            t.travel = travel[i].unwrap_or(c.geometry.max_distance);
             let Some(p) = &patches[i] else {
                 continue;
             };

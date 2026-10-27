@@ -1,0 +1,167 @@
+//! Vehicle plugin: Avian owns the chassis rigid body and its collisions,
+//! wheels are shape casts against world colliders, and `racer-dynamics`
+//! computes the chassis force and torque every fixed 240 Hz step.
+
+use std::sync::Arc;
+
+use avian3d::prelude::*;
+use bevy::prelude::*;
+use racer_dynamics::{
+    CarSpec, ChassisState, Controls, DVec3, Telemetry, Vehicle, VehicleState, WheelContact,
+    vehicle::WheelGeometry,
+};
+
+use crate::track::GroundSurface;
+
+/// Adds Avian physics and the vehicle step.
+pub struct VehiclePlugin;
+
+impl Plugin for VehiclePlugin {
+    fn build(&self, app: &mut App) {
+        app.add_plugins(PhysicsPlugins::default())
+            .add_systems(FixedUpdate, (drive_cars, record_acceleration).chain().in_set(VehicleSystems));
+    }
+}
+
+/// The vehicle step; schedule input systems before it.
+#[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct VehicleSystems;
+
+/// A car: immutable parameters shared between all cars of the same model.
+#[derive(Component, Clone)]
+pub struct Car {
+    pub id: String,
+    pub vehicle: Arc<Vehicle>,
+}
+
+/// Internal state of the vehicle model (wheel spin, slips, gear, ...).
+#[derive(Component, Clone, Copy, Debug)]
+pub struct CarState(pub VehicleState);
+
+/// Inputs applied at the next step.
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct CarControls(pub Controls);
+
+/// Output of the last step plus the chassis acceleration (world, without gravity).
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct CarTelemetry {
+    pub telemetry: Telemetry,
+    pub acceleration: Vec3,
+    last_velocity: Vec3,
+}
+
+/// Spawns a car resting at `transform` (the ground point below its centre of mass).
+pub fn spawn_car(commands: &mut Commands, spec: &CarSpec, transform: Transform) -> Result<Entity, String> {
+    let vehicle = Vehicle::from_spec(spec)?;
+    let c = &spec.chassis;
+    let ride = vehicle.ride_height() as f32;
+    // Body box from 12 cm above the ground to 85 % of the roof height,
+    // relative to the centre of mass.
+    let (bottom, top) = (0.12, 0.85 * c.height_m as f32);
+    let body = Vec3::new(c.width_m as f32, top - bottom, c.length_m as f32);
+    let i = vehicle.inertia.as_vec3();
+    let entity = commands
+        .spawn((
+            Name::new(spec.name.clone()),
+            Transform::from_translation(transform.translation + transform.up() * ride).with_rotation(transform.rotation),
+            RigidBody::Dynamic,
+            Mass(vehicle.mass as f32),
+            AngularInertia::new(i),
+            CenterOfMass::ZERO,
+            (NoAutoMass, NoAutoAngularInertia, NoAutoCenterOfMass),
+            SleepingDisabled,
+            TransformInterpolation,
+            CarState(vehicle.initial_state()),
+            CarControls(Controls {
+                automatic: true,
+                ..default()
+            }),
+            CarTelemetry::default(),
+            Car {
+                id: spec.id.clone(),
+                vehicle: Arc::new(vehicle),
+            },
+        ))
+        .with_child((
+            Collider::cuboid(body.x, body.y, body.z),
+            ColliderDensity(0.0),
+            Friction::new(0.4),
+            Restitution::new(0.0),
+            Transform::from_xyz(0.0, (bottom + top) / 2.0 - ride, 0.0),
+        ))
+        .id();
+    Ok(entity)
+}
+
+/// Wheel-centre position in the car's local frame for a cast distance.
+pub fn wheel_center(geometry: &WheelGeometry, travel: f64) -> Vec3 {
+    (geometry.hardpoint - DVec3::Y * travel).as_vec3()
+}
+
+fn drive_cars(
+    time: Res<Time>,
+    spatial: SpatialQuery,
+    surfaces: Query<&GroundSurface>,
+    mut cars: Query<(Entity, &Car, &mut CarState, &CarControls, &mut CarTelemetry, &Children, Forces)>,
+) {
+    let dt = time.delta_secs_f64();
+    if dt <= 0.0 {
+        return;
+    }
+    for (entity, car, mut state, controls, mut telemetry, children, mut forces) in &mut cars {
+        let v = &car.vehicle;
+        let rot = forces.rotation().0;
+        let pos = forces.position().0;
+        let chassis = ChassisState {
+            position: pos.as_dvec3(),
+            rotation: rot.as_dquat(),
+            linear_velocity: forces.linear_velocity().as_dvec3(),
+            angular_velocity: forces.angular_velocity().as_dvec3(),
+        };
+        let filter = SpatialQueryFilter::from_excluded_entities(std::iter::once(entity).chain(children.iter()));
+        let down = Dir3::new(rot * Vec3::NEG_Y).unwrap_or(Dir3::NEG_Y);
+        let contacts: [Option<WheelContact>; 4] = std::array::from_fn(|i| {
+            let g = v.wheel_geometry(i);
+            // Cylinder with its axis along the car's X (the axle).
+            let wheel = Collider::cylinder(g.radius as f32, g.width as f32);
+            let origin = pos + rot * g.hardpoint.as_vec3();
+            let shape_rot = rot * Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
+            let config = ShapeCastConfig::from_max_distance(g.max_distance as f32);
+            let hit = spatial.cast_shape(&wheel, origin, shape_rot, down, &config, &filter)?;
+            let up = -*down;
+            let (normal, distance) = if hit.distance > 0.0 && hit.normal1.dot(up) > 0.1 {
+                // The cast's time of impact is iterative and noisy at the
+                // millimetre level, which buzzes stiff springs. Re-solve the
+                // distance exactly against the contact plane: the cylinder
+                // touches it when its support point along -n lies on it.
+                let n = hit.normal1;
+                let axle = rot * Vec3::X;
+                let an = axle.dot(n);
+                let extent = g.radius as f32 * (1.0 - an * an).max(0.0).sqrt() + 0.5 * g.width as f32 * an.abs();
+                (n, (n.dot(origin - hit.point1) - extent) / n.dot(up))
+            } else {
+                (up, 0.0)
+            };
+            Some(WheelContact {
+                distance: f64::from(distance.clamp(0.0, g.max_distance as f32)),
+                normal: normal.as_dvec3(),
+                surface: surfaces.get(hit.entity).map(|s| s.0).unwrap_or_default(),
+            })
+        });
+        let out = v.step(&mut state.0, &chassis, &controls.0, &contacts, dt);
+        forces.apply_force(out.force.as_vec3());
+        forces.apply_torque(out.torque.as_vec3());
+        telemetry.telemetry = out.telemetry;
+    }
+}
+
+/// Chassis acceleration from the velocity change over the physics step.
+fn record_acceleration(time: Res<Time>, mut cars: Query<(&LinearVelocity, &mut CarTelemetry)>) {
+    let dt = time.delta_secs();
+    for (v, mut t) in &mut cars {
+        if dt > 0.0 {
+            t.acceleration = (v.0 - t.last_velocity) / dt + Vec3::Y * 9.81;
+        }
+        t.last_velocity = v.0;
+    }
+}
