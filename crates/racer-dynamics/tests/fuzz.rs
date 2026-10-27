@@ -274,7 +274,7 @@ fn replay_from_a_snapshot_is_bit_identical() {
         sim.step(c);
     }
     let snapshot = (sim.state, sim.body, sim.time);
-    let mut run = |sim: &mut Sim| {
+    let run = |sim: &mut Sim| {
         for c in &inputs[600..] {
             sim.step(c);
         }

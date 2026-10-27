@@ -344,7 +344,8 @@ mod tests {
             world.flush();
             car
         };
-        for _ in 0..720 {
+        // 2.5 s: up to speed while still on the road (it drifts right).
+        for _ in 0..600 {
             app.update();
         }
         let controls = app.world().get::<CarControls>(car).unwrap().0;
@@ -357,6 +358,8 @@ mod tests {
         let forces = forces.lock().unwrap();
         assert!(forces.len() > 500);
         // Steering right at speed: the rim is pulled back left.
-        assert!(*forces.last().unwrap() < -0.05, "{:?}", forces.last());
+        let recent = &forces[forces.len() - 60..];
+        let mean = recent.iter().sum::<f32>() / recent.len() as f32;
+        assert!(mean < -0.05, "{mean}");
     }
 }
