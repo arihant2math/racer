@@ -25,7 +25,7 @@ pub const SCENES: &[&str] = &[
     "downtown-kit-golden",
     "downtown-kit-night",
     "downtown-kit-wet",
-    "downtown-kit-cc0",
+    "downtown-kit-procedural",
 ];
 
 /// Adds the named scene to `app` and returns its camera poses.
@@ -89,26 +89,22 @@ pub fn add_scene(app: &mut App, name: &str) -> Option<Vec<Pose>> {
         | "downtown-kit-golden"
         | "downtown-kit-night"
         | "downtown-kit-wet"
-        | "downtown-kit-cc0" => {
+        | "downtown-kit-procedural" => {
             // Track-side asset kit showcase (racer-citykit), one scene per
-            // lighting preset; the wet variant is at night. The cc0 variant
-            // swaps in the Poly Haven scans (tools/fetch_textures.sh).
+            // lighting preset; the wet variant is at night. The procedural variant
+            // uses the offline procedural textures instead of the scans.
             let (time, wet) = match name {
-                "downtown-kit" | "downtown-kit-cc0" => (TimeOfDay::Day, false),
+                "downtown-kit" | "downtown-kit-procedural" => (TimeOfDay::Day, false),
                 "downtown-kit-golden" => (TimeOfDay::Golden, false),
                 "downtown-kit-night" => (TimeOfDay::Night, false),
                 _ => (TimeOfDay::Night, true),
             };
-            let textures = if name == "downtown-kit-cc0" {
-                TextureSource::PolyHaven(
-                    concat!(
-                        env!("CARGO_MANIFEST_DIR"),
-                        "/../../assets/textures/polyhaven"
-                    )
-                    .into(),
-                )
-            } else {
+            // Scanned 2k PBR textures (tools/fetch_textures.sh) by default;
+            // the procedural variant shows the offline fallback.
+            let textures = if name == "downtown-kit-procedural" {
                 TextureSource::Procedural
+            } else {
+                TextureSource::repo_scans()
             };
             app.add_plugins(ShowcasePlugin {
                 time,

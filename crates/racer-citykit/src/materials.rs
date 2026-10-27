@@ -28,13 +28,28 @@ pub enum TimeOfDay {
 /// Where tiling ground and wall textures come from.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum TextureSource {
-    /// Generated from noise in [`crate::texture`] (default; nothing to download).
+    /// Generated from noise in [`crate::texture`] (nothing to download; used
+    /// by tests and as the fallback).
     #[default]
     Procedural,
-    /// CC0 scans listed in `data/city/textures/polyhaven.toml`, downloaded by
-    /// `tools/fetch_textures.sh` into this directory (one folder per asset id).
-    /// Missing files fall back to the procedural texture.
+    /// Photo-scanned 2k PBR sets listed in `data/city/textures/polyhaven.toml`,
+    /// downloaded by `tools/fetch_textures.sh` into this directory (one folder
+    /// per asset id). The highest-quality option and the showcase default;
+    /// missing files fall back to the procedural texture per material.
     PolyHaven(std::path::PathBuf),
+}
+
+impl TextureSource {
+    /// The scans in the repository's `assets/textures/polyhaven`.
+    pub fn repo_scans() -> Self {
+        TextureSource::PolyHaven(
+            concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../assets/textures/polyhaven"
+            )
+            .into(),
+        )
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -91,7 +106,7 @@ fn load_scan(dir: &std::path::Path) -> Result<PbrTex, String> {
 }
 
 /// Scanned replacements by kit texture name: (texture set, tile size in m).
-fn scans(source: &TextureSource) -> HashMap<String, (PbrTex, f32)> {
+fn scans(source: &TextureSource) -> HashMap<String, (std::path::PathBuf, f32)> {
     let TextureSource::PolyHaven(dir) = source else {
         return HashMap::new();
     };
@@ -100,14 +115,41 @@ fn scans(source: &TextureSource) -> HashMap<String, (PbrTex, f32)> {
             .expect("data/city/textures/polyhaven.toml is valid");
     let mut out = HashMap::new();
     for t in manifest.texture {
-        match load_scan(&dir.join(&t.id)) {
-            Ok(tex) => {
-                out.insert(t.kit, (tex, t.tile_m));
-            }
-            Err(e) => warn!("{}: {e}; using the procedural texture", t.id),
-        }
+        out.insert(t.kit, (dir.join(&t.id), t.tile_m));
     }
     out
+}
+
+/// Scales a scan's albedo so its mean matches a plausible value for the
+/// material (photo scans are exposed arbitrarily; weathered asphalt is about
+/// 0.08–0.12, concrete 0.25–0.35 linear). Walls keep their scanned colour.
+fn normalise_albedo(name: &str, t: &mut PbrTex) {
+    let target = match name {
+        "asphalt" => 0.085,
+        "paving" => 0.26,
+        "concrete" | "kerb" => 0.3,
+        _ => return,
+    };
+    let px = &mut t.albedo.px;
+    let mean = px.iter().map(|p| (p[0] + p[1] + p[2]) / 3.0).sum::<f32>() / px.len() as f32;
+    let gain = (target / mean.max(1e-4)).clamp(0.5, 3.0);
+    for p in px.iter_mut() {
+        for c in &mut p[..3] {
+            *c = (*c * gain).min(1.0);
+        }
+    }
+}
+
+fn scanned_slots(names: &[String]) -> Vec<Slot> {
+    names
+        .iter()
+        .flat_map(|n| match n.as_str() {
+            "brick" => vec![Slot::Brick],
+            "plaster" => vec![Slot::Plaster, Slot::Stone],
+            "concrete" => vec![Slot::Concrete],
+            _ => vec![],
+        })
+        .collect()
 }
 
 /// Either material type used by the kit.
@@ -132,6 +174,8 @@ pub struct KitMaterials {
     pub by_slot: HashMap<Slot, Mat>,
     pub asphalt: PbrHandles,
     tinted: HashMap<(Slot, [u32; 3]), Handle<StandardMaterial>>,
+    /// Slots whose texture is a coloured scan (tints are softened for them).
+    scanned_slots: Vec<Slot>,
 }
 
 fn upload(images: &mut Assets<Image>, t: &PbrTex) -> PbrHandles {
@@ -193,8 +237,8 @@ impl TimeOfDay {
             TimeOfDay::Day => Glow {
                 lamp: 0.0,
                 signal: 6000.0,
-                window: 300.0,
-                shop: 900.0,
+                window: 120.0,
+                shop: 700.0,
                 sign: 0.0,
                 lightbox: 1500.0,
                 led: 5000.0,
@@ -233,11 +277,21 @@ impl KitMaterials {
     ) -> Self {
         let glow = time.glow();
         let mut scans = scans(source);
-        let mut pick =
-            |name: &str, procedural: &dyn Fn() -> PbrTex, tile: f32| match scans.remove(name) {
-                Some((t, scan_tile)) => (upload(images, &t), Vec2::splat(scan_tile)),
-                None => (upload(images, &procedural()), Vec2::splat(tile)),
-            };
+        let mut scanned = Vec::new();
+        // Loaded one at a time so only one 2k float set is in memory.
+        let mut pick = |name: &str, procedural: &dyn Fn() -> PbrTex, tile: f32| {
+            if let Some((dir, scan_tile)) = scans.remove(name) {
+                match load_scan(&dir) {
+                    Ok(mut t) => {
+                        normalise_albedo(name, &mut t);
+                        scanned.push(name.to_string());
+                        return (upload(images, &t), Vec2::splat(scan_tile));
+                    }
+                    Err(e) => warn!("{e}; using the procedural {name} texture"),
+                }
+            }
+            (upload(images, &procedural()), Vec2::splat(tile))
+        };
         let (asphalt, asphalt_tile) =
             pick("asphalt", &|| texture::asphalt(1024, 11), tile::ASPHALT);
         let (paving, paving_tile) = pick("paving", &|| texture::paving(1024, 12), tile::PAVING);
@@ -248,7 +302,7 @@ impl KitMaterials {
         );
         let (brick, brick_tile) = pick("brick", &|| texture::brick(512, 15), tile::BRICK);
         let (plaster, plaster_tile) = pick("plaster", &|| texture::plaster(512, 16), tile::PLASTER);
-        let kerb = upload(images, &texture::concrete(512, 14, 0.33));
+        let (kerb, kerb_tile) = pick("kerb", &|| texture::concrete(512, 14, 0.33), 1.0);
         let roof = upload(images, &texture::roof(512, 17));
         let curb = upload(images, &texture::curb(512, 18));
         let decals = upload(images, &texture::decal_atlas(1024, 19));
@@ -525,7 +579,7 @@ impl KitMaterials {
         );
         s(
             Slot::Kerb,
-            textured(&kerb, Vec2::splat(1.0)),
+            textured(&kerb, kerb_tile),
             SurfaceParams::plain(),
         );
         s(
@@ -550,6 +604,7 @@ impl KitMaterials {
             by_slot,
             asphalt,
             tinted: HashMap::new(),
+            scanned_slots: scanned_slots(&scanned),
         }
     }
 
@@ -590,6 +645,14 @@ impl KitMaterials {
             return self.get(slot);
         };
         let mut m = std_mats.get(base).expect("slot material exists").clone();
+        // A scan already carries its own colour: keep only the relative hue
+        // and brightness of the palette tint, softened.
+        let tint = if self.scanned_slots.contains(&slot) {
+            let max = tint.iter().copied().fold(1e-3, f32::max);
+            tint.map(|c| 0.55 + 0.45 * c / max)
+        } else {
+            tint
+        };
         let t = Color::srgb(tint[0], tint[1], tint[2]).to_linear();
         let b = m.base_color.to_linear();
         m.base_color = Color::LinearRgba(LinearRgba::new(

@@ -1,8 +1,7 @@
-# CC0 scanned PBR textures from Poly Haven (https://polyhaven.com/license, CC0 1.0 Universal:
-# public domain, no attribution required; authors listed anyway). Optional: the kit's
-# procedural textures are the default. tools/fetch_textures.sh downloads these 1k JPGs into
-# assets/textures/polyhaven/<id>/ and verifies each md5; the downtown-kit-cc0 capture scene
-# (racer-citykit TextureSource::PolyHaven) uses them in place of the procedural set.
+# Scanned PBR textures from Poly Haven (https://polyhaven.com/license, CC0 1.0; authors
+# recorded anyway), 2k JPG. These are the kit's default ground and wall materials:
+# tools/fetch_textures.sh downloads them into assets/textures/polyhaven/<id>/ with md5 checks
+# (tools/setup.sh runs it). Without the files the kit falls back to its procedural textures.
 
 [[texture]]
 kit = "asphalt"
@@ -10,9 +9,9 @@ id = "asphalt_track"
 author = "Dimitrios Savva"
 tile_m = 2.0
 page = "https://polyhaven.com/a/asphalt_track"
-albedo = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/asphalt_track/asphalt_track_diff_1k.jpg", md5 = "92e0682878c39430e521cce235ac1f75" }
-normal = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/asphalt_track/asphalt_track_nor_gl_1k.jpg", md5 = "d61d8e22e24ea0e44873b9c9c97d4e0c" }
-orm = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/asphalt_track/asphalt_track_arm_1k.jpg", md5 = "f38c5981fb7f8e8c9a8a42726d7fe5a5" }
+albedo = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/asphalt_track/asphalt_track_diff_2k.jpg", md5 = "faec159f1f29d231581c32bd256b5ede" }
+normal = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/asphalt_track/asphalt_track_nor_gl_2k.jpg", md5 = "5381e78d5deda41e9ff5dd9c317bfa62" }
+orm = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/asphalt_track/asphalt_track_arm_2k.jpg", md5 = "a528253bac67e8570553c4eac14d97e8" }
 
 [[texture]]
 kit = "paving"
@@ -20,9 +19,9 @@ id = "concrete_pavement"
 author = "Charlotte Baglioni"
 tile_m = 1.8
 page = "https://polyhaven.com/a/concrete_pavement"
-albedo = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete_pavement/concrete_pavement_diff_1k.jpg", md5 = "b7a0d071a3406d55a1c3e9a73a06df03" }
-normal = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete_pavement/concrete_pavement_nor_gl_1k.jpg", md5 = "025a1d4e910cf3e5b3d63ada43a791d8" }
-orm = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete_pavement/concrete_pavement_arm_1k.jpg", md5 = "92d5d1f6449deacd7dbd13d1dff26741" }
+albedo = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/concrete_pavement/concrete_pavement_diff_2k.jpg", md5 = "f7cdc6f38538e2739d48fbb4f1507ddb" }
+normal = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/concrete_pavement/concrete_pavement_nor_gl_2k.jpg", md5 = "0b6ff8180e61242be0b89e8fe1d6fda7" }
+orm = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/concrete_pavement/concrete_pavement_arm_2k.jpg", md5 = "850a6ac811d73e993555058cc21471a1" }
 
 [[texture]]
 kit = "brick"
@@ -30,9 +29,9 @@ id = "red_brick_03"
 author = "Rob Tuytel"
 tile_m = 1.0
 page = "https://polyhaven.com/a/red_brick_03"
-albedo = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/red_brick_03/red_brick_03_diff_1k.jpg", md5 = "d157c6d6dd774762b4269927a87fe9b5" }
-normal = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/red_brick_03/red_brick_03_nor_gl_1k.jpg", md5 = "e89ce432d9160edb7c902f901756865f" }
-orm = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/red_brick_03/red_brick_03_arm_1k.jpg", md5 = "1b5472dd06888c7cf7db63e692e03978" }
+albedo = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/red_brick_03/red_brick_03_diff_2k.jpg", md5 = "df521ebe6c4eb72c3329832acfecd95d" }
+normal = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/red_brick_03/red_brick_03_nor_gl_2k.jpg", md5 = "fd2d01b5e0f4de51ca4d7c2b4bcbc22c" }
+orm = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/red_brick_03/red_brick_03_arm_2k.jpg", md5 = "9a627cb7b5f7e174f6a687b35ac10f0d" }
 
 [[texture]]
 kit = "plaster"
@@ -40,9 +39,9 @@ id = "plastered_wall_04"
 author = "Rob Tuytel"
 tile_m = 3.2
 page = "https://polyhaven.com/a/plastered_wall_04"
-albedo = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/plastered_wall_04/plastered_wall_04_diff_1k.jpg", md5 = "3a45e9e3ff0c6aa179371dff02bded1f" }
-normal = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/plastered_wall_04/plastered_wall_04_nor_gl_1k.jpg", md5 = "f18e649235bb688732fb0ef1d61a5286" }
-orm = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/plastered_wall_04/plastered_wall_04_arm_1k.jpg", md5 = "4d3c55b7cbb32cce818af5b2a1f18ffa" }
+albedo = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/plastered_wall_04/plastered_wall_04_diff_2k.jpg", md5 = "895416a6d0f0b41c8a53a3436bed5a05" }
+normal = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/plastered_wall_04/plastered_wall_04_nor_gl_2k.jpg", md5 = "119d0993d303caadcfe73003db001c42" }
+orm = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/plastered_wall_04/plastered_wall_04_arm_2k.jpg", md5 = "251fc96b9f3808b8dd26c1410f5870e4" }
 
 [[texture]]
 kit = "concrete"
@@ -50,6 +49,16 @@ id = "concrete_wall_008"
 author = "Dario Barresi, Charlotte Baglioni"
 tile_m = 2.71
 page = "https://polyhaven.com/a/concrete_wall_008"
-albedo = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete_wall_008/concrete_wall_008_diff_1k.jpg", md5 = "6a0f87fbfea261d797661c47e05b25ad" }
-normal = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete_wall_008/concrete_wall_008_nor_gl_1k.jpg", md5 = "ea22029834a78f549981196b3263aa78" }
-orm = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/concrete_wall_008/concrete_wall_008_arm_1k.jpg", md5 = "bebc69f0c73d251023abb9cb57545165" }
+albedo = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/concrete_wall_008/concrete_wall_008_diff_2k.jpg", md5 = "9e834dad5c07a3ba452a2ad0f1454c9f" }
+normal = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/concrete_wall_008/concrete_wall_008_nor_gl_2k.jpg", md5 = "deca87f9fa074c7f041d23178f74ec95" }
+orm = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/concrete_wall_008/concrete_wall_008_arm_2k.jpg", md5 = "b2f992f83c82627c5e4a05ac0caff50d" }
+
+[[texture]]
+kit = "kerb"
+id = "concrete_floor_02"
+author = "Rob Tuytel"
+tile_m = 2.0
+page = "https://polyhaven.com/a/concrete_floor_02"
+albedo = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/concrete_floor_02/concrete_floor_02_diff_2k.jpg", md5 = "769c7bf30050cc57be848a67d5c20270" }
+normal = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/concrete_floor_02/concrete_floor_02_nor_gl_2k.jpg", md5 = "3cc9918473a0c3d5ecb10f0ddc7e218d" }
+orm = { url = "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/2k/concrete_floor_02/concrete_floor_02_arm_2k.jpg", md5 = "3da4d961cbd251e76b7dd34318cf452d" }

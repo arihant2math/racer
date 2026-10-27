@@ -151,6 +151,11 @@ fn fragment(in: VertexOutput, @builtin(front_facing) is_front: bool) -> Fragment
     var puddle_bias = 0.0;
 
     let wear = fbm3(world.xz * 2.7 + surface.seed);
+    // Macro variation (tens of metres): repairs, ageing and dirt that break
+    // up the texture tiling, stronger on roads than on sidewalks.
+    let macro_n = fbm3(world.xz * 0.045 + surface.seed * 1.7) * 0.6 + fbm3(world.xz * 0.21 + 5.0) * 0.4;
+    let macro_amp = select(select(0.18, 0.32, surface.mode == MODE_ROAD), 0.0, surface.mode == MODE_DECAL);
+    base *= 1.0 - macro_amp * 0.5 + macro_amp * macro_n;
     if (surface.mode == MODE_ROAD) {
         let au = abs(uv.x);
         if ((surface.flags & FLAG_WHEEL_TRACKS) != 0u && au < surface.carriage_half) {

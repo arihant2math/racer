@@ -104,4 +104,7 @@ else
   echo "lavapipe ICD not found under /usr/share/vulkan/icd.d" >&2
   exit 1
 fi
+# Scanned PBR textures for the city kit (md5-checked; the kit falls back to
+# procedural textures if this fails, so a network error is not fatal).
+"$ROOT/tools/fetch_textures.sh" || echo "warning: texture download failed; the city kit will use procedural textures" >&2
 echo "==> setup complete"
