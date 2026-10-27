@@ -374,6 +374,9 @@ proptest! {
             match (sa, sb) {
                 (Status::Finished(ta), Status::Finished(tb)) => {
                     prop_assert!(pa.laps > pb.laps || (pa.laps == pb.laps && ta <= tb));
+                    if pa.laps == pb.laps && ta == tb {
+                        prop_assert!(pa.distance >= pb.distance);
+                    }
                 }
                 _ => prop_assert!(pa.key().0 > pb.key().0
                     || (pa.key().0 == pb.key().0 && pa.key().1 > pb.key().1)

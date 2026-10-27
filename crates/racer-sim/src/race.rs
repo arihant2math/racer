@@ -14,7 +14,7 @@ use racer_trackc::Track;
 
 use crate::{
     ai::{AiDriver, CarParams, CarView, Difficulty, Other},
-    rules::{self, Goal, Progress, ProgressEvent, ResetMonitor, ResetReason, Status, Timing},
+    rules::{self, Goal, Progress, ResetMonitor, ResetReason, Status, Timing},
     track::Layer,
     vehicle::{
         Car, CarBody, CarControls, CarState, CarTelemetry, ControlSystems, VehicleSystems,
@@ -149,7 +149,9 @@ impl RaceConfig {
     pub fn goal(&self, track: &Track) -> Goal {
         match self.mode {
             RaceMode::Sprint => Goal::Distance(track.geometry.sprint_finish),
-            _ => Goal::Laps(self.laps),
+            // A race is at least a lap: with none, everybody would be
+            // finished on the grid.
+            _ => Goal::Laps(self.laps.max(1)),
         }
     }
 }
@@ -214,6 +216,9 @@ pub struct Racer {
     /// Whether the car currently passes through other cars.
     pub ghosted: bool,
     pub assists: Assists,
+    /// Laps credited when the winner took the flag: once the winner is home
+    /// a car finishes as soon as it has more.
+    flag_laps: Option<u32>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -259,6 +264,7 @@ pub fn spawn_racer(
         ghost: 0.0,
         ghosted: false,
         assists: Assists::default(),
+        flag_laps: None,
     };
     commands.entity(entity).insert(racer);
     if let DriverKind::Ai(difficulty) = driver {
@@ -307,20 +313,32 @@ fn track_racers(
     let goal = config.goal(&track.0);
     let now = race.time;
     let running = race.phase == RacePhase::Running;
+    // Per racing car: its laps before this step, when (within the step) it
+    // crossed the line or the goal, and whether it reached the goal.
+    let mut crossings = Vec::new();
     for (entity, mut racer, (pos, rot, vel), request) in &mut racers {
         let forward = rot.0 * Vec3::NEG_Z;
+        let (from, laps) = (racer.progress.distance, racer.progress.laps);
         let events = racer.progress.update(g, pos.0, vel.0, forward, dt);
         if running && racer.status == Status::Racing {
             for &event in &events {
                 racer.timing.on_event(event, now, g);
             }
-            // Done at the goal (a sprint finish lies between gates, so it is
-            // checked every step), or at the line once the winner is home.
-            let lapped_home = race.winner.is_some() && events.contains(&ProgressEvent::Lap);
-            if goal.reached(&racer.progress, g) || lapped_home {
-                racer.status = Status::Finished(now);
-                race.winner.get_or_insert(now);
-            }
+            // The goal is checked every step (a sprint finish lies between
+            // gates). The crossing time is interpolated inside the step, so
+            // cars finishing in the same step are told apart.
+            let to = racer.progress.distance;
+            let line = match goal {
+                Goal::Distance(d) => d,
+                Goal::Laps(_) => racer.progress.laps as f32 * g.length,
+            };
+            let at = if to > from && line > from {
+                now - dt * ((to - line) / (to - from)).clamp(0.0, 1.0)
+            } else {
+                now
+            };
+            let reached = goal.reached(&racer.progress, g);
+            crossings.push((entity, laps, at, reached));
         }
         let racing = running && racer.status == Status::Racing;
         let progress = racer.progress;
@@ -342,6 +360,31 @@ fn track_racers(
                 at,
             });
             commands.entity(entity).insert(PendingReset);
+        }
+    }
+    if race.winner.is_none() {
+        race.winner = crossings
+            .iter()
+            .filter(|&&(.., reached)| reached)
+            .map(|&(_, _, at, _)| at)
+            .reduce(f32::min);
+    }
+    let Some(winner) = race.winner else {
+        return;
+    };
+    // Done at the goal, or at the line with a lap taken after the winner's
+    // finish (not one re-credited by rocking over the line).
+    for (entity, laps_before, at, reached) in crossings {
+        let Ok((_, mut racer, ..)) = racers.get_mut(entity) else {
+            continue;
+        };
+        let laps = racer.progress.laps;
+        let flag_laps =
+            *racer
+                .flag_laps
+                .get_or_insert(if at <= winner { laps } else { laps_before });
+        if reached || laps > flag_laps {
+            racer.status = Status::Finished(at);
         }
     }
 }
@@ -369,7 +412,9 @@ fn apply_resets(
 ) {
     let g = &track.0.geometry;
     let now = race.time;
-    let positions: Vec<Vec3> = others.iter().map(|p| p.0).collect();
+    // Clear of the other cars, including the ones reset before this one in
+    // the same step.
+    let mut positions: Vec<Vec3> = others.iter().map(|p| p.0).collect();
     for (
         entity,
         mut racer,
@@ -378,6 +423,7 @@ fn apply_resets(
     ) in &mut pending
     {
         let (pose, distance, lateral) = rules::reset_pose(g, racer.monitor.last_valid, &positions);
+        positions.push(pose.position);
         let ride = car.vehicle.ride_height() as f32;
         let up = pose.rotation * Vec3::Y;
         pos.0 = pose.position + up * ride;
@@ -408,12 +454,12 @@ fn update_collisions(
     mut commands: Commands,
     time: Res<Time>,
     config: Res<RaceConfig>,
-    mut racers: Query<(&mut Racer, &Position, &Children)>,
+    mut racers: Query<(Entity, &mut Racer, &Position, &Children)>,
     bodies: Query<(), With<CarBody>>,
 ) {
     let dt = time.delta_secs();
-    let positions: Vec<Vec3> = racers.iter().map(|(_, p, _)| p.0).collect();
-    for (mut racer, pos, children) in &mut racers {
+    let positions: Vec<(Entity, Vec3)> = racers.iter().map(|(e, _, p, _)| (e, p.0)).collect();
+    for (entity, mut racer, pos, children) in &mut racers {
         racer.ghost = (racer.ghost - dt).max(0.0);
         let wants_ghost = racer.ghost > 0.0
             || match config.collisions {
@@ -423,7 +469,7 @@ fn update_collisions(
             };
         let crowded = positions
             .iter()
-            .any(|p| *p != pos.0 && p.distance(pos.0) < 5.5);
+            .any(|&(e, p)| e != entity && p.distance(pos.0) < 5.5);
         let ghosted = wants_ghost || (racer.ghosted && crowded);
         if ghosted == racer.ghosted {
             continue;

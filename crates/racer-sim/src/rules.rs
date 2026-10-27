@@ -506,8 +506,9 @@ pub fn dnf_due(winner_time: Option<f32>, now: f32, timeout: f32) -> bool {
 }
 
 /// Standings order (indices into `cars`): finishers by laps then finish
-/// time (a lapped car that finishes early stays behind the lead lap), then
-/// racing cars by progress, then DNFs by progress.
+/// time (a lapped car that finishes early stays behind the lead lap; a dead
+/// heat goes to the car further on), then racing cars by progress, then
+/// DNFs by progress.
 pub fn standings(cars: &[(Status, Progress)]) -> Vec<usize> {
     let mut order: Vec<usize> = (0..cars.len()).collect();
     let rank = |s: &Status| match s {
@@ -518,9 +519,11 @@ pub fn standings(cars: &[(Status, Progress)]) -> Vec<usize> {
     order.sort_by(|&a, &b| {
         let ((sa, pa), (sb, pb)) = (&cars[a], &cars[b]);
         rank(sa).cmp(&rank(sb)).then_with(|| match (sa, sb) {
-            (Status::Finished(ta), Status::Finished(tb)) => {
-                pb.laps.cmp(&pa.laps).then(ta.total_cmp(tb))
-            }
+            (Status::Finished(ta), Status::Finished(tb)) => pb
+                .laps
+                .cmp(&pa.laps)
+                .then(ta.total_cmp(tb))
+                .then(pb.distance.total_cmp(&pa.distance)),
             _ => {
                 let (ka, kb) = (pa.key(), pb.key());
                 kb.0.cmp(&ka.0)
