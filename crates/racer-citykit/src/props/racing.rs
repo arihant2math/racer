@@ -93,8 +93,9 @@ pub fn armco_run(path: &Path, s0: f32, s1: f32, offset: f32, facing: f32, y0: f3
     parts
 }
 
-/// Tyre wall: stacks of four tyres, two rows deep, behind a conveyor-belt
-/// facing; `facing` +1 when the road is to the right of `offset`.
+/// Tyre wall in front of a barrier face at `offset`: stacks of four tyres,
+/// two rows deep, behind a conveyor-belt facing. The wall extends towards
+/// the road, which lies on the `facing` side (+1: to the right of `offset`).
 pub fn tirewall_run(path: &Path, s0: f32, s1: f32, offset: f32, facing: f32, y0: f32, lod: usize) -> Parts {
     let seg = segments(lod, 12);
     let mut stack = MeshData::new();
@@ -104,7 +105,7 @@ pub fn tirewall_run(path: &Path, s0: f32, s1: f32, offset: f32, facing: f32, y0:
         stack.append(&MeshData::frustum(0.29, 0.31, 0.1, seg, false).translated(Vec3::Y * y));
         stack.append(&MeshData::frustum(0.31, 0.29, 0.1, seg, false).translated(Vec3::Y * (y + 0.1)));
     }
-    // Top: rim hole and sidewall.
+    // Top: sidewall and the dark rim hole.
     stack.append(&MeshData::frustum(0.29, 0.17, 0.0001, seg, false).translated(Vec3::Y * 0.8));
     stack.append(&MeshData::frustum(0.17, 0.17, 0.0001, seg, true).translated(Vec3::Y * 0.74));
     let mut parts = Parts::new();
@@ -113,24 +114,19 @@ pub fn tirewall_run(path: &Path, s0: f32, s1: f32, offset: f32, facing: f32, y0:
     for k in 0..n {
         let s = s0 + (k as f32 + 0.5) * pitch;
         for row in 0..2 {
-            let d = offset - facing * (0.33 + row as f32 * 0.6);
-            let pos = path.point(s, d, y0);
-            parts.add(Slot::Rubber, stack.translated(pos));
+            let d = offset + facing * (0.32 + row as f32 * 0.6);
+            parts.add(Slot::Rubber, stack.translated(path.point(s, d, y0)));
         }
     }
-    // Belt over the front face, 0.85 m tall, in 3 m panels.
-    let belt = [
-        Vec2::new(0.0, y0),
-        Vec2::new(0.015, y0),
-        Vec2::new(0.015, y0 + 0.85),
-        Vec2::new(0.0, y0 + 0.85),
-    ];
+    // Belt over the road-side face, 0.85 m tall.
+    let front = 1.24;
+    let belt = [Vec2::new(0.0, y0), Vec2::new(0.015, y0), Vec2::new(0.015, y0 + 0.85), Vec2::new(0.0, y0 + 0.85)];
     let belt: Vec<Vec2> = if facing > 0.0 {
         belt.to_vec()
     } else {
         belt.iter().rev().map(|p| Vec2::new(-p.x, p.y)).collect()
     };
-    let frames = run_frames(path, s0, s1, offset, 1.0);
+    let frames = run_frames(path, s0, s1, offset + facing * front, 1.0);
     parts.add_closed(Slot::Rubber, MeshData::sweep(&frames, &belt, true, true));
     parts
 }
@@ -184,7 +180,7 @@ pub fn fence_run(path: &Path, s0: f32, s1: f32, offset: f32, facing: f32, y0: f3
 /// banner and a five-column start-light unit facing local +Z (towards the
 /// grid behind it), plus sockets for the lights.
 pub fn gantry(span: f32, lod: usize) -> (Parts, Vec<Socket>) {
-    let seg = segments(lod, 8);
+    let seg = if lod == 0 { 8 } else { 4 };
     let mut parts = Parts::new();
     let half = span / 2.0;
     let clear = 6.5;

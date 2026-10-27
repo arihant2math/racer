@@ -15,6 +15,7 @@ racer-dynamics = { path = "crates/racer-dynamics" }
 racer-sim = { path = "crates/racer-sim" }
 racer-render = { path = "crates/racer-render" }
 racer-game = { path = "crates/racer-game" }
+racer-citykit = { path = "crates/racer-citykit" }
 
 bevy = { version = "=0.19.1", default-features = false }
 image = { version = "=0.25.10", default-features = false, features = ["png"] }
@@ -56,6 +57,10 @@ opt-level = 1
 [profile.dev.package."*"]
 opt-level = 3
 debug = false
+
+# Procedural texture and mesh generation runs at startup; keep it fast in dev builds.
+[profile.dev.package.racer-citykit]
+opt-level = 3
 
 [profile.release]
 debug = "line-tables-only"

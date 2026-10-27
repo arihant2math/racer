@@ -4720,6 +4720,7 @@ dependencies = [
  "avian3d",
  "bevy",
  "image",
+ "racer-citykit",
  "racer-dynamics",
  "racer-game",
  "racer-sim",

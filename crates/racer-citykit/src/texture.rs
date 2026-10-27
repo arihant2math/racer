@@ -947,3 +947,30 @@ pub fn chequer(size: u32) -> Tex {
         [c, c, c, 1.0]
     })
 }
+
+/// Distant-tower façade (HLOD dressing): a 32 × 32 m tile of 8 floors by 16
+/// window columns. With `emissive` false: daytime base colour (glass with
+/// slight per-window variation, spandrels); with `emissive` true: the lit
+/// windows only (for the emissive texture).
+pub fn skyline(size: u32, seed: u32, emissive: bool) -> Tex {
+    Tex::from_fn(size, |u, v| {
+        let (cx, cy) = ((u * 16.0).floor() as i32, (v * 8.0).floor() as i32);
+        let (fu, fv) = ((u * 16.0).fract(), (v * 8.0).fract());
+        let id = hash3(cx, cy, seed);
+        let lit = unit(id) < 0.35;
+        let glass = fu > 0.08 && fu < 0.92 && fv > 0.25 && fv < 0.95;
+        let warm = unit(hash(id)) > 0.3;
+        let c = if emissive {
+            if glass && lit {
+                if warm { Vec3::new(1.0, 0.75, 0.45) } else { Vec3::new(0.7, 0.82, 1.0) }
+            } else {
+                Vec3::ZERO
+            }
+        } else if !glass {
+            Vec3::new(0.2, 0.2, 0.2)
+        } else {
+            Vec3::new(0.07, 0.09, 0.11) * (0.8 + 0.5 * unit(hash(id ^ 7)))
+        };
+        [c.x, c.y, c.z, 1.0]
+    })
+}

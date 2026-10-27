@@ -1,9 +1,14 @@
 //! Scenes the harness can capture and their scripted camera poses.
 
 use bevy::prelude::*;
+use racer_citykit::{
+    lighting::camera_bundle,
+    materials::TimeOfDay,
+    showcase::{ShowcasePlugin, camera_poses},
+};
 use racer_game::{
     driving::{CameraMode, DrivingPlugin, Location, hood_camera},
-    greybox::{GreyboxPlugin, default_camera_transform},
+    greybox::{GreyboxPlugin, SceneCamera, default_camera_transform},
 };
 use racer_sim::{
     track::{SKIDPAD_CENTER, test_track},
@@ -13,7 +18,14 @@ use racer_sim::{
 use crate::harness::Pose;
 
 /// Names accepted by [`add_scene`].
-pub const SCENES: &[&str] = &["greybox", "driving"];
+pub const SCENES: &[&str] = &[
+    "greybox",
+    "driving",
+    "downtown-kit",
+    "downtown-kit-golden",
+    "downtown-kit-night",
+    "downtown-kit-wet",
+];
 
 /// Adds the named scene to `app` and returns its camera poses.
 pub fn add_scene(app: &mut App, name: &str) -> Option<Vec<Pose>> {
@@ -71,6 +83,26 @@ pub fn add_scene(app: &mut App, name: &str) -> Option<Vec<Pose>> {
                     look(SKIDPAD_CENTER + Vec3::new(0.0, 60.0, 90.0), SKIDPAD_CENTER),
                 ),
             ])
+        }
+        "downtown-kit" | "downtown-kit-golden" | "downtown-kit-night" | "downtown-kit-wet" => {
+            // Track-side asset kit showcase (racer-citykit), one scene per
+            // lighting preset; the wet variant is at night.
+            let (time, wet) = match name {
+                "downtown-kit" => (TimeOfDay::Day, false),
+                "downtown-kit-golden" => (TimeOfDay::Golden, false),
+                "downtown-kit-night" => (TimeOfDay::Night, false),
+                _ => (TimeOfDay::Night, true),
+            };
+            app.add_plugins(ShowcasePlugin { time, wet })
+                .add_systems(Startup, move |mut commands: Commands| {
+                    commands.spawn((SceneCamera, camera_bundle(time, wet), Transform::default()));
+                });
+            Some(
+                camera_poses()
+                    .into_iter()
+                    .map(|(name, eye, at)| pose(name, Transform::from_translation(eye).looking_at(at, Vec3::Y)))
+                    .collect(),
+            )
         }
         _ => None,
     }

@@ -13,7 +13,7 @@ use crate::{
 };
 
 /// LED street light colour temperature (K) and output (lm).
-pub const STREET_LIGHT_K: f32 = 3500.0;
+pub const STREET_LIGHT_K: f32 = 4000.0;
 pub const STREET_LIGHT_LM: f32 = 16_000.0;
 
 /// Street lamp: 9 m tapered pole on a plinth, `arms` (1 or 2) outreach arms
@@ -67,9 +67,9 @@ fn signal_head(aspect: Aspect, lod: usize) -> Parts {
     let mut p = Parts::new();
     let seg = segments(lod, 12);
     p.add_closed(Slot::DarkMetal, bxc(Vec3::ZERO, Vec3::new(0.25, 1.0, 0.35)));
-    // Backplate with a white border.
+    // Backplate with a thin yellow retroreflective border.
     p.add_closed(Slot::DarkMetal, bxc(Vec3::new(-0.13, 0.0, 0.0), Vec3::new(0.02, 1.25, 0.6)));
-    p.add_closed(Slot::PaintWhite, bxc(Vec3::new(-0.145, 0.0, 0.0), Vec3::new(0.01, 1.3, 0.65)));
+    p.add_closed(Slot::PaintYellow, bxc(Vec3::new(-0.1225, 0.0, 0.0), Vec3::new(0.005, 1.27, 0.62)));
     for (k, (a, slot)) in [(Aspect::Red, Slot::SignalRed), (Aspect::Amber, Slot::SignalAmber), (Aspect::Green, Slot::SignalGreen)]
         .into_iter()
         .enumerate()
@@ -298,7 +298,9 @@ fn blob(c: Vec3, r: f32, rng: &mut Rng, lod: usize) -> MeshData {
                 let n = if n.dot(centroid) < 0.0 { -n } else { n }.normalize();
                 let base = m.positions.len() as u32;
                 for p in tri {
-                    m.vertex(p + c, n, Vec2::new(p.x + p.z, p.y));
+                    // Mostly radial normals: soft, leafy shading instead of facets.
+                    let radial = p.normalize_or(Vec3::Y);
+                    m.vertex(p + c, (radial * 0.75 + n * 0.25).normalize(), Vec2::new(p.x + p.z, p.y));
                 }
                 m.tri(base, base + 1, base + 2);
             }

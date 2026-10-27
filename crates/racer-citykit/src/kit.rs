@@ -60,6 +60,8 @@ pub enum Slot {
     Roof,
     RoofMetal,
     Awning,
+    /// Distant HLOD tower façades.
+    Skyline,
 }
 
 impl Slot {

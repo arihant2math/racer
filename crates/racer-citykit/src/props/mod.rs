@@ -159,7 +159,7 @@ pub fn seven_segment_width(text: &str, h: f32) -> f32 {
 }
 
 /// Square box truss from `a` to `b` (`w` wide) with four chords and zigzag
-/// diagonals on each face.
+/// diagonals on each face (diagonals only when `seg` > 4, i.e. LOD0).
 pub fn truss(a: Vec3, b: Vec3, w: f32, chord_r: f32, seg: u32) -> MeshData {
     let mut m = MeshData::new();
     let d = b - a;
@@ -176,7 +176,7 @@ pub fn truss(a: Vec3, b: Vec3, w: f32, chord_r: f32, seg: u32) -> MeshData {
     for c in corners {
         m.append(&MeshData::tube(a + c, b + c, chord_r, seg, true));
     }
-    let n = (len / w).round().max(1.0) as usize;
+    let n = if seg > 4 { (len / w).round().max(1.0) as usize } else { 0 };
     for k in 0..n {
         let (p0, p1) = (a + dir * (len * k as f32 / n as f32), a + dir * (len * (k + 1) as f32 / n as f32));
         for f in 0..4 {

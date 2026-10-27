@@ -466,9 +466,18 @@ fn fire_escape(p: &mut Parts, x0: f32, x1: f32, y0: f32, floor_h: f32, floors: u
 }
 
 /// Façade-space transform for the edge `a → b` with outward normal `n`.
+/// The frame is always right-handed (x along, y up, z out), so text and
+/// asymmetric modules are never mirrored; the edge is walked from whichever
+/// end makes that true.
 fn facade_frame(a: Vec2, b: Vec2, n: Vec2) -> (Affine3A, f32) {
-    let d = (b - a).normalize();
     let len = a.distance(b);
+    let mut d = (b - a).normalize();
+    let mut a = a;
+    // det(d, Y, n) = d · (Y × n); Y × (nx, 0, nz) = (nz, 0, -nx).
+    if d.x * n.y - d.y * n.x < 0.0 {
+        a = b;
+        d = -d;
+    }
     (
         Affine3A::from_cols(
             Vec3::new(d.x, 0.0, d.y).into(),
