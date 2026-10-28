@@ -41,7 +41,14 @@ impl Plugin for FlowPlugin {
             )
             .add_systems(
                 OnEnter(AppState::Loading),
-                (race_scene::clear_race, go_to_race).chain(),
+                (race_scene::clear_race, spawn_loading_screen),
+            )
+            // Car models are preloaded at startup; the race starts once they are in.
+            .add_systems(
+                Update,
+                go_to_race
+                    .run_if(in_state(AppState::Loading))
+                    .run_if(crate::car_model::models_ready),
             )
             .add_systems(OnEnter(AppState::Results), spawn_results)
             .add_systems(
@@ -373,6 +380,16 @@ fn spawn_main_menu(mut commands: Commands, mut cursor: ResMut<MenuCursor>) {
             MenuItem::Action(Action::Quit),
         ],
         DespawnOnExit(AppState::MainMenu),
+    );
+}
+
+fn spawn_loading_screen(mut commands: Commands) {
+    screen(
+        &mut commands,
+        "Loading",
+        "Loading car models",
+        &[],
+        DespawnOnExit(AppState::Loading),
     );
 }
 
