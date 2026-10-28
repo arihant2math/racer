@@ -19,6 +19,8 @@ const AIR_DENSITY: f64 = 1.225;
 /// Below this forward speed (m/s) tire slip is damped directly to stop the
 /// relaxation springs oscillating at standstill.
 const LOW_SPEED: f64 = 3.0;
+/// Reverse speed (m/s) above which the engine is cut, in any gearbox mode.
+pub const REVERSE_TOP_SPEED: f64 = 30.0 / 3.6;
 
 /// Wheel order used everywhere.
 pub const FL: usize = 0;
@@ -51,9 +53,15 @@ pub struct Controls {
     /// Shift requests (edge-triggered: true for the one step the button went down).
     pub shift_up: bool,
     pub shift_down: bool,
-    /// Automatic gearbox mode (manual shifting otherwise).
+    /// Automatic gearbox mode (manual shifting otherwise). In a reverse
+    /// engaged by holding the brake the automatic swaps the pedals: the
+    /// brake drives backwards and the throttle brakes.
     pub automatic: bool,
     pub assists: Assists,
+    /// Race control holds the car on the brakes (the grid before the start):
+    /// the automatic gearbox does not engage reverse. Not sent over the
+    /// network; both sides set it from the race clock.
+    pub hold: bool,
 }
 
 impl Controls {
@@ -363,6 +371,27 @@ impl Vehicle {
         if controls.shift_down {
             drive.shift(ds, -1, forward_speed);
         }
+        if controls.automatic {
+            drive.auto_reverse(
+                ds,
+                controls.throttle,
+                controls.brake,
+                controls.hold,
+                forward_speed,
+                dt,
+            );
+        }
+        // The automatic in a brake-engaged reverse: the brake pedal drives,
+        // the throttle brakes.
+        let controls = &if controls.automatic && ds.gear < 0 && ds.brake_reverse {
+            Controls {
+                throttle: controls.brake,
+                brake: controls.throttle,
+                ..*controls
+            }
+        } else {
+            *controls
+        };
         let omegas = state.wheels.map(|w| w.omega);
         if controls.automatic {
             drive.auto_shift(
@@ -464,8 +493,13 @@ impl Vehicle {
             }
         }
         let governed = self.governor.is_some_and(|vmax| forward_speed > vmax);
+        let reversing = state.drive.gear < 0;
         let base_throttle = if governed {
             0.0
+        } else if reversing {
+            // Reverse is cut off above a walking-pace-plus top speed.
+            let cap = (REVERSE_TOP_SPEED + forward_speed).clamp(0.0, 1.0);
+            controls.throttle.clamp(0.0, 1.0) * cap
         } else {
             controls.throttle.clamp(0.0, 1.0)
         };
@@ -554,7 +588,13 @@ impl Vehicle {
                 let rolling = tire.rolling_resistance * p.drag * load[i] * r;
                 friction[i] = brake[i] * ws.abs + rolling;
                 if drive.weights[i] > 0.0 {
-                    max_driven_slip = max_driven_slip.max(sensor_slip);
+                    // In reverse the drive spins the wheels backwards.
+                    let drive_slip = if reversing {
+                        -slip_speed / p.vx.abs().max(2.0)
+                    } else {
+                        sensor_slip
+                    };
+                    max_driven_slip = max_driven_slip.max(drive_slip);
                 }
             }
             if controls.assists.tcs {

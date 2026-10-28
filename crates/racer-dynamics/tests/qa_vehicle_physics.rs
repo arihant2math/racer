@@ -147,9 +147,11 @@ fn qa_phys_3_car_stopped_after_a_sideways_slide_stays_put() {
     let mut sim = Sim::new(&v, &Flat);
     // Sliding sideways (to the right) at 12 m/s, as after a spin; brakes and handbrake on.
     sim.body.linear_velocity = DVec3::new(12.0, 0.0, 0.0);
+    // Held as race control holds a car (the automatic does not engage reverse).
     let held = Controls {
         brake: 1.0,
         handbrake: 1.0,
+        hold: true,
         ..auto_controls()
     };
     let mut furthest: f64 = 0.0;
@@ -174,6 +176,7 @@ fn qa_phys_3_car_stopped_on_locked_wheels_stays_put() {
     sim.launch_at(15.0);
     let mut held = Controls {
         brake: 1.0,
+        hold: true,
         ..auto_controls()
     };
     held.assists.abs = false;
@@ -202,6 +205,7 @@ fn qa_phys_3_braked_car_holds_on_a_grade() {
     let mut sim = Sim::new(&v, &Grade);
     let held = Controls {
         brake: 1.0,
+        hold: true,
         ..auto_controls()
     };
     sim.run(2.0, |_| held);

@@ -136,7 +136,26 @@ pub struct DriveState {
     pub since_shift: f64,
     /// Fuel cut by the rev limiter, held until the engine drops below it.
     pub limiter_cut: bool,
+    /// Automatic gearbox: how long the brake has held the car at a
+    /// standstill (s); reverse engages after [`REVERSE_HOLD`].
+    pub reverse_hold: f64,
+    /// Reverse was engaged by holding the brake (not with the lever): the
+    /// pedals are swapped and the throttle at a standstill selects 1st.
+    pub brake_reverse: bool,
 }
+
+/// Automatic gearbox: the brake held this long (s) at a standstill engages
+/// reverse. Long enough that a hard stop, or a brief stab at the brake while
+/// stopped, never does.
+pub const REVERSE_HOLD: f64 = 0.6;
+
+/// Below this speed (m/s, either way) the car counts as stopped for the
+/// automatic gearbox's change between reverse and 1st.
+pub const STANDSTILL: f64 = 0.3;
+
+/// Pedal travel that counts as pressed for the automatic reverse logic.
+const PEDAL_ON: f64 = 0.2;
+const PEDAL_OFF: f64 = 0.05;
 
 /// What one drivetrain substep transmitted, for telemetry.
 #[derive(Clone, Copy, Debug, Default)]
@@ -201,6 +220,8 @@ impl Drivetrain {
             gear: 1,
             since_shift: f64::INFINITY,
             limiter_cut: false,
+            reverse_hold: 0.0,
+            brake_reverse: false,
         }
     }
 
@@ -217,6 +238,46 @@ impl Drivetrain {
         }
         state.gear = gear;
         state.since_shift = 0.0;
+        state.brake_reverse = false;
+    }
+
+    /// Automatic gearbox's reverse, from the raw pedals (before the swap
+    /// [`crate::Vehicle::step`] does in reverse): the brake held with the car
+    /// stopped engages reverse after [`REVERSE_HOLD`]; in that reverse, the
+    /// throttle at a standstill (or rolling forward) goes back to 1st. A
+    /// reverse selected with the lever stays until the driver shifts out.
+    /// `hold` is race control holding the car on the brakes (the grid),
+    /// which never engages reverse.
+    pub fn auto_reverse(
+        &self,
+        state: &mut DriveState,
+        throttle: f64,
+        brake: f64,
+        hold: bool,
+        forward_speed: f64,
+        dt: f64,
+    ) {
+        if state.gear < 0 {
+            state.reverse_hold = 0.0;
+            if state.brake_reverse && throttle > PEDAL_OFF && forward_speed > -STANDSTILL {
+                state.gear = 1;
+                state.since_shift = 0.0;
+                state.brake_reverse = false;
+            }
+            return;
+        }
+        let stopped = forward_speed.abs() < STANDSTILL;
+        if hold || !stopped || brake < PEDAL_ON || throttle > PEDAL_OFF {
+            state.reverse_hold = 0.0;
+            return;
+        }
+        state.reverse_hold += dt;
+        if state.reverse_hold >= REVERSE_HOLD {
+            state.reverse_hold = 0.0;
+            state.gear = -1;
+            state.since_shift = 0.0;
+            state.brake_reverse = true;
+        }
     }
 
     /// Automatic gear selection among the forward gears; no upshifts while

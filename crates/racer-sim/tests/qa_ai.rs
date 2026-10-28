@@ -137,10 +137,13 @@ fn place(app: &mut App, car: Entity, d: f32, lateral: f32, yaw: f32, speed: f32)
 }
 
 /// Keeps a human car parked: brakes on, never reset by the stuck monitor
-/// (a player who stopped and waits).
+/// (a player who stopped and waits). Manual gearbox: in the automatic a
+/// held brake engages reverse.
 fn park(app: &mut App, car: Entity) {
     let world = app.world_mut();
-    world.get_mut::<CarControls>(car).unwrap().0.brake = 1.0;
+    let mut controls = world.get_mut::<CarControls>(car).unwrap();
+    controls.0.brake = 1.0;
+    controls.0.automatic = false;
     world.get_mut::<Racer>(car).unwrap().monitor.clear();
 }
 

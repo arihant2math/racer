@@ -19,7 +19,7 @@ impl Plugin for VisualsPlugin {
             .add_systems(Update, (mesh_track_pieces, mesh_cars))
             .add_systems(
                 PostUpdate,
-                animate_wheels.before(TransformSystems::Propagate),
+                (animate_wheels, reverse_lights).before(TransformSystems::Propagate),
             );
     }
 }
@@ -46,6 +46,10 @@ struct WheelVisual {
     index: usize,
     spin: f32,
 }
+
+/// A greybox body's reverse light, lit while its car is in reverse.
+#[derive(Component)]
+struct ReverseLight;
 
 /// Triangle mesh for rendering, with smooth normals.
 pub fn render_mesh(vertices: Vec<Vec3>, indices: Vec<u32>) -> Mesh {
@@ -135,6 +139,12 @@ fn mesh_cars(
             perceptual_roughness: 0.8,
             ..default()
         });
+        let reverse_light = materials.add(StandardMaterial {
+            base_color: Color::WHITE,
+            emissive: LinearRgba::rgb(4.0, 4.0, 4.0),
+            unlit: true,
+            ..default()
+        });
         // Lower body above the wheel bottoms and narrower than the wheels, so they show.
         let (sill, belt) = (0.3, 0.55 * hgt);
         commands
@@ -151,6 +161,16 @@ fn mesh_cars(
                     MeshMaterial3d(glass),
                     Transform::from_xyz(0.0, (belt + hgt) / 2.0 - ride, 0.08 * len),
                 ));
+                // Reverse lights in the tail (+Z is the back of the car).
+                for side in [-1.0, 1.0] {
+                    p.spawn((
+                        ReverseLight,
+                        Mesh3d(meshes.add(Cuboid::new(0.16 * wid, 0.06, 0.02))),
+                        MeshMaterial3d(reverse_light.clone()),
+                        Transform::from_xyz(side * 0.28 * wid, belt - 0.08 - ride, len / 2.0),
+                        Visibility::Hidden,
+                    ));
+                }
                 for index in 0..4 {
                     let r = car.vehicle.wheel_geometry(index).radius as f32;
                     p.spawn((
@@ -161,6 +181,24 @@ fn mesh_cars(
                     ));
                 }
             });
+    }
+}
+
+fn reverse_lights(
+    cars: Query<(&CarTelemetry, &Children)>,
+    mut lights: Query<&mut Visibility, With<ReverseLight>>,
+) {
+    for (telemetry, children) in &cars {
+        let on = if telemetry.telemetry.gear < 0 {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
+        for child in children.iter() {
+            if let Ok(mut v) = lights.get_mut(child) {
+                v.set_if_neq(on);
+            }
+        }
     }
 }
 

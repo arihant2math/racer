@@ -991,6 +991,7 @@ fn inputs(
         controls.0 = net.decode();
         if tick < p.start {
             controls.0.brake = 1.0;
+            controls.0.hold = true;
         }
     }
 }

@@ -193,6 +193,129 @@ fn a_player_who_leaves_is_replaced_by_the_ai() {
     assert!(server.join().unwrap(), "the AI did not take the car over");
 }
 
+/// The lowest gear a car was seen in.
+#[derive(Resource, Default)]
+struct LowestGear(i8);
+
+/// The local player drives forwards, stops with the brake held until the
+/// automatic engages reverse, backs up, then throttles out of it: the
+/// client predicts all of it from the pedals alone (reverse is not in the
+/// input message) and agrees with the server.
+#[test]
+fn reversing_in_the_automatic_is_predicted_like_the_server() {
+    use racer_sim::{
+        net::client::{NetCar, Resimulating},
+        race::Race,
+        vehicle::{CarControls, CarTelemetry, ControlSystems},
+    };
+
+    let addr = free_port();
+    let conditions = Conditions {
+        rtt_ms: 60,
+        jitter_ms: 0,
+        loss: 0.0,
+    };
+    let stop = Arc::new(AtomicBool::new(false));
+    let server = {
+        let stop = stop.clone();
+        std::thread::spawn(move || {
+            let mut app = build_app(&ServerConfig {
+                bind: addr,
+                players: 1,
+                grid: 1,
+                conditions,
+                race: RaceConfig {
+                    countdown: 1.0,
+                    ..default()
+                },
+                ..default()
+            });
+            racer_sim::finish_headless(&mut app);
+            let deadline = Instant::now() + Duration::from_secs(60);
+            let mut lowest = 1;
+            while !stop.load(Ordering::Relaxed) && Instant::now() < deadline {
+                app.update();
+                let world = app.world_mut();
+                for t in world.query::<&CarTelemetry>().iter(world) {
+                    lowest = lowest.min(t.telemetry.gear);
+                }
+                if world.get_resource::<Race>().is_some_and(|r| r.time > 9.0) {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(2));
+            }
+            stop.store(true, Ordering::Relaxed);
+            lowest
+        })
+    };
+    let track = Arc::new(racer_trackc::load("downtown-loop").unwrap());
+    let join = Join {
+        name: "reverser".into(),
+        car: racer_dynamics::spec::CARS[0].into(),
+        assists: Assists::default(),
+    };
+    let mut config = NetClientConfig::direct(addr, 11, join);
+    config.conditions = conditions;
+    let mut app = headless_client(config, track);
+    // The driver: throttle, then the brake held through the stop into
+    // reverse, then the throttle again (brakes, back to 1st, forwards).
+    let script = |race: Option<Res<Race>>,
+                  resim: Option<Res<Resimulating>>,
+                  mut lowest: ResMut<LowestGear>,
+                  mut cars: Query<(&NetCar, &mut CarControls, &CarTelemetry)>| {
+        let (Some(race), None) = (race, resim) else {
+            return;
+        };
+        for (car, mut controls, telemetry) in &mut cars {
+            if !car.local {
+                continue;
+            }
+            lowest.0 = lowest.0.min(telemetry.telemetry.gear);
+            let t = race.time;
+            let (throttle, brake) = match t {
+                t if t < 0.0 => (0.0, 0.0),
+                t if t < 2.0 => (1.0, 0.0),
+                t if t < 5.5 => (0.0, 1.0),
+                _ => (1.0, 0.0),
+            };
+            controls.0 = racer_dynamics::Controls {
+                throttle,
+                brake,
+                automatic: true,
+                assists: Assists::default(),
+                ..default()
+            };
+        }
+    };
+    app.init_resource::<LowestGear>()
+        .add_systems(FixedUpdate, script.in_set(ControlSystems));
+    run_until(&mut app, &stop, |app| {
+        matches!(
+            app.world().resource::<NetSession>().state,
+            SessionState::Failed(_)
+        )
+    });
+    let server_lowest = server.join().unwrap();
+    assert_eq!(
+        app.world().resource::<NetSession>().state,
+        SessionState::Racing
+    );
+    assert_eq!(
+        app.world().resource::<LowestGear>().0,
+        -1,
+        "client never reversed"
+    );
+    assert_eq!(server_lowest, -1, "server never reversed");
+    let stats = app.world().resource::<NetStats>();
+    assert!(stats.snapshots > 200, "{} snapshots", stats.snapshots);
+    let off = stats
+        .corrections
+        .iter()
+        .filter(|c| c.position > 0.05)
+        .count();
+    assert!(off <= 1, "corrections over 5 cm: {:?}", stats.corrections);
+}
+
 /// No server at the address: the client gives up and says so.
 #[test]
 fn a_client_without_a_server_fails_cleanly() {

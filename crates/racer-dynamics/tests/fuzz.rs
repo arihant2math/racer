@@ -70,6 +70,7 @@ fn random_controls(rng: &mut Rng) -> Controls {
             tcs: rng.chance(0.5),
             esc: rng.chance(0.5),
         },
+        hold: false,
     }
 }
 
@@ -190,8 +191,11 @@ fn jump_landing_settles() {
     assert!(airborne > 24, "never left the ground ({airborne} steps)");
     assert!(takeoffs <= 2, "bounced: {takeoffs} separate flights");
     // After a few seconds the car is back on four wheels, level and quiet.
+    // (Held on the brakes as race control does: the automatic would
+    // otherwise engage reverse once the car is stopped.)
     sim.run(4.0, |_| Controls {
         brake: 1.0,
+        hold: true,
         ..auto_controls()
     });
     let up = sim.body.rotation * DVec3::Y;
@@ -204,6 +208,8 @@ fn jump_landing_settles() {
 }
 
 /// At rest on flat ground the car settles completely: no creeping or buzzing.
+/// The brake held at rest is race control's hold, which never engages the
+/// automatic's reverse.
 #[test]
 fn rest_is_quiet() {
     for id in CARS {
@@ -212,6 +218,7 @@ fn rest_is_quiet() {
             let mut sim = Sim::new(&vehicle, &Flat);
             sim.run(5.0, |_| Controls {
                 brake,
+                hold: true,
                 ..auto_controls()
             });
             let mut max_v: f64 = 0.0;
@@ -221,6 +228,7 @@ fn rest_is_quiet() {
                 max_w = max_w.max(s.body.angular_velocity.length());
                 Controls {
                     brake,
+                    hold: true,
                     ..auto_controls()
                 }
             });

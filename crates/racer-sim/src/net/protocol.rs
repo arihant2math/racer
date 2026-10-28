@@ -94,6 +94,7 @@ impl NetControls {
                 tcs: on(TCS),
                 esc: on(ESC),
             },
+            hold: false,
         }
     }
 

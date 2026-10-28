@@ -642,13 +642,16 @@ fn drive_ai(
 }
 
 /// Cars wait on the grid with the brakes on until the start; a held
-/// throttle engages launch control.
+/// throttle engages launch control. The hold never engages the automatic's
+/// reverse; it ends when the driver next writes the controls (every driver
+/// writes them each step).
 fn hold(race: Res<Race>, mut cars: Query<&mut CarControls, With<Racer>>) {
     if race.phase != RacePhase::Countdown {
         return;
     }
     for mut c in &mut cars {
         c.0.brake = 1.0;
+        c.0.hold = true;
     }
 }
 

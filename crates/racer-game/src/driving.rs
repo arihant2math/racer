@@ -39,12 +39,13 @@ impl Plugin for DrivingPlugin {
     }
 }
 
-/// Chase and hood cameras following the [`Player`] car (V toggles).
+/// Chase and hood cameras following the [`Player`] car (V toggles, B looks back).
 pub struct CameraPlugin;
 
 impl Plugin for CameraPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<CameraMode>()
+            .init_resource::<LookBack>()
             .add_systems(Update, toggle_camera)
             .add_systems(
                 PostUpdate,
@@ -80,11 +81,19 @@ pub enum CameraMode {
     Fixed,
 }
 
+/// Held look-back (B, or the right stick's button): the chase and hood
+/// cameras face backwards.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LookBack(pub bool);
+
 /// Smoothed chase-camera state.
 #[derive(Component, Default)]
 pub struct ChaseCamera {
     position: Option<Vec3>,
+    /// The car's heading, smoothed. It follows where the car points, not
+    /// where it moves, so reversing keeps the camera behind the car.
     heading: Vec3,
+    looking_back: bool,
     /// The car followed and its reset count: the camera snaps behind a new
     /// car (a restart or respawn) or a reset car instead of flying there.
     followed: Option<(Entity, usize)>,
@@ -191,12 +200,17 @@ fn respawn_car(
 pub const RESET_BUTTON: GamepadButton = GamepadButton::North;
 /// Gamepad button that switches chase/hood camera (V on the keyboard).
 pub const CAMERA_BUTTON: GamepadButton = GamepadButton::Select;
+/// Gamepad button held to look back (B on the keyboard).
+pub const LOOK_BACK_BUTTON: GamepadButton = GamepadButton::RightThumb;
 
 fn toggle_camera(
     keys: Res<ButtonInput<KeyCode>>,
     pads: Query<&Gamepad>,
     mut mode: ResMut<CameraMode>,
+    mut look_back: ResMut<LookBack>,
 ) {
+    let back = keys.pressed(KeyCode::KeyB) || pads.iter().any(|p| p.pressed(LOOK_BACK_BUTTON));
+    look_back.set_if_neq(LookBack(back));
     if keys.just_pressed(KeyCode::KeyV) || pads.iter().any(|p| p.just_pressed(CAMERA_BUTTON)) {
         *mode = match *mode {
             CameraMode::Chase => CameraMode::Hood,
@@ -214,6 +228,7 @@ type PlayerNotCamera = (With<Player>, Without<SceneCamera>);
 fn follow_camera(
     time: Res<Time>,
     mode: Res<CameraMode>,
+    look_back: Res<LookBack>,
     cars: Query<(Entity, &Transform, &CarTelemetry, Option<&Racer>), PlayerNotCamera>,
     mut cameras: Query<(&mut Transform, &mut Projection, &mut ChaseCamera), With<SceneCamera>>,
 ) {
@@ -228,6 +243,12 @@ fn follow_camera(
             chase.position = None;
             chase.heading = Vec3::ZERO;
         }
+        // Looking back (or forward again) cuts to the new view.
+        let back = look_back.0;
+        if std::mem::replace(&mut chase.looking_back, back) != back {
+            chase.position = None;
+        }
+        let aim = if back { -1.0 } else { 1.0 };
         let fov = match *mode {
             CameraMode::Chase => {
                 let forward = car.forward().as_vec3();
@@ -236,20 +257,22 @@ fn follow_camera(
                     .heading
                     .lerp(heading, 1.0 - (-4.0 * dt).exp())
                     .normalize_or(heading);
-                let target = car.translation - chase.heading * 6.5 + Vec3::Y * 2.2;
+                let view = chase.heading * aim;
+                let target = car.translation - view * 6.5 + Vec3::Y * 2.2;
                 let position = chase
                     .position
                     .map_or(target, |p| p.lerp(target, 1.0 - (-10.0 * dt).exp()));
                 chase.position = Some(position);
-                *transform = Transform::from_translation(position).looking_at(
-                    car.translation + chase.heading * 2.0 + Vec3::Y * 0.6,
-                    Vec3::Y,
-                );
+                *transform = Transform::from_translation(position)
+                    .looking_at(car.translation + view * 2.0 + Vec3::Y * 0.6, Vec3::Y);
                 60.0 + 25.0 * (speed.abs() / 80.0).min(1.0)
             }
             CameraMode::Hood => {
                 chase.position = None;
                 *transform = *car * hood_camera();
+                if back {
+                    transform.rotate_local_y(std::f32::consts::PI);
+                }
                 75.0
             }
             CameraMode::Fixed => return,
@@ -296,7 +319,7 @@ fn update_hud(
          WASD/arrows drive, Space handbrake, Q/E shift, V camera\n1/2/3 car, T track, K skidpad, R reset",
         car.vehicle.name,
         selection.location,
-        tel.speed * 3.6,
+        tel.speed.abs() * 3.6,
         gear,
         tel.rpm,
         deg(w[0].slip_angle),
@@ -313,4 +336,73 @@ fn update_hud(
         flag(tel.tcs_active, "TCS"),
         flag(tel.esc_active, "ESC"),
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use bevy::time::TimeUpdateStrategy;
+
+    use super::*;
+
+    /// The chase camera follows where the car points: backing up (with the
+    /// wheels turned) it stays behind the car, never swinging round.
+    #[test]
+    fn chase_camera_stays_behind_a_reversing_car_and_looks_back_on_b() {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            TransformPlugin,
+            bevy::input::InputPlugin,
+            CameraPlugin,
+        ))
+        .insert_resource(TimeUpdateStrategy::ManualDuration(
+            std::time::Duration::from_secs_f32(1.0 / 60.0),
+        ));
+        let camera = app
+            .world_mut()
+            .spawn((
+                SceneCamera,
+                ChaseCamera::default(),
+                Transform::default(),
+                Projection::Perspective(default()),
+            ))
+            .id();
+        let car = app
+            .world_mut()
+            .spawn((Player, Transform::default(), CarTelemetry::default()))
+            .id();
+        let behind = |app: &App| {
+            let car = app.world().get::<Transform>(car).unwrap();
+            let cam = app.world().get::<Transform>(camera).unwrap();
+            (cam.translation - car.translation).dot(*car.forward())
+        };
+        app.update();
+        // 5 s backwards at 5 m/s, turning (the tail swings round 90 degrees).
+        for step in 0..300 {
+            {
+                let mut t = app.world_mut().get_mut::<Transform>(car).unwrap();
+                let back = -t.forward().as_vec3() * 5.0 / 60.0;
+                t.translation += back;
+                t.rotate_y(std::f32::consts::FRAC_PI_2 / 300.0);
+                let mut tel = app.world_mut().get_mut::<CarTelemetry>(car).unwrap();
+                tel.telemetry.speed = -5.0;
+                tel.telemetry.gear = -1;
+            }
+            app.update();
+            let b = behind(&app);
+            assert!(b < -4.0, "step {step}: camera {b} m along the car's nose");
+        }
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .press(KeyCode::KeyB);
+        app.update();
+        app.update();
+        assert!(behind(&app) > 4.0, "look back: {}", behind(&app));
+        app.world_mut()
+            .resource_mut::<ButtonInput<KeyCode>>()
+            .release(KeyCode::KeyB);
+        app.update();
+        app.update();
+        assert!(behind(&app) < -4.0);
+    }
 }

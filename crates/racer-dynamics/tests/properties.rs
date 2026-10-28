@@ -75,6 +75,7 @@ fn controls() -> impl Strategy<Value = Controls> {
                     shift_down: down,
                     automatic,
                     assists,
+                    hold: false,
                 }
             },
         )

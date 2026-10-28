@@ -202,6 +202,7 @@ fn apply_to_car(
             shift_down: input.shift_down,
             automatic: settings.automatic,
             assists: settings.assists,
+            hold: false,
         };
     }
     input.shift_up = false;
@@ -390,5 +391,213 @@ mod tests {
         let recent = &forces[forces.len() - 60..];
         let mean = recent.iter().sum::<f32>() / recent.len() as f32;
         assert!(mean < -0.05, "{mean}");
+    }
+    /// A wheel whose reading the test changes while the app runs; shift
+    /// presses are edges, reported once, as the SDL backend does.
+    #[derive(Clone, Default)]
+    struct SharedWheel(std::sync::Arc<std::sync::Mutex<WheelReading>>);
+
+    impl WheelDevice for SharedWheel {
+        fn name(&self) -> &str {
+            "shared"
+        }
+        fn read(&mut self) -> Option<WheelReading> {
+            let mut r = self.0.lock().unwrap();
+            let reading = *r;
+            r.shift_up = false;
+            r.shift_down = false;
+            Some(reading)
+        }
+        fn set_force(&mut self, _force: f32) {}
+    }
+
+    /// The player's Golf on the test track with the input plugin, one fixed
+    /// step per update.
+    fn player_app(wheel: Box<dyn WheelDevice>, automatic: bool) -> (App, Entity) {
+        use bevy::time::TimeUpdateStrategy;
+        use racer_sim::{
+            SimPlugin, tick_duration,
+            track::{spawn_track, test_track},
+            vehicle::{VehiclePlugin, spawn_car},
+        };
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins,
+            TransformPlugin,
+            bevy::input::InputPlugin,
+            SimPlugin,
+            VehiclePlugin,
+        ))
+        .insert_resource(Wheel(wheel))
+        .add_plugins(InputPlugin)
+        .insert_resource(TimeUpdateStrategy::ManualDuration(tick_duration()));
+        app.world_mut().resource_mut::<DriverSettings>().automatic = automatic;
+        app.finish();
+        app.cleanup();
+        let spec = racer_dynamics::load_car("vw-golf-gti-mk8").unwrap();
+        let car = {
+            let world = app.world_mut();
+            let mut commands = world.commands();
+            spawn_track(&mut commands, &test_track());
+            let car = spawn_car(&mut commands, &spec, Transform::default(), Player).unwrap();
+            world.flush();
+            car
+        };
+        (app, car)
+    }
+
+    fn run(app: &mut App, seconds: f32) {
+        for _ in 0..(seconds * 240.0) as usize {
+            app.update();
+        }
+    }
+
+    fn telemetry(app: &App, car: Entity) -> racer_dynamics::Telemetry {
+        app.world().get::<CarTelemetry>(car).unwrap().telemetry
+    }
+
+    fn keys(app: &mut App) -> Mut<'_, ButtonInput<KeyCode>> {
+        app.world_mut().resource_mut::<ButtonInput<KeyCode>>()
+    }
+
+    #[test]
+    fn keyboard_brake_held_at_a_standstill_reverses_and_throttle_goes_forward_again() {
+        let (mut app, car) = player_app(Box::new(NoWheel), true);
+        run(&mut app, 1.0);
+        keys(&mut app).press(KeyCode::KeyS);
+        // A short press keeps 1st.
+        run(&mut app, 0.4);
+        assert_eq!(telemetry(&app, car).gear, 1);
+        run(&mut app, 2.6);
+        let t = telemetry(&app, car);
+        assert_eq!(t.gear, -1);
+        assert!(t.speed < -2.0, "{}", t.speed);
+        // Throttle: brakes the reversing car, then 1st and forwards.
+        keys(&mut app).release(KeyCode::KeyS);
+        keys(&mut app).press(KeyCode::KeyW);
+        run(&mut app, 4.0);
+        let t = telemetry(&app, car);
+        assert!(t.gear >= 1);
+        assert!(t.speed > 3.0, "{}", t.speed);
+    }
+
+    #[test]
+    fn manual_gearbox_q_twice_at_a_standstill_selects_reverse_and_w_drives_it() {
+        let (mut app, car) = player_app(Box::new(NoWheel), false);
+        run(&mut app, 1.0);
+        // Through keyboard events: the input plugin clears `just_pressed`
+        // before it reads them.
+        let key = |app: &mut App, state| {
+            use bevy::input::keyboard::KeyboardInput;
+            app.world_mut()
+                .resource_mut::<Messages<KeyboardInput>>()
+                .write(KeyboardInput {
+                    key_code: KeyCode::KeyQ,
+                    logical_key: bevy::input::keyboard::Key::Character("q".into()),
+                    state,
+                    text: None,
+                    repeat: false,
+                    window: Entity::PLACEHOLDER,
+                });
+            app.update();
+        };
+        for _ in 0..2 {
+            key(&mut app, bevy::input::ButtonState::Pressed);
+            key(&mut app, bevy::input::ButtonState::Released);
+            run(&mut app, 0.5);
+        }
+        assert_eq!(telemetry(&app, car).gear, -1);
+        keys(&mut app).press(KeyCode::KeyW);
+        run(&mut app, 2.0);
+        let t = telemetry(&app, car);
+        assert!(t.speed < -2.0, "{}", t.speed);
+        assert_eq!(t.gear, -1);
+    }
+
+    fn gamepad(app: &mut App) -> Entity {
+        use bevy::input::gamepad::{GamepadConnection, GamepadConnectionEvent};
+        let pad = app.world_mut().spawn_empty().id();
+        app.world_mut()
+            .resource_mut::<Messages<GamepadConnectionEvent>>()
+            .write(GamepadConnectionEvent::new(
+                pad,
+                GamepadConnection::Connected {
+                    name: "Test pad".into(),
+                    vendor_id: None,
+                    product_id: None,
+                },
+            ));
+        app.update();
+        pad
+    }
+
+    fn pad_button(app: &mut App, pad: Entity, button: GamepadButton, value: f32) {
+        use bevy::input::gamepad::{RawGamepadButtonChangedEvent, RawGamepadEvent};
+        app.world_mut()
+            .resource_mut::<Messages<RawGamepadEvent>>()
+            .write(RawGamepadEvent::Button(RawGamepadButtonChangedEvent::new(
+                pad, button, value,
+            )));
+    }
+
+    #[test]
+    fn gamepad_left_trigger_reverses_in_proportion() {
+        let reverse_speed = |trigger: f32| {
+            let (mut app, car) = player_app(Box::new(NoWheel), true);
+            let pad = gamepad(&mut app);
+            run(&mut app, 1.0);
+            pad_button(&mut app, pad, GamepadButton::LeftTrigger2, trigger);
+            run(&mut app, 2.5);
+            let t = telemetry(&app, car);
+            assert_eq!(t.gear, -1, "trigger {trigger}");
+            -t.speed
+        };
+        let (light, full) = (reverse_speed(0.35), reverse_speed(1.0));
+        assert!(0.3 < light && light < full - 1.0, "{light} {full}");
+    }
+
+    #[test]
+    fn gamepad_bumpers_and_wheel_paddles_select_reverse_in_the_manual() {
+        let (mut app, car) = player_app(Box::new(NoWheel), false);
+        let pad = gamepad(&mut app);
+        run(&mut app, 1.0);
+        for _ in 0..2 {
+            pad_button(&mut app, pad, GamepadButton::LeftTrigger, 1.0);
+            app.update();
+            pad_button(&mut app, pad, GamepadButton::LeftTrigger, 0.0);
+            run(&mut app, 0.5);
+        }
+        assert_eq!(telemetry(&app, car).gear, -1);
+        pad_button(&mut app, pad, GamepadButton::RightTrigger2, 0.6);
+        run(&mut app, 2.0);
+        assert!(telemetry(&app, car).speed < -1.5);
+
+        let wheel = SharedWheel::default();
+        let (mut app, car) = player_app(Box::new(wheel.clone()), false);
+        run(&mut app, 1.0);
+        for _ in 0..2 {
+            wheel.0.lock().unwrap().shift_down = true;
+            run(&mut app, 0.5);
+        }
+        assert_eq!(telemetry(&app, car).gear, -1);
+        wheel.0.lock().unwrap().throttle = 0.6;
+        run(&mut app, 2.0);
+        assert!(telemetry(&app, car).speed < -1.5);
+    }
+
+    #[test]
+    fn wheel_brake_pedal_reverses_in_proportion_in_the_automatic() {
+        let reverse_speed = |pedal: f32| {
+            let wheel = SharedWheel::default();
+            let (mut app, car) = player_app(Box::new(wheel.clone()), true);
+            run(&mut app, 1.0);
+            wheel.0.lock().unwrap().brake = pedal;
+            run(&mut app, 2.5);
+            let t = telemetry(&app, car);
+            assert_eq!(t.gear, -1, "pedal {pedal}");
+            -t.speed
+        };
+        let (light, full) = (reverse_speed(0.3), reverse_speed(1.0));
+        assert!(0.3 < light && light < full - 1.0, "{light} {full}");
     }
 }
