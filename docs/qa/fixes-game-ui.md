@@ -93,6 +93,22 @@ running the new tests against the stashed `src/`), except QA-UI-10, see below.
 
 ## Goldens
 
-Updated deliberately: `menu/main-menu.png`, `menu/setup.png` (compact rows, smaller title),
-`race/results.png` (centred panel, assists column with the player's aids). See the commit
-for any others.
+Updated deliberately, nothing else: `menu/main-menu.png` and `menu/setup.png` (compact rows,
+title 36 px, panel padding 20 px), `race/results.png` (centred panel; the player's row reads
+`ABS TCS ESC Steer Line Auto`). `racer-capture diff` against the old goldens: those three
+fail, `race/grid`, `race/hud` and `race/pack` are pixel-identical. Note that the capture race
+puts the player's car on autopilot, yet its row lists the setup's aids; that is cosmetic
+(autopilot is for demos and captures only).
+
+## Verification
+
+- `cargo fmt --all --check`: clean.
+- `cargo clippy --workspace --all-targets --locked -- -D warnings`: clean; also
+  `-p racer-game --features wheel`.
+- `CARGO_FEATURE_PURE=1 cargo clippy --workspace --all-targets --locked --target
+  x86_64-pc-windows-msvc|aarch64-apple-darwin -- -D warnings`: clean.
+- `cargo test --workspace --locked`: green. Remaining ignored tests belong to other groups.
+  `cargo test -p racer-game --features wheel` (lib + `qa_wheel`): green.
+- Captures: `tools/capture.sh menu` and `CAPTURE_PROFILE=release tools/capture.sh race` at
+  1280×720, 1024×600 and 2560×1080. Every setup and results capture was looked at, plus
+  the main menu and the HUD at 1024×600. All rows and columns are visible at every size.
