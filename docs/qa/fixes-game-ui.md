@@ -202,3 +202,19 @@ None that needed a code change. Left open, all minor:
 Approve. Every QA-UI bug and QA-EDGE-15 is fixed at its cause with a regression test that fails
 on the old source, QA-UI-10 is correctly closed as not a bug, all checks are green, and the
 three golden updates are deliberate and correct.
+
+### Merge of `main` at `c4110b8` (Porsche 911 car model)
+
+`origin/main` (owner's commit `c4110b8`, car model + preloading) merged into `fix/game-ui` as a
+merge commit; it applied with no conflicts. Overlap is limited to `flow.rs`: the Loading state now
+spawns a loading screen through `screen()` (so it gets `FitToWindow` too) and waits on
+`car_model::models_ready` before `go_to_race`; the UI fixes are untouched and `OnExit(Race)`
+still unpauses. Re-run on the merged tree: setup, fmt, both clippy runs, both cross-target clippy
+runs clean; `cargo test --workspace --locked` three times green (98 passed, 57 ignored);
+`--features wheel` green; `--ignored` unchanged (52 other-group repros fail, 5 checks pass). (One
+wheel-feature run first failed on a stale `racer-dynamics` artifact pointing at the temporary
+worktree used above for the old-source check; `cargo clean -p` of the workspace crates fixed it,
+not a code issue.) Captures at 1280×720, 1024×600, 800×600 and 2560×1080 were redone and looked at:
+1280×720 is pixel-identical to every golden, the rest match the earlier review. The built 911 GLB
+lives in the gitignored `assets/` (absent here and in CI), so cars still render as greybox and
+**no golden changed**; none was regenerated. Verdict unchanged: approve.
