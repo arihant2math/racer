@@ -46,10 +46,15 @@ use crate::{
 /// Ticks of inputs and predicted states kept (1 s): the deepest rollback.
 const HISTORY: u32 = 240;
 
-/// A prediction this far off the server state is corrected (m, rad, m/s).
-const POSITION_TOLERANCE: f32 = 1e-3;
-const ROTATION_TOLERANCE: f32 = 1e-3;
-const VELOCITY_TOLERANCE: f32 = 1e-2;
+/// A prediction this far off the server state is corrected (m, rad, m/s):
+/// well below what shows, so a difference is put right long before it can
+/// be seen, but not every float-rounding difference costs a replay.
+const POSITION_TOLERANCE: f32 = 0.01;
+const ROTATION_TOLERANCE: f32 = 0.005;
+const VELOCITY_TOLERANCE: f32 = 0.05;
+
+/// Extra lead of the client's clock over the server's (ticks, 25 ms).
+const INPUT_MARGIN_TICKS: f32 = 6.0;
 
 /// Displayed jumps larger than this (m) snap: a reset, not a correction.
 const SNAP_DISTANCE: f32 = 5.0;
@@ -68,6 +73,14 @@ impl Plugin for NetClientPlugin {
             tick_duration: crate::tick_duration(),
         })
         .add_plugins(ProtocolPlugin)
+        // Inputs must reach the server before it simulates their tick, also
+        // when either side's frame comes late: the clock runs ahead of the
+        // server by half the round trip, four times the jitter and this many
+        // ticks (lightyear's default is one).
+        .insert_resource(InputTimelineConfig::default().with_sync_config(SyncConfig {
+            jitter_margin: INPUT_MARGIN_TICKS,
+            ..default()
+        }))
         .init_resource::<NetSession>()
         .init_resource::<NetStats>()
         .configure_sets(
@@ -115,6 +128,7 @@ impl Plugin for NetClientPlugin {
                 .run_if(resource_exists::<Prediction>),
         )
         .add_systems(First, remove_visual_offset)
+        .add_systems(Update, remote_layers)
         .add_systems(
             PostUpdate,
             (
@@ -707,7 +721,7 @@ fn reconcile(world: &mut World) {
             .wheels
             .iter()
             .zip(own.wheels.iter())
-            .any(|(a, b)| (a.omega - b.omega).abs() > 0.05);
+            .any(|(a, b)| (a.omega - b.omega).abs() > 0.5);
     if position < POSITION_TOLERANCE
         && rotation < ROTATION_TOLERANCE
         && velocity < VELOCITY_TOLERANCE
@@ -793,24 +807,19 @@ fn set_ghosting(world: &mut World, ghosted: &[(u8, bool)]) {
         return;
     }
     let mut cars = world.query::<(&NetCar, &Children)>();
-    let bodies: Vec<(Entity, bool)> = cars
+    let bodies: Vec<(Entity, bool, bool)> = cars
         .iter(world)
         .filter_map(|(c, children)| {
             let (_, g) = changed.iter().find(|(s, _)| *s == c.slot)?;
-            Some(children.iter().map(move |child| (child, *g)))
+            Some(children.iter().map(move |child| (child, !c.local, *g)))
         })
         .flatten()
         .collect();
-    for (child, ghost) in bodies {
+    for (child, remote, ghost) in bodies {
         if world.get::<CarBody>(child).is_some() {
-            let filters: LayerMask = if ghost {
-                [Layer::World, Layer::Wall].into()
-            } else {
-                [Layer::World, Layer::Wall, Layer::Car].into()
-            };
             world
                 .entity_mut(child)
-                .insert(CollisionLayers::new(Layer::Car, filters));
+                .insert(car_layers(remote, ghost));
         }
     }
     let mut p = world.resource_mut::<Prediction>();
@@ -820,6 +829,34 @@ fn set_ghosting(world: &mut World, ghosted: &[(u8, bool)]) {
             p.ghosted.resize(i + 1, false);
         }
         p.ghosted[i] = g;
+    }
+}
+
+/// Collision layers of a car body: the local car hits the world and (unless
+/// ghosted) the other cars; remote cars, moved along their paths, only
+/// need to be hit by it.
+fn car_layers(remote: bool, ghost: bool) -> CollisionLayers {
+    let mut filters = if remote {
+        LayerMask::NONE
+    } else {
+        LayerMask::from([Layer::World, Layer::Wall])
+    };
+    if !ghost {
+        filters |= Layer::Car;
+    }
+    CollisionLayers::new(Layer::Car, filters)
+}
+
+/// Remote cars' bodies start with their layers (spawned this frame).
+fn remote_layers(
+    mut commands: Commands,
+    bodies: Query<(Entity, &ChildOf), Added<CarBody>>,
+    cars: Query<&NetCar>,
+) {
+    for (body, parent) in &bodies {
+        if let Ok(car) = cars.get(parent.parent()) {
+            commands.entity(body).insert(car_layers(!car.local, false));
+        }
     }
 }
 

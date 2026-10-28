@@ -30,8 +30,7 @@ fn in_process_app_counts_fixed_ticks() {
         max_ticks: Some(10),
         ..Default::default()
     });
-    app.finish();
-    app.cleanup();
+    racer_sim::finish_headless(&mut app);
     let deadline = Instant::now() + Duration::from_secs(10);
     let exit = loop {
         app.update();
@@ -51,8 +50,7 @@ fn zero_max_ticks_exits_before_the_first_tick() {
         max_ticks: Some(0),
         ..Default::default()
     });
-    app.finish();
-    app.cleanup();
+    racer_sim::finish_headless(&mut app);
     // Long enough for a fixed step to be due if the first frame ran one.
     std::thread::sleep(racer_sim::tick_duration() * 4);
     app.update();

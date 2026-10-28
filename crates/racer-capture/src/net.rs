@@ -150,6 +150,22 @@ fn bot(config: NetClientConfig, track: Arc<Track>, deadline: Instant) -> BotResu
     while Instant::now() < deadline {
         app.update();
         frames += 1;
+        if std::env::var_os("RACER_NET_DEBUG").is_some() && frames % 120 == 0 {
+            let w = app.world();
+            let p = w.get_resource::<racer_sim::net::client::Prediction>();
+            let sync = w.get_resource::<lightyear::prelude::LocalTimelineSync>();
+            let s = w.resource::<NetStats>();
+            eprintln!(
+                "{:?} tick {:?} lead {:?} synced {:?} speed {:?} rtt {:?} corrections {}",
+                w.resource::<NetSession>().you,
+                p.map(|p| p.tick),
+                s.input_lead.last(),
+                sync.map(|s| s.is_synced()),
+                sync.map(|s| s.relative_speed()),
+                w.resource::<NetSession>().rtt,
+                s.corrections.len()
+            );
+        }
         let state = app.world().resource::<NetSession>().state.clone();
         match state {
             SessionState::Over => {
@@ -514,8 +530,8 @@ pub fn analyse(
     for p in &report.players {
         writeln!(
             out,
-            "- server, {}: {} of {} ticks driven with a repeated input (late or lost)",
-            p.name, p.missing_inputs, p.ticks
+            "- server, {}: {} of {} ticks driven with a repeated input ({} came late, by {:.1} ticks on average)",
+            p.name, p.missing_inputs, p.ticks, p.late_inputs, p.mean_lateness
         )
         .ok();
     }
@@ -527,4 +543,52 @@ pub fn analyse(
     .ok();
     writeln!(out, "\nResult: {}", if ok { "PASS" } else { "FAIL" }).ok();
     ok
+}
+
+/// Wall time of one simulation tick (us) of an 8-car race world: with every
+/// car simulated (the server, and what a rollback of the whole world would
+/// replay), and with one car simulated and seven kinematic (what the client
+/// replays). Single-threaded, like the server and the bots.
+pub fn tick_cost(track: Arc<Track>) -> Result<(f64, f64), String> {
+    use avian3d::prelude::{CollisionLayers, RigidBody};
+    use racer_sim::{ai::AiDriver, race::{DriverKind, RaceConfig}};
+
+    let entries: Vec<(&str, DriverKind)> = (0..8)
+        .map(|i| (CARS[i % CARS.len()], DriverKind::Ai(Difficulty::ALL[i % 5])))
+        .collect();
+    let mut sim = crate::race::RaceSim::new(track, RaceConfig::default(), &entries)?;
+    while sim.race().time < 15.0 {
+        sim.step();
+    }
+    let time = |sim: &mut crate::race::RaceSim| {
+        let ticks = 2400;
+        let started = Instant::now();
+        for _ in 0..ticks {
+            sim.step();
+        }
+        started.elapsed().as_secs_f64() * 1e6 / f64::from(ticks)
+    };
+    let full = time(&mut sim);
+    for &car in &sim.cars[1..] {
+        sim.app
+            .world_mut()
+            .entity_mut(car)
+            .insert(RigidBody::Kinematic)
+            .remove::<AiDriver>();
+    }
+    // As on a client: the kinematic cars only collide with cars.
+    for &body in &sim.bodies[1..] {
+        sim.app.world_mut().entity_mut(body).insert(CollisionLayers::new(
+            racer_sim::track::Layer::Car,
+            racer_sim::track::Layer::Car,
+        ));
+    }
+    let local = time(&mut sim);
+    if std::env::var_os("RACER_COST_DEBUG").is_some() {
+        for &car in &sim.cars[1..] {
+            sim.app.world_mut().entity_mut(car).despawn();
+        }
+        eprintln!("one car alone: {:.0} us", time(&mut sim));
+    }
+    Ok((full, local))
 }

@@ -45,8 +45,7 @@ fn two_bots_race_against_an_ai_with_latency_and_loss() {
         },
         ..default()
     });
-    server.finish();
-    server.cleanup();
+    racer_sim::finish_headless(&mut server);
     let track = Arc::new(racer_trackc::load("downtown-loop").unwrap());
     let mut clients: Vec<App> = (0..2)
         .map(|i| {

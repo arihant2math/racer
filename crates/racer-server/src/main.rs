@@ -38,7 +38,9 @@ fn main() -> ExitCode {
         },
         Err(_) => config,
     };
-    match build_app(&config).run() {
+    let mut app = build_app(&config);
+    racer_sim::finish_headless(&mut app);
+    match app.run() {
         AppExit::Success => ExitCode::SUCCESS,
         AppExit::Error(code) => ExitCode::from(code.get()),
     }

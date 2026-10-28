@@ -6564,6 +6564,7 @@ dependencies = [
  "avian3d",
  "bevy",
  "image",
+ "lightyear",
  "racer-dynamics",
  "racer-game",
  "racer-sim",

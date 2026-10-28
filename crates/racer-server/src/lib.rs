@@ -8,7 +8,7 @@
 //! and sends a snapshot of every car at 60 Hz.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     net::SocketAddr,
     path::PathBuf,
     sync::Arc,
@@ -16,7 +16,11 @@ use std::{
 };
 
 use avian3d::prelude::*;
-use bevy::{app::ScheduleRunnerPlugin, log::LogPlugin, prelude::*};
+use bevy::{
+    app::{ScheduleRunnerPlugin, TaskPoolOptions},
+    log::LogPlugin,
+    prelude::*,
+};
 use lightyear::prelude::{server::*, *};
 use racer_dynamics::{load_car, spec::CARS};
 use racer_sim::{
@@ -127,6 +131,11 @@ struct NetDriver {
     newest: u32,
     missing: u32,
     ticks: u32,
+    /// Recent ticks driven without the player's input, and how late (ticks)
+    /// the inputs for them came after all.
+    missed: BTreeSet<u32>,
+    late: Vec<u32>,
+    applied: u32,
 }
 
 /// What every car was driven with this tick (sent with the snapshots).
@@ -146,8 +155,15 @@ struct RaceLog {
 /// Builds the headless server app.
 pub fn build_app(config: &ServerConfig) -> App {
     let mut app = App::new();
+    // Single-threaded (see racer_sim::headless_app): one race's systems are
+    // too small to gain from threads. Finish the app with
+    // racer_sim::finish_headless.
     app.add_plugins((
-        MinimalPlugins.set(ScheduleRunnerPlugin::run_loop(racer_sim::tick_duration())),
+        MinimalPlugins
+            .set(ScheduleRunnerPlugin::run_loop(racer_sim::tick_duration()))
+            .set(TaskPoolPlugin {
+                task_pool_options: TaskPoolOptions::with_num_threads(1),
+            }),
         LogPlugin::default(),
         SimPlugin,
         ServerPlugins {
@@ -331,7 +347,12 @@ fn receive_inputs(
             let n = inputs.controls.len() as u32;
             for (i, c) in inputs.controls.into_iter().enumerate() {
                 let tick = (inputs.last + 1 + i as u32).saturating_sub(n);
-                driver.inputs.entry(tick).or_insert(c);
+                if driver.missed.remove(&tick) {
+                    let late = driver.applied - tick;
+                    driver.late.push(late);
+                } else if tick > driver.applied {
+                    driver.inputs.entry(tick).or_insert(c);
+                }
             }
             driver.newest = driver.newest.max(inputs.last);
         }
@@ -470,6 +491,9 @@ fn start_race(
             newest: 0,
             missing: 0,
             ticks: 0,
+            missed: BTreeSet::new(),
+            late: Vec::new(),
+            applied: 0,
         };
         let name = p.join.name.clone();
         match spawn_racer(
@@ -580,9 +604,15 @@ fn apply_inputs(
             Some(c) => c,
             None => {
                 driver.missing += 1;
+                driver.missed.insert(tick);
                 driver.last.held()
             }
         };
+        driver.applied = tick;
+        // Inputs older than this arrive too late to tell how late.
+        while driver.missed.len() > 480 {
+            driver.missed.pop_first();
+        }
         // Inputs for ticks already simulated can never be used.
         driver.inputs = driver.inputs.split_off(&tick);
         driver.ticks += 1;
@@ -792,6 +822,8 @@ fn report(
                 slot: r.slot as u8,
                 name: r.name.clone(),
                 missing_inputs: d.missing,
+                late_inputs: d.late.len() as u32,
+                mean_lateness: d.late.iter().sum::<u32>() as f32 / d.late.len().max(1) as f32,
                 ticks: d.ticks,
                 disconnected: p.disconnected,
             })

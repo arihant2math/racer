@@ -45,6 +45,10 @@ pub struct PlayerRecord {
     pub name: String,
     /// Ticks driven with a repeated input because the real one was late or lost.
     pub missing_inputs: u32,
+    /// Of those, inputs that came after their tick (and how late, ticks);
+    /// the rest were lost or never sent.
+    pub late_inputs: u32,
+    pub mean_lateness: f32,
     pub ticks: u32,
     pub disconnected: bool,
 }

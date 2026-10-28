@@ -32,7 +32,8 @@ const USAGE: &str = "usage:
   racer-capture telemetry <out-dir> [car-id...]
   racer-capture ai-laps <out-dir> [--laps N] [--car ID]
   racer-capture ai-races <out-dir> [--races N] [--laps N] [--first I]
-  racer-capture net-race <out-dir> [--bots N] [--laps N] [--conditions RTT,JITTER,LOSS%] [--server PATH] [--timeout SECS]";
+  racer-capture net-race <out-dir> [--bots N] [--laps N] [--conditions RTT,JITTER,LOSS%] [--server PATH] [--timeout SECS]
+  racer-capture net-cost";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -44,6 +45,7 @@ fn main() -> ExitCode {
         Some("ai-laps") => ai_laps(&args[1..]),
         Some("ai-races") => ai_races(&args[1..]),
         Some("net-race") => net_race(&args[1..]),
+        Some("net-cost") => net_cost(),
         _ => Err(USAGE.into()),
     };
     match result {
@@ -428,4 +430,21 @@ fn net_race(args: &[String]) -> Result<ExitCode, String> {
     let path = out_dir.join("net.md");
     std::fs::write(&path, &text).map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(if ok { ExitCode::SUCCESS } else { ExitCode::FAILURE })
+}
+
+fn net_cost() -> Result<ExitCode, String> {
+    let track = std::sync::Arc::new(racer_trackc::load("downtown-loop")?);
+    let (full, local) = net::tick_cost(track)?;
+    println!("one tick of the 8-car race world: {full:.0} us with every car simulated, {local:.0} us with one car simulated and seven kinematic");
+    for rtt in [0.0f64, 150.0, 250.0] {
+        // A correction replays from the snapshot tick to now: about one
+        // round trip plus the input lead.
+        let ticks = ((rtt / 1000.0 + 0.03) * 240.0).round();
+        println!(
+            "rollback at {rtt:.0} ms RTT (~{ticks:.0} ticks): {:.1} ms whole world, {:.1} ms local car only",
+            ticks * full / 1000.0,
+            ticks * local / 1000.0
+        );
+    }
+    Ok(ExitCode::SUCCESS)
 }
