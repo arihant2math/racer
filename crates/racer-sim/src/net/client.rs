@@ -53,8 +53,9 @@ const POSITION_TOLERANCE: f32 = 0.01;
 const ROTATION_TOLERANCE: f32 = 0.005;
 const VELOCITY_TOLERANCE: f32 = 0.05;
 
-/// Extra lead of the client's clock over the server's (ticks, 25 ms).
-const INPUT_MARGIN_TICKS: f32 = 6.0;
+/// Extra lead of the client's clock over the server's (ticks, 42 ms): room
+/// for a frame that comes late on either side.
+const INPUT_MARGIN_TICKS: f32 = 10.0;
 
 /// Displayed jumps larger than this (m) snap: a reset, not a correction.
 const SNAP_DISTANCE: f32 = 5.0;

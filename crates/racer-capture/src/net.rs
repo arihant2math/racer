@@ -329,6 +329,7 @@ pub fn analyse(check: &NetCheck, races: &[RaceRun], out: &mut String) -> bool {
     let (mut all_pos, mut all_rot) = (Vec::new(), Vec::new());
     let (mut near_pos, mut near_shown) = (Vec::new(), Vec::new());
     let mut stalled = Vec::new();
+    let mut desync_list = String::new();
     let (mut desyncs, mut minutes, mut corrections, mut snapshots) = (0, 0.0, 0, 0);
     let (mut contacts, mut agreed, mut one_side, mut false_contacts) = (0, 0, 0, 0);
     let (mut model, mut dead) = (Vec::new(), Vec::new());
@@ -459,6 +460,23 @@ pub fn analyse(check: &NetCheck, races: &[RaceRun], out: &mut String) -> bool {
                 displayed = displayed.max(x.displayed);
                 if x.position > DESYNC {
                     bot_desyncs += 1;
+                    let since = x.tick.saturating_sub(report.start_tick) as f32 / 240.0;
+                    let stall = report
+                        .long_ticks
+                        .iter()
+                        .filter(|&&(t, _)| t <= x.tick)
+                        .map(|&(t, ms)| (x.tick - t, ms))
+                        .min_by_key(|&(d, _)| d)
+                        .map_or("none".into(), |(d, ms)| {
+                            format!("{ms:.0} ms, {:.2} s before", d as f32 / 240.0)
+                        });
+                    writeln!(
+                        desync_list,
+                        "| {} | {i} | {since:.1} | {:.2} | {stall} |",
+                        race + 1,
+                        x.position
+                    )
+                    .ok();
                 }
             }
             desyncs += bot_desyncs;
@@ -584,6 +602,14 @@ pub fn analyse(check: &NetCheck, races: &[RaceRun], out: &mut String) -> bool {
         stalled.iter().copied().fold(0.0, f32::max),
     )
     .ok();
+    if !desync_list.is_empty() {
+        writeln!(
+            out,
+            "Desyncs outside contacts, resets and server stalls:\n\n| Race | Bot | Race time (s) | \
+             Error (m) | Last server step over 20 ms before it |\n|---|---|---|---|---|\n{desync_list}"
+        )
+        .ok();
+    }
     if p99 > t.position_p99 {
         fail(out, format!("position p99 {p99:.3} m"));
     }
