@@ -223,6 +223,42 @@ fn qa_ai_1_a_stopped_car_on_the_line_is_driven_round_without_a_reset() {
     assert!(r.progress.distance > 260.0, "{}", r.progress.distance);
 }
 
+/// QA-AI-1 in corners (found in review): a player stopped on the racing
+/// line where it crosses the road (mid-corner at 500 m and 1450 m, corner
+/// exit at 1875 m). A lane planned as a shift from the racing line does not
+/// fit there, so the AI waited behind it and was reset as `Stuck` every 6 s.
+/// It now passes on a lane fixed on the road beside the stopped car, on the
+/// side it is already on.
+#[test]
+fn qa_ai_1_a_car_stopped_in_a_corner_is_driven_round_without_a_reset() {
+    for at in [500.0, 1450.0, 1875.0] {
+        let (mut app, cars) = race_app(
+            short(),
+            &[(GTI, DriverKind::Human), (GTI, ai(Difficulty::Pro))],
+        );
+        start(&mut app);
+        let line_at = |app: &App, d: f32| {
+            let line = &app.world().resource::<RaceTrack>().0.line;
+            line.points[line.points.partition_point(|p| p.s < d) % line.points.len()].offset
+        };
+        let (here, behind) = (line_at(&app, at), line_at(&app, at - 120.0));
+        place(&mut app, cars[0], at, here, 0.0, 0.0);
+        place(&mut app, cars[1], at - 120.0, behind, 0.0, 15.0);
+        run(&mut app, 18.0, |a| park(a, cars[0]));
+        let r = racer(&app, cars[1]);
+        assert!(
+            r.resets.is_empty(),
+            "AI reset behind a car stopped at {at} m: {:?}",
+            r.resets
+        );
+        assert!(
+            r.progress.distance > at + 10.0,
+            "{at}: {}",
+            r.progress.distance
+        );
+    }
+}
+
 /// QA-AI-2: first lap of `ai-races` race 0. The Alien M3 passes on the
 /// inside of turn 1 under braking. Its path used to sweep to the inside
 /// edge as the racing line crosses the road, and the car hit the inner wall

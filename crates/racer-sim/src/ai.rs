@@ -228,6 +228,16 @@ fn off_line(line: &RacingLine, o: &Other) -> f32 {
     o.lateral - line.points[k].offset
 }
 
+/// Below this speed (m/s) a car in the way is an obstacle to drive round.
+const STOPPED: f32 = 3.0;
+
+/// The usable offset range where `o` is.
+fn bounds_at(track: &Geometry, o: &Other) -> (f32, f32) {
+    let n = track.samples.len();
+    let k = track.samples.partition_point(|p| p.s < o.s) % n;
+    bounds(&track.samples[k], CAR_WIDTH / 2.0)
+}
+
 /// What the driver aimed for in the last step, for telemetry.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct AiDebug {
@@ -270,6 +280,11 @@ pub struct AiDriver {
     bounds: (f32, f32),
     room: (f32, f32),
     next_turn: f32,
+    /// Racing-line offset at the car in the last step.
+    last_line: f32,
+    /// Passing a stopped car: the lane beside it, as an offset from the
+    /// centre (it does not move, so the lane is fixed on the road).
+    lane: Option<f32>,
     /// Offsets left free by cars alongside, and whether there is no room.
     clear: (f32, f32),
     squeezed: bool,
@@ -323,6 +338,8 @@ impl AiDriver {
             bounds: (0.0, 0.0),
             room: (0.0, 0.0),
             next_turn: 0.0,
+            last_line: 0.0,
+            lane: None,
             clear: (f32::MIN, f32::MAX),
             squeezed: false,
             speed_integral: 0.0,
@@ -415,10 +432,14 @@ impl AiDriver {
             .clamp(lo - 0.3, hi + 0.3)
             .clamp(self.clear.0, self.clear.1);
         let path_point = sample.at(path_offset, 0.0);
-        // The path's own direction (it crosses the road between corners).
+        // The path's own direction (it crosses the road between corners;
+        // a lane round a stopped car is fixed on the road).
         let (behind, ahead_k) = ((k + n - 2) % n, (k + 2) % n);
-        let shifted =
-            |i: usize| track.samples[i].at(line.points[i].offset + path_offset - lp.offset, 0.0);
+        let line_shift = if self.lane.is_some() { 0.0 } else { 1.0 };
+        let shifted = |i: usize| {
+            let off = line_shift * (line.points[i].offset - lp.offset);
+            track.samples[i].at(off + path_offset, 0.0)
+        };
         let tangent = (shifted(ahead_k) - shifted(behind)).normalize_or(sample.tangent);
         let path_right = tangent.cross(sample.up).normalize_or(sample.right);
 
@@ -428,8 +449,12 @@ impl AiDriver {
         let heading_error = f2.perp_dot(t2).atan2(f2.dot(t2));
         let lateral_error = (preview - path_point).dot(path_right);
         let ahead = (k + (v.max(0.0) * 0.25) as usize) % n;
-        let curvature = line.points[ahead].curvature
-            / (1.0 - path_offset.min(4.0) * line.points[ahead].curvature).max(0.5);
+        let base = if self.lane.is_some() {
+            track.samples[ahead].curvature
+        } else {
+            line.points[ahead].curvature
+        };
+        let curvature = base / (1.0 - path_offset.min(4.0) * base).max(0.5);
         let yaw_right = -car.angular_velocity.y;
         let feed_forward = (p.wheelbase * curvature).atan();
         let mut delta = heading_error
@@ -472,7 +497,7 @@ impl AiDriver {
                 target = target.min(p.model.corner_speed(k_off, self.skill.limits));
             }
         }
-        target = target.min(self.traffic_cap(car, line, track.length, others, target, dt));
+        target = target.min(self.traffic_cap(car, line, track, others, target, dt));
         if self.squeezed {
             // No room beside the car alongside: drop back (cautious drivers more).
             target *= 0.97 - 0.07 * (1.0 - self.skill.contact);
@@ -691,18 +716,36 @@ impl AiDriver {
             .map_or(0.0, f32::signum);
         let my_line = line.points[k].offset;
         let mut target = 0.0;
+        self.lane = None;
 
         // Overtaking: hold a line beside the car being passed until clear;
         // give up if still behind it when the braking for a corner starts.
         if let Some((entity, side, left, gap)) = self.overtaking {
             let other = others.iter().find(|o| o.entity == entity);
             let passed = other.is_none_or(|o| rel(o) < -(CAR_LENGTH + 2.0));
-            let behind = other.is_some_and(|o| rel(o) > CAR_LENGTH * 0.6);
+            // A stopped car is driven round slowly, braking zone or not.
+            let behind = other.is_some_and(|o| rel(o) > CAR_LENGTH * 0.6 && o.speed >= STOPPED);
             if passed || left <= 0.0 || (self.approaching && behind) {
                 self.overtaking = None;
             } else {
                 self.overtaking = Some((entity, side, left - dt, gap));
-                if let Some(o) = others.iter().find(|o| o.entity == entity) {
+                if let Some(o) = others.iter().find(|o| o.entity == entity)
+                    && o.speed < STOPPED
+                {
+                    // A stopped car: a lane fixed on the road beside it.
+                    // The pass is slow, so the path can follow it even
+                    // where the racing line sweeps across (a car stopped
+                    // in a corner); a shift from the line would not fit.
+                    let want = o.lateral + side * (CAR_WIDTH + gap);
+                    let (l, h) = bounds_at(track, o);
+                    if (l - 0.2..=h + 0.2).contains(&want) {
+                        let want = want.clamp(l, h);
+                        self.lane = Some(want);
+                        target = want - my_line;
+                    } else {
+                        self.overtaking = None;
+                    }
+                } else if let Some(o) = others.iter().find(|o| o.entity == entity) {
                     // Beside the other car's own line, measured from the
                     // racing line where it is (it may be well ahead).
                     let want = off_line(line, o) + side * (CAR_WIDTH + gap);
@@ -772,6 +815,11 @@ impl AiDriver {
             self.clear = (me - 0.3, me + 0.3);
         }
         self.shift_target = target.clamp(lo - my_line, hi - my_line);
+        if self.lane.is_some() {
+            // Hold the path where it is on the road while the line sweeps.
+            self.shift -= my_line - self.last_line;
+        }
+        self.last_line = my_line;
         let rate = self.shift_rate();
         self.shift += (self.shift_target - self.shift).clamp(-rate * dt, rate * dt);
     }
@@ -782,11 +830,12 @@ impl AiDriver {
         &mut self,
         car: &CarView,
         line: &RacingLine,
-        track_length: f32,
+        track: &Geometry,
         others: &[Other],
         want: f32,
         dt: f32,
     ) -> f32 {
+        let track_length = track.length;
         let mut cap = f32::MAX;
         let mut blocker = None;
         let mut boxed_in = None;
@@ -825,8 +874,12 @@ impl AiDriver {
             // is driven round instead of waited behind. A car only gets
             // about 0.5 m across per metre it drives: closer than that it
             // follows (stops short) and backs off (see `recover`).
+            let clears = match self.lane {
+                Some(lane) => (lane - o.lateral).abs() > CAR_WIDTH + 0.4,
+                None => (off_line(line, o) - self.shift_target).abs() > CAR_WIDTH + 0.4,
+            };
             if let Some((_, _, _, lane_gap)) = self.overtaking.filter(|(e, ..)| *e == o.entity)
-                && (off_line(line, o) - self.shift_target).abs() > CAR_WIDTH + 0.4
+                && clears
             {
                 let need = CAR_WIDTH + lane_gap / 2.0 - (o.lateral - car.lateral).abs();
                 if need <= 0.0 {
@@ -834,7 +887,13 @@ impl AiDriver {
                 }
                 let reach = d - CAR_LENGTH - 0.5;
                 if need < 0.5 * reach {
-                    let safe = o.speed + (reach * self.shift_rate() / need).max(1.5);
+                    let mut safe = o.speed + (reach * self.shift_rate() / need).max(1.5);
+                    if o.speed < STOPPED {
+                        // Go by a stopped car slowly: at speed the car cuts
+                        // inside its path in a corner.
+                        let braking = 0.5 * self.params.model.braking;
+                        safe = safe.min((25.0 + 2.0 * braking * reach).sqrt());
+                    }
                     if safe < cap {
                         cap = safe;
                         blocker = Some((*o, d));
@@ -880,7 +939,8 @@ impl AiDriver {
             && blocker.is_some_and(|(o, d)| cap < want - 0.5 && d < 35.0 && want > o.speed + 0.5);
         // A car stopped in the way is an obstacle: go round it at once,
         // early enough to get across before reaching it.
-        let obstacle = blocker.is_some_and(|(o, d)| o.speed < 3.0 && d < 15.0 + 2.0 * v.max(0.0));
+        let obstacle =
+            blocker.is_some_and(|(o, d)| o.speed < STOPPED && d < 15.0 + 2.0 * v.max(0.0));
         self.held_up = if held {
             self.held_up + dt
         } else {
@@ -894,20 +954,32 @@ impl AiDriver {
         {
             // A lane beside the blocker (a shift from the racing line) that
             // stays on the road over the stretch ahead and is clear of every
-            // other car in the next 35 m.
-            let (lo, hi) = self.room;
+            // other car in the next 35 m. Beside a stopped car the lane is
+            // fixed on the road instead (see `update_line_choice`).
+            let fixed = o.speed < STOPPED;
+            let (lo, hi) = if fixed {
+                bounds_at(track, &o)
+            } else {
+                self.room
+            };
             let gap = 0.9;
-            let beside = off_line(line, &o);
+            let place = |x: &Other| if fixed { x.lateral } else { off_line(line, x) };
+            let beside = place(&o);
             let lane = |side: f32| {
                 let at = beside + side * (CAR_WIDTH + gap);
                 let free = others.iter().filter(|x| x.entity != o.entity).all(|x| {
                     let d = (x.s - car.s).rem_euclid(track_length);
-                    d > 35.0 || (off_line(line, x) - at).abs() > CAR_WIDTH + 0.3
+                    d > 35.0 || (place(x) - at).abs() > CAR_WIDTH + 0.3
                 });
                 (lo + 0.3..=hi - 0.3).contains(&at) && free
             };
             let roomier = if hi - beside > beside - lo { 1.0 } else { -1.0 };
-            let first = if self.next_turn != 0.0 && !obstacle {
+            // Round a stopped car: on the side we are already on, if there
+            // is room, rather than across its nose.
+            let ours = car.lateral - o.lateral;
+            let first = if obstacle && ours.abs() > 0.5 {
+                ours.signum()
+            } else if self.next_turn != 0.0 && !obstacle {
                 self.next_turn
             } else {
                 roomier
