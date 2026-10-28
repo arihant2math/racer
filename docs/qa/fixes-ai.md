@@ -231,3 +231,151 @@ results above, so the timebox was not needed.
   it. The AI does not get out of the way backwards.
 - The full `tools/ai-check.sh` run (100 solo laps per pair, 12 races of 10 laps, about 2 h) is still
   owed from M2. The reduced runs above stand in for it.
+
+## Review
+
+Independent review of `fix/ai`. While it was under review, `fix/dynamics`, `fix/race-rules` and
+`fix/game-ui` all landed on `main`. I merged `origin/main` (`80e6ca4`) into the branch (merge
+commit `74b56bd`), and every number below comes from that merged code, which is what will ship.
+Only the three race goldens conflicted. Main's copy was taken in the merge, and the goldens are
+regenerated on the final code (see Verification). `data/tracks/downtown-loop/generated/` merged
+cleanly. This branch does not touch it, so main's copy stands.
+
+### Verification
+
+Release builds, 4 cores. "Before the review fix" is `fix/ai` as the fixer left it, merged with
+main (`74b56bd`). "Final" includes the review commits.
+
+| Check | Result |
+|---|---|
+| `tools/setup.sh` | complete |
+| `cargo fmt --all --check` | clean |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | clean |
+| `CARGO_FEATURE_PURE=1 cargo clippy ... --target x86_64-pc-windows-msvc` / `aarch64-apple-darwin` `-- -D warnings` | both clean |
+| `cargo test --workspace --locked --no-fail-fast`, twice | 142 passed, 0 failed, 25 ignored, both runs (an earlier pair of runs found findings 2 and 3) |
+| `#[ignore]` markers vs `origin/main` | the only ones removed are QA-AI-1, 2, 3, 5 and 6. QA-AI-4 was already un-ignored by race-rules. QA-AI-7 had no repro before. No QA-AI test is ignored. Every other group's marker is unchanged |
+| Race goldens, `CAPTURE_PROFILE=release tools/capture.sh race` on the final code | `grid` matches main's golden (mean error 0.001). `hud`, `pack` and `results` differ from main's (mean error 1.9 / 10.8 / 5.1) because the first lap plays out differently. I checked them by eye (0 resets, a sensible order) and committed them. A second capture matches them (mean error ≤ 0.009) |
+
+`racer-capture ai-races` (8-car mixed fields, full contact). Baseline: `fix/dynamics` alone, on
+the main of the time. Contacts are contact episodes.
+
+| Races | Code | Laps | Resets in traffic | Resets alone | Stalls > 10 s | Longest stall | Contacts |
+|---|---|---|---|---|---|---|---|
+| 0-11, 3 laps | baseline (dynamics, no fix/ai) | 238 | 8 | 3 (Pro, Expert FAIL) | 4 | 11.6 s | 345 |
+| 0-11, 3 laps | before the review fix | 247 | **0** | **0** | 0 | 2.9 s | 78 |
+| 12-23, 3 laps | before the review fix | 237 | **0** | **0** | 0 | 3.3 s | 48 |
+| 0-11, 3 laps | final | 249 | **0** | **0** | 0 | 3.1 s | 68 |
+| 12-23, 3 laps | final | 233 | **0** | **0** | 0 | 3.5 s | 68 |
+| 24-35, 3 laps (new seeds) | final | 245 | **0** | **0** | 0 | 3.7 s | 62 |
+| 0-3, 10 laps | final | 299 | **0** | **0** | 0 | 3.0 s | 42 |
+
+The "before the review fix" rows reproduce the fixer's "fix/dynamics + fix/ai" table exactly. Every
+row passes. The races also run under race-rules' new no-progress reset (10 m in 7 s), and it
+never fires.
+
+Passing and difficulty. These are the mean places gained from grid to finish, races 0-11.
+Baseline (dynamics alone): Alien +1.1, Expert 0.0, Pro +0.1, Amateur -0.4, Novice -0.7. Final:
+Alien +1.2, Expert +0.4, Pro -0.1, Amateur -0.3, Novice -1.2. Races 12-23, final: +0.9, +0.5,
++0.7, -0.5, -1.7. So the cars pass at least as much as before, and fast drivers gain places.
+Some races end in trains behind a slower leader, with all the bests within a second. That
+happens in the baseline too, and is a 3-lap race on a narrow street circuit, not new caution.
+Contact still follows willingness. In races 0-11 (final) Alien cars have 18 contact episodes
+and Novice cars 12, while Expert and Amateur sit in between.
+
+Solo laps, final code (`racer-capture ai-laps --laps 20`, 300 laps). 0 resets and 0 stalls. The
+longest stall is 2.1 s. Every run is inside its band, and the difficulties are strictly ordered
+for every car:
+
+| Car | Alien | Expert | Pro | Amateur | Novice |
+|---|---|---|---|---|---|
+| Golf GTI | -0.6 % | +2.2 % | +6.4 % | +10.9 % | +17.1 % |
+| M3 Competition | +1.4 % | +3.6 % | +7.4 % | +11.9 % | +18.2 % |
+| 911 Carrera S | +0.4 % | +3.0 % | +7.3 % | +11.9 % | +17.9 % |
+
+The Golf's Expert (+2.2 %), Pro (+6.4 %) and Amateur (+10.9 %) sit within 0.4 points of their
+lower edges. That is solo line-following, which neither this branch nor the review changes. It
+was +2.3 / +6.4 / +11.0 before the merge, so fix/dynamics moved it only by noise. The full
+`tools/ai-check.sh` (100 laps per pair, 12 × 10-lap races) is still not run. The reduced runs
+above stand in for it.
+
+### Code review
+
+I read `git diff f381b04 fix/ai -- crates/racer-sim` against the brief.
+
+- **QA-AI-2 (inside passes).** This is a root-cause fix. Lanes are deviations from the racing line
+  measured where each car is, and `room` checks the road over the next 2 s, not only at the car.
+  No speed or margin was tuned. 0 resets in 1,026 race laps across 40 races (12 of them on new
+  seeds, 24-35) agrees with that.
+- **QA-AI-1 (stopped car).** The mechanism is right: the closing speed is bounded by the time
+  needed to get across, the AI backs off when boxed in, and the obstacle range is `15 + 2v`.
+  **But it only worked where a lane fits as a shift from the racing line** (see finding 1).
+- **QA-AI-3 (ghosts).** Planning round ghosts until a car length away is reasonable, with a
+  3 m/s floor so the AI can creep through. One side effect, which the fixer notes: with
+  `Collisions::Off` or ghosted first laps, the AI now follows and passes ghost cars instead of
+  driving through them. That is valid racing and a gentler AI, and I left it.
+- **QA-AI-5 (cool-down).** This is correct, but it infers "finished" from `catch_up < 0.9`. On main
+  `drive_ai` still sets 0.7 after the flag, so the inference holds. The follow-up for an
+  explicit flag stays open.
+- **QA-AI-6 (alongside).** The new window `-(L-1)..L+1.5` is right.
+- **QA-AI-7 (reversing).** The sign comes from the change in track distance between steps. That
+  is what a player sees, so it is honest. A car moving across the track while its distance
+  drops (a spin) reads as `-|v|`, which overstates its closing speed. That is cautious and
+  harmless.
+- **Honesty.** The AI still acts only through `Controls`, with the player's assists and no
+  physics, grip or power changes. It senses other cars' track distance, lateral offset and
+  speed, as before.
+- **Scope.** Only `ai.rs`, `qa_ai.rs` and the doc changed. No dead code. The QA-AI-2 race-7 test
+  tolerates a wall brush on the plain racing line (documented above), which is fair.
+
+### Findings and fixes
+
+1. **QA-AI-1 was only fixed on straights. Fixed (`35a1b87`).** I scripted a player parked on
+   the racing line at 25 places round the lap, with a Pro, Novice or Alien GTI arriving at
+   15 m/s. On the fixer's code, the AI is reset as `Stuck` again and again and never gets past
+   at 5 of the 25 places, for every difficulty, including 500, 1450, 1600 and 1875 m. Those
+   are the places where the racing line crosses the road mid-corner or at a corner exit. A lane
+   planned as a constant shift from the line cannot fit when the line sweeps 5-8 m across within
+   20 m, so no pass ever started. The 1450 m and 1875 m sites are the ones the fixer saw in the
+   dynamics-only races.
+   **Fix:** beside a stopped car (< 3 m/s), the pass lane is fixed on the road. It is checked
+   against the road bounds where the stopped car is, and held while the line sweeps underneath
+   (the shift absorbs the line's movement). It is steered with the road's heading and curvature,
+   not the line's. The pass takes the side the AI is already on, not across the stopped car's
+   nose, goes by at about 5 m/s or less, and is not given up at a braking zone. Passes of moving
+   cars are untouched.
+   **Result:** in the same 75 runs, 4 resets in total (15 runs never got past before). One
+   Novice run (1450 m) is still not past after 30 s. 5 runs touch the stopped car at low
+   speed. New regression test `qa_ai_1_a_car_stopped_in_a_corner_is_driven_round_without_a_reset`
+   covers 500, 1450 and 1875 m and fails on the fixer's code. I tried two kinds of tuning (where
+   to switch to the fixed lane, and the approach speed) within the timebox. Neither beat the
+   plain version, so neither is in.
+2. **The QA-AI-7 test fails on main. Fixed (`76597f4`).** After the merge, the test's 182 m case is
+   reset at 7.0 s by race-rules' new no-progress rule, with or without finding 1's fix. The
+   reversing car backs to within 0.5 m of the AI's nose, and getting round it takes about
+   9.5 s. That reset is the rules' backstop working. The test now clears the AI's reset monitor
+   too, so it checks the driving: no contact, no reset, past within 12 s. It still fails on the
+   pre-fix AI (contact in the 186 m case).
+3. **A `racer-dynamics` property test is flaky. Not this branch: for fix/dynamics.**
+   `two_half_steps_match_one_full_step` failed once in four workspace runs (proptest, random
+   seed). The failing case was `car = 0`, `(yaw, speed, lateral, yaw_rate) = (0, 5, 2.697,
+   -0.405)`, alphas `[0, -0.081, 0, 0]`, with wheel 1 at 7.02 vs 7.84. It passed in 6 further
+   runs.
+
+### Left open
+
+- Passing a stopped car, residual: 4 resets in 75 scripted runs. In one Novice run at 1450 m
+  the AI approaches too fast for the line it needs and ends up wedged. Getting round a car that
+  stopped right in front still means backing off, about 9.5 s, longer than race-rules' 7 s
+  no-progress backstop. So in a race, that AI is reset (ghosted, behind) rather than driving
+  round. That is acceptable, but a smarter reverse (the fixer's open item) would avoid it.
+- Cool-down detection by `catch_up` and the AI-side direction estimate (QA-AI-5, 7): one line
+  each in `drive_ai`, race-rules' file. This is still a follow-up.
+- Golf Expert/Pro/Amateur solo times sit near the lower edges of their bands, as noted in M2.
+- The full `tools/ai-check.sh` run is still owed.
+
+### Verdict
+
+The six fixes are real and root-caused, the AI stays honest, and difficulty still separates the
+drivers. On the code that will ship, 40 races (1,026 race laps, 12 of the races on new seeds) show 0 resets and 0 stalls over 10 s. Car contacts are 68 vs 345 on races 0-11. The
+review found one real gap, stopped cars in corners, and fixed it. It also fixed one merge-time
+test failure. **Ready to merge.**
