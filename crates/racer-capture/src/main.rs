@@ -99,14 +99,23 @@ fn scene(args: &[String]) -> Result<ExitCode, String> {
 
     let mut app = App::new();
     app.insert_resource(WinitSettings::continuous())
-        .add_plugins(DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: format!("racer-capture: {name}"),
-                resolution: WindowResolution::new(w, h).with_scale_factor_override(1.0),
-                ..default()
-            }),
-            ..default()
-        }));
+        .add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    primary_window: Some(Window {
+                        title: format!("racer-capture: {name}"),
+                        resolution: WindowResolution::new(w, h).with_scale_factor_override(1.0),
+                        ..default()
+                    }),
+                    ..default()
+                })
+                .set(AssetPlugin {
+                    file_path: racer_game::car_model::assets_dir()
+                        .to_string_lossy()
+                        .into_owned(),
+                    ..default()
+                }),
+        );
     let poses = scenes::add_scene(&mut app, name).ok_or_else(|| {
         format!(
             "unknown scene {name:?}; known: {}",
