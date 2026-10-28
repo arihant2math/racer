@@ -65,15 +65,33 @@ struct Inner {
     lobbies: HashMap<String, Lobby>,
 }
 
+/// The players kept in `path`. A file that cannot be read or parsed is
+/// moved aside (`<path>.bad`) rather than overwritten by the next save.
+fn load_players(path: &std::path::Path) -> Players {
+    let error = match std::fs::read_to_string(path) {
+        Ok(s) => match serde_json::from_str(&s) {
+            Ok(players) => return players,
+            Err(e) => e.to_string(),
+        },
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Players::default(),
+        Err(e) => e.to_string(),
+    };
+    let mut bad = path.as_os_str().to_owned();
+    bad.push(".bad");
+    eprintln!(
+        "racer-backend: cannot load {} ({error}); moved to {}",
+        path.display(),
+        std::path::Path::new(&bad).display()
+    );
+    std::fs::rename(path, &bad).ok();
+    Players::default()
+}
+
 impl Backend {
     /// A backend allocating servers with `fleet`, keeping players in
     /// `state_file` if given.
     pub fn new(fleet: Arc<dyn Fleet>, state_file: Option<PathBuf>) -> Self {
-        let players = state_file
-            .as_ref()
-            .and_then(|p| std::fs::read_to_string(p).ok())
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or_default();
+        let players = state_file.as_deref().map(load_players).unwrap_or_default();
         Backend {
             inner: Arc::new(Mutex::new(Inner {
                 players,
@@ -135,15 +153,21 @@ impl Backend {
             .filter(|l| l.quick_match_due(now))
             .map(|l| l.code.clone())
             .collect();
-        for code in due {
-            if let Err(e) = self.start(&code).await {
-                eprintln!("racer-backend: quick match {code}: {}", e.message);
-            }
-        }
         // Lobbies whose race ended long ago, or that everyone left.
         self.lock()
             .lobbies
             .retain(|_, l| !l.members.is_empty() && !l.expired(now));
+        // Side by side: a server can take seconds to come up.
+        let mut starts = tokio::task::JoinSet::new();
+        for code in due {
+            let b = self.clone();
+            starts.spawn(async move {
+                if let Err(e) = b.start(&code).await {
+                    eprintln!("racer-backend: quick match {code}: {}", e.message);
+                }
+            });
+        }
+        starts.join_all().await;
     }
 
     /// Allocates a server for the lobby and hands it to its members.
@@ -317,7 +341,9 @@ async fn rename(
             m.name = name.to_string();
         }
     }
-    b.save(&inner.players);
+    if renamed.name != player.name {
+        b.save(&inner.players);
+    }
     Ok(Json(renamed))
 }
 
@@ -385,6 +411,8 @@ async fn join_lobby(
         return Err(ApiError::not_found());
     }
     if !inner.lobbies[&code].is_member(player.id) {
+        // A refused join keeps the player where they were.
+        inner.lobbies[&code].admits().map_err(ApiError::conflict)?;
         leave_all(&mut inner, player.id);
     }
     let lobby = inner.lobbies.get_mut(&code).ok_or(ApiError::not_found())?;
@@ -522,6 +550,7 @@ async fn quick_match(
             l.quick.as_deref() == Some(&q.class)
                 && l.settings.mode == q.mode
                 && l.state == LobbyState::Open
+                && !l.members.is_empty()
                 && l.members.len() < lobby::MAX_PLAYERS
         })
         .map(|l| l.code.clone());

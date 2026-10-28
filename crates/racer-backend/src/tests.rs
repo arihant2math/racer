@@ -158,8 +158,13 @@ async fn invite_lobby_from_create_to_server() {
     // Members see the server; nobody joins a running race.
     let (_, seen) = call(&app, "GET", &base, Some(2), Value::Null).await;
     assert_eq!(seen["server"], lobby["server"]);
+    let (_, other) = call(&app, "POST", "/v1/lobbies", Some(3), Value::Null).await;
     let (status, _) = call(&app, "POST", &format!("{base}/join"), Some(3), Value::Null).await;
     assert_eq!(status, StatusCode::CONFLICT);
+    // A refused join leaves the player in their own lobby.
+    let other = format!("/v1/lobbies/{}", other["code"].as_str().unwrap());
+    let (status, _) = call(&app, "GET", &other, Some(3), Value::Null).await;
+    assert_eq!(status, StatusCode::OK);
 }
 
 #[tokio::test]
@@ -259,8 +264,19 @@ async fn players_survive_a_restart_with_a_state_file() {
     let fleet: Arc<dyn Fleet> = Arc::new(FakeFleet::default());
     let first = router(Backend::new(fleet.clone(), Some(file.clone())));
     let (_, me) = call(&first, "POST", "/v1/me", Some(7), json!({"name": "Kim"})).await;
-    let second = router(Backend::new(fleet, Some(file)));
+    let second = router(Backend::new(fleet, Some(file.clone())));
     let (_, again) = call(&second, "GET", "/v1/me", Some(7), Value::Null).await;
     assert_eq!(me, again);
+    // A file that does not parse is moved aside, not overwritten.
+    std::fs::write(&file, "not json").unwrap();
+    let third = router(Backend::new(
+        Arc::new(FakeFleet::default()),
+        Some(file.clone()),
+    ));
+    call(&third, "GET", "/v1/me", Some(8), Value::Null).await;
+    assert_eq!(
+        std::fs::read_to_string(dir.join("state.json.bad")).unwrap(),
+        "not json"
+    );
     std::fs::remove_dir_all(dir).ok();
 }

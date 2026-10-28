@@ -10,7 +10,8 @@ use std::{
     net::{SocketAddr, ToSocketAddrs},
     path::PathBuf,
     sync::{
-        Mutex,
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
         mpsc::{Receiver, TryRecvError, channel},
     },
     time::Duration,
@@ -222,7 +223,18 @@ pub fn device_key() -> Result<String, String> {
     getrandom::fill(&mut bytes).map_err(|e| e.to_string())?;
     let key: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
     std::fs::create_dir_all(config_dir()).map_err(|e| format!("{}: {e}", path.display()))?;
-    std::fs::write(&path, &key).map_err(|e| format!("{}: {e}", path.display()))?;
+    // The key is this player's identity: readable by the owner only.
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    std::io::Write::write_all(
+        &mut options
+            .open(&path)
+            .map_err(|e| format!("{}: {e}", path.display()))?,
+        key.as_bytes(),
+    )
+    .map_err(|e| format!("{}: {e}", path.display()))?;
     Ok(key)
 }
 
@@ -232,6 +244,8 @@ struct BackendClient {
     base: String,
     key: String,
     name: Option<String>,
+    /// The name was sent (once per session is enough).
+    named: Arc<AtomicBool>,
 }
 
 impl BackendClient {
@@ -245,6 +259,7 @@ impl BackendClient {
             name: std::env::var("RACER_NAME")
                 .ok()
                 .filter(|n| !n.trim().is_empty()),
+            named: Arc::default(),
         })
     }
 
@@ -256,12 +271,18 @@ impl BackendClient {
             .build()
             .into();
         let url = format!("{}{path}", self.base);
-        if let Some(name) = &self.name {
+        if let Some(name) = self
+            .name
+            .as_ref()
+            .filter(|_| !self.named.load(Ordering::Relaxed))
+        {
             // Best effort: the name shows in lobbies.
-            let _ = agent
+            let sent = agent
                 .post(format!("{}/v1/me", self.base))
                 .header("x-device-key", &self.key)
-                .send_json(serde_json::json!({ "name": name }));
+                .send_json(serde_json::json!({ "name": name }))
+                .is_ok_and(|r| r.status().is_success());
+            self.named.store(sent, Ordering::Relaxed);
         }
         let request = |m: &str| match m {
             "GET" => agent.get(&url).header("x-device-key", &self.key).call(),

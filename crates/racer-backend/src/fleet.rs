@@ -126,8 +126,8 @@ impl Fleet for LocalFleet {
             .map_err(|e| format!("{}: {e}", self.server.display()))?;
         let stdout = child.stdout.take().ok_or("no server stdout")?;
         let (tx, rx) = mpsc::channel();
-        // Reads the address, then keeps draining stdout and reaps the
-        // process when it exits after its race.
+        // Reads the address, then keeps draining stdout until the process
+        // exits.
         std::thread::spawn(move || {
             let mut sent = false;
             for line in BufReader::new(stdout).lines().map_while(Result::ok) {
@@ -136,11 +136,18 @@ impl Fleet for LocalFleet {
                     sent = true;
                 }
             }
-            child.wait().ok();
         });
-        let addr = rx
-            .recv_timeout(Duration::from_secs(20))
-            .map_err(|_| "the server did not start listening in 20 s".to_string())?;
+        let addr = match rx.recv_timeout(Duration::from_secs(20)) {
+            Ok(addr) => addr,
+            Err(_) => {
+                // A server that never listens would otherwise run on.
+                child.kill().ok();
+                child.wait().ok();
+                return Err("the server did not start listening in 20 s".to_string());
+            }
+        };
+        // Reaps the process when it exits after its race.
+        std::thread::spawn(move || child.wait().ok());
         let ip = self.public.unwrap_or(if addr.ip().is_unspecified() {
             IpAddr::from([127, 0, 0, 1])
         } else {

@@ -150,6 +150,17 @@ impl Lobby {
         self.members.iter().any(|m| m.id == id)
     }
 
+    /// Whether a new member can join.
+    pub fn admits(&self) -> Result<(), &'static str> {
+        if self.state != LobbyState::Open {
+            return Err("the race has already started");
+        }
+        if self.members.len() >= MAX_PLAYERS {
+            return Err("the lobby is full");
+        }
+        Ok(())
+    }
+
     pub fn join(&mut self, player: &Player, car: String) -> Result<(), &'static str> {
         if let Some(m) = self.members.iter_mut().find(|m| m.id == player.id) {
             if !car.is_empty() {
@@ -157,11 +168,11 @@ impl Lobby {
             }
             return Ok(());
         }
-        if self.state != LobbyState::Open {
-            return Err("the race has already started");
-        }
-        if self.members.len() >= MAX_PLAYERS {
-            return Err("the lobby is full");
+        self.admits()?;
+        if self.members.is_empty() {
+            // Everyone left (the lobby goes at the next tick): the joiner
+            // takes it over.
+            self.host = player.id;
         }
         self.members.push(Member {
             id: player.id,

@@ -122,6 +122,9 @@ struct Player {
 #[derive(Resource, Default)]
 struct Players(Vec<Player>);
 
+/// Longest player name kept (characters).
+const MAX_NAME: usize = 24;
+
 /// Ticks ahead of the server that a player's inputs may be for (2 s).
 const INPUT_HORIZON: u32 = 480;
 
@@ -351,10 +354,17 @@ fn receive_joins(
                 warn!("join from {client} ignored");
                 continue;
             }
-            info!("{} joined", join.name);
+            // Names show on every HUD: printable and short.
+            let name: String = join
+                .name
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(MAX_NAME)
+                .collect();
+            info!("{name} joined");
             players.0.push(Player {
                 client,
-                join,
+                join: Join { name, ..join },
                 car: None,
                 slot: None,
                 disconnected: false,
@@ -485,7 +495,11 @@ fn lobby(
     let all_here = here.len() >= c.players;
     let timed_out = waited >= c.lobby_timeout;
     if all_here || timed_out {
-        if here.is_empty() && !(c.ai_fill && c.race.mode != racer_sim::race::RaceMode::TimeTrial) {
+        // Nobody came: a race for players (the backend's) is not run for
+        // the AI alone.
+        let ai_only =
+            c.players == 0 && c.ai_fill && c.race.mode != racer_sim::race::RaceMode::TimeTrial;
+        if here.is_empty() && !ai_only {
             info!("nobody joined, shutting down");
             exit.write(AppExit::Success);
             return;
