@@ -69,8 +69,10 @@ impl SpeedUnit {
 
     /// A speed in m/s as whole units, right-aligned to `width` digits:
     /// `format(27.8, 3)` is `"100 km/h"`.
+    /// Rounds half away from zero, and never shows `-0`.
     pub fn format(self, mps: f64, width: usize) -> String {
-        format!("{:width$.0} {}", self.from_mps(mps), self.label())
+        let whole = self.from_mps(mps).round() + 0.0;
+        format!("{whole:width$.0} {}", self.label())
     }
 }
 
@@ -142,19 +144,67 @@ impl SettingsFile {
 
     /// Writes the file (through a temporary file, so a crash never leaves
     /// half of it).
+    ///
+    /// Keys this version doesn't know (written by a newer one) are kept. A
+    /// file that isn't TOML at all is kept as `settings.toml.bad` before it is
+    /// replaced.
     pub fn save(&self, settings: &Settings) -> Result<(), String> {
-        let text = toml::to_string(settings).map_err(|e| e.to_string())?;
+        let ours = toml::Table::try_from(settings).map_err(|e| e.to_string())?;
+        let merged = match std::fs::read_to_string(&self.0) {
+            Ok(text) => match toml::from_str::<toml::Table>(&text) {
+                Ok(existing) => merge(existing, ours),
+                Err(_) => {
+                    let mut bad = self.0.as_os_str().to_owned();
+                    bad.push(".bad");
+                    if std::fs::copy(&self.0, &bad).is_ok() {
+                        warn!(
+                            "{}: not valid TOML, kept as {}",
+                            self.0.display(),
+                            Path::new(&bad).display()
+                        );
+                    }
+                    ours
+                }
+            },
+            Err(_) => ours,
+        };
+        let text = toml::to_string(&merged).map_err(|e| e.to_string())?;
         write_atomic(&self.0, &text).map_err(|e| format!("{}: {e}", self.0.display()))
     }
 }
 
+/// `existing` with every key of `ours` written over it, section by section.
+fn merge(mut existing: toml::Table, ours: toml::Table) -> toml::Table {
+    for (section, value) in ours {
+        match (existing.get_mut(&section), value) {
+            (Some(toml::Value::Table(old)), toml::Value::Table(new)) => old.extend(new),
+            (_, value) => {
+                existing.insert(section, value);
+            }
+        }
+    }
+    existing
+}
+
 fn write_atomic(path: &Path, text: &str) -> std::io::Result<()> {
-    if let Some(dir) = path.parent() {
+    use std::io::Write;
+    if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
         std::fs::create_dir_all(dir)?;
     }
-    let tmp = path.with_extension("toml.tmp");
-    std::fs::write(&tmp, text)?;
-    std::fs::rename(&tmp, path)
+    // One temporary file per process: two games saving at once each rename
+    // a whole file into place, and the last one wins.
+    let mut tmp = path.as_os_str().to_owned();
+    tmp.push(format!(".{}.tmp", std::process::id()));
+    let tmp = PathBuf::from(tmp);
+    let written = std::fs::File::create(&tmp).and_then(|mut f| {
+        f.write_all(text.as_bytes())?;
+        f.sync_all()
+    });
+    let result = written.and_then(|()| std::fs::rename(&tmp, path));
+    if result.is_err() {
+        std::fs::remove_file(&tmp).ok();
+    }
+    result
 }
 
 /// Parses a settings file: the settings, and what was wrong with it.
@@ -261,6 +311,12 @@ mod tests {
         assert_eq!(SpeedUnit::Mph.format(100.0 / 3.6, 3), " 62 mph");
         assert_eq!(SpeedUnit::Kmh.format(0.0, 3), "  0 km/h");
         assert_eq!(SpeedUnit::Mph.format(60.0 * 0.44704, 5), "   60 mph");
+        // Reversing slowly in the driving overlay: no "-0".
+        assert_eq!(SpeedUnit::Kmh.format(-0.1, 5), "    0 km/h");
+        assert_eq!(SpeedUnit::Mph.format(-5.0, 5), "  -11 mph");
+        // Halves round up, the way a speedometer needle reads.
+        assert_eq!(SpeedUnit::Kmh.format(62.5 / 3.6, 3), " 63 km/h");
+        assert_eq!(SpeedUnit::Mph.format(f64::NAN, 3), "NaN mph");
     }
 
     #[test]
@@ -284,7 +340,88 @@ mod tests {
         s.interface.speed_units = SpeedUnit::Mph;
         file.save(&s).unwrap();
         assert_eq!(file.load(), s);
-        assert!(!file.0.with_extension("toml.tmp").exists());
+        let names: Vec<_> = std::fs::read_dir(dir.join("sub"))
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names, ["settings.toml"], "temporary file left");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    fn scratch(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("racer-settings-{name}-{}", std::process::id()));
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn saving_keeps_keys_from_newer_versions() {
+        let dir = scratch("newer");
+        let file = SettingsFile(dir.join("settings.toml"));
+        std::fs::write(
+            &file.0,
+            "[interface]\nspeed_units = \"furlongs\"\nhud_scale = 1.5\n[graphics]\nshadows = true\n",
+        )
+        .unwrap();
+        let mut s = file.load();
+        s.interface.speed_units = SpeedUnit::Mph;
+        file.save(&s).unwrap();
+        let text = std::fs::read_to_string(&file.0).unwrap();
+        let table: toml::Table = toml::from_str(&text).unwrap();
+        assert_eq!(
+            table["interface"]["speed_units"].as_str(),
+            Some("mph"),
+            "{text}"
+        );
+        assert_eq!(
+            table["interface"]["hud_scale"].as_float(),
+            Some(1.5),
+            "{text}"
+        );
+        assert_eq!(table["graphics"]["shadows"].as_bool(), Some(true), "{text}");
+        assert_eq!(file.load(), s);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_corrupt_file_is_kept_aside_when_replaced() {
+        let dir = scratch("corrupt");
+        let file = SettingsFile(dir.join("settings.toml"));
+        std::fs::write(&file.0, b"\xff\xfe[[[not toml").unwrap();
+        assert_eq!(file.load(), Settings::default());
+        std::fs::write(&file.0, "[[[not toml").unwrap();
+        assert_eq!(file.load(), Settings::default());
+        let mut s = Settings::default();
+        s.interface.speed_units = SpeedUnit::Mph;
+        file.save(&s).unwrap();
+        assert_eq!(file.load(), s);
+        assert_eq!(
+            std::fs::read_to_string(dir.join("settings.toml.bad")).unwrap(),
+            "[[[not toml"
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn unreadable_and_unwritable_paths_give_errors_not_panics() {
+        let dir = scratch("unwritable");
+        // A directory where the file should be: defaults, and saving fails.
+        let file = SettingsFile(dir.join("settings.toml"));
+        std::fs::create_dir(&file.0).unwrap();
+        assert_eq!(file.load(), Settings::default());
+        assert!(file.save(&Settings::default()).is_err());
+        // A file where the directory should be (works as root too).
+        std::fs::write(dir.join("plain"), "").unwrap();
+        let file = SettingsFile(dir.join("plain").join("settings.toml"));
+        assert_eq!(file.load(), Settings::default());
+        assert!(file.save(&Settings::default()).is_err());
+        let names: Vec<_> = std::fs::read_dir(&dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .collect();
+        assert_eq!(names.len(), 2, "temporary file left: {names:?}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 

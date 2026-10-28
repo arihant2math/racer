@@ -7,6 +7,7 @@ and icon.icns (macOS, 16-1024). Needs Pillow and a bold display font
 Run from anywhere: tools/make_icon.py [FONT]
 """
 
+import struct
 import sys
 from pathlib import Path
 
@@ -77,6 +78,23 @@ def master(size: int, font: str) -> Image.Image:
     return img.resize((size, size), Image.LANCZOS)
 
 
+# icns element types holding PNG data, by pixel size. Pillow's writer leaves
+# out icp4/icp5 (16 and 32 px at 1x), which would lose the hand-tuned small sizes.
+ICNS_TYPES = [
+    (b"icp4", 16), (b"icp5", 32), (b"icp6", 64), (b"ic07", 128), (b"ic08", 256),
+    (b"ic09", 512), (b"ic10", 1024), (b"ic11", 32), (b"ic12", 64), (b"ic13", 256),
+    (b"ic14", 512),
+]
+
+
+def write_icns(path: Path, pngs: dict) -> None:
+    elements = [(t, pngs[n]) for t, n in ICNS_TYPES]
+    toc = b"TOC " + struct.pack(">I", 8 + 8 * len(elements))
+    toc += b"".join(t + struct.pack(">I", 8 + len(d)) for t, d in elements)
+    body = toc + b"".join(t + struct.pack(">I", 8 + len(d)) + d for t, d in elements)
+    path.write_bytes(b"icns" + struct.pack(">I", 8 + len(body)) + body)
+
+
 def main() -> None:
     font = font_path()
     OUT.mkdir(parents=True, exist_ok=True)
@@ -86,7 +104,7 @@ def main() -> None:
     # Each size drawn on its own (hinted for small sizes), not one image resampled.
     ico = [images[n] for n in SIZES if n <= 256]
     ico[-1].save(OUT / "icon.ico", sizes=[(i.width, i.height) for i in ico], append_images=ico[:-1])
-    images[1024].save(OUT / "icon.icns", append_images=[images[n] for n in SIZES if n < 1024])
+    write_icns(OUT / "icon.icns", {n: (OUT / f"icon-{n}.png").read_bytes() for n in SIZES})
     print(f"wrote {len(SIZES)} PNGs, icon.ico and icon.icns to {OUT} (font {font})")
 
 

@@ -117,3 +117,85 @@ winit 0.30 cannot set a window icon; the compositor shows the `.desktop` icon on
 Windows was not run, only cross-checked. The `units` capture has no golden and is not in CI. The
 Options screen has one option for now, and leaving it puts the main-menu cursor back on Race
 rather than Options.
+
+## Review
+
+Independent review of this branch: read the whole diff, ran the gate, tried the edge cases
+below, looked at every icon size and at the menu captures.
+
+### Checked, fine as built
+
+**Units.** The only player-visible speeds are the race HUD speedometer and the driving-scene
+debug overlay; both go through `SpeedUnit::format`. Results, lobby, setup, entry and the
+online screens show no speed (grepped `km/h`, `3.6`, `speed` across `racer-game`). Internals
+stay m/s; `racer-capture` telemetry, `racer-trackc` and `racer-dynamics` testbed output stay
+km/h. The conversion is the international mile (1 mph = 0.44704 m/s).
+
+**Menus.** Keyboard, gamepad and mouse all reach the Options row (a click changes it, like the
+setup rows). Esc/Backspace/East on the main-menu Options screen go back and never quit
+(QA-UI-1); in a race Esc/East/Start on Options go back to the pause menu, offline the race stays
+paused throughout and R/Q/E remain ignored while paused (QA-UI-2 fix untouched). Online, the
+race ending or the session dropping while Options is open is handled by `DespawnOnExit(Race)`
+like the pause menu. The panel is small; `FitToWindow` covers it (captures below).
+
+**Icon.** All PNGs (16-1024): the R is centred on its bounding box, crisp, and reads at 16 px
+(hand-tuned small sizes, no shadow below 33 px). `tools/make_icon.py` is reproducible: a run
+into a scratch copy gave byte-identical PNGs, `.ico` and `.icns`, and two runs of the changed
+script gave the same `.icns`. The `.ico` holds 16-256 and every entry decodes.
+
+**Platform.** Nothing platform-specific beyond winit's `Icon` (all platforms) and
+`config_dir` (already used by the online code); the cross-target clippy runs are clean.
+
+### Found and fixed
+
+1. **Menu keys drove the car online.** Online the race goes on behind the pause menu, and
+   nothing stopped `DriverInput` from reaching the car: Up/Down (throttle, brake), Space
+   (handbrake) on the pause menu, and now Left/Right (steering) on the Options screen.
+   `flow::release_controls_in_menus` (in `RunFixedMainLoop`, before the fixed steps) zeroes the
+   driver input while any `PauseMenu` is open, so the car coasts. Done in `flow.rs`, not
+   `input.rs`, to stay clear of `feat/reverse`. Test: the pause-menu test in `tests/options.rs`
+   holds Left, W and Space on the Options screen and checks the input stays neutral (it fails
+   with the system disabled).
+2. **Cursor after Options** (the noted gap): leaving the main-menu Options screen puts the
+   cursor back on Options (`spawn_main_menu` reads the `StateTransitionEvent`); any other way
+   into the main menu still starts on Race. Test: `leaving_options_puts_the_cursor_back_on_options`.
+3. **Settings save:**
+   - Two games saving at once shared one `settings.toml.tmp` and could rename a file the other
+     was still writing. The temporary file is now `settings.toml.<pid>.tmp`, is `fsync`ed before
+     the rename, and is removed when the write or rename fails.
+   - A save dropped every key this version didn't know, so running an older build after a newer
+     one would wipe the newer options. Saving now merges into the file's existing table (known
+     keys overwritten, unknown ones kept).
+   - A file that isn't TOML was silently overwritten on the first change; it is now copied to
+     `settings.toml.bad` first (as `racer-backend` does with its state file).
+   - Tests: `saving_keeps_keys_from_newer_versions`, `a_corrupt_file_is_kept_aside_when_replaced`
+     (also non-UTF-8 bytes), `unreadable_and_unwritable_paths_give_errors_not_panics` (a
+     directory where the file should be, a file where the directory should be: defaults on load,
+     `Err` on save, no temporary file left). Running as root here, so permission-bit cases are
+     covered by these instead of `chmod`.
+4. **Formatting:** `format` now rounds half away from zero and never prints `-0` (the driving
+   overlay showed `   -0 km/h` creeping backwards). Tests added to `speed_formatting`.
+5. **`.icns` lacked the hand-tuned 16 and 32 px images**: Pillow's writer leaves out
+   `icp4`/`icp5`, so macOS would have downscaled the 32/64 px art. The script now writes the
+   `.icns` itself (`icp4`-`ic14`, all PNG); regenerated.
+
+### Not changed
+
+Save-on-change writes once per key press (Left/Right/Enter are edge-triggered, no auto-repeat),
+which is fine. A missing `HOME`/`APPDATA` falls back to the temp directory (shared
+`config_dir`, pre-existing). The known gaps above stand: no `.ico` embedded in the Windows
+exe, no macOS bundle, Wayland/macOS ignore the window icon, Windows and macOS only
+cross-checked, not run.
+
+### Verification (review head)
+
+| Check | Result |
+|---|---|
+| `cargo fmt --all --check` | exit 0 |
+| `cargo clippy --workspace --all-targets -- -D warnings` | exit 0 |
+| `cargo test --workspace` | exit 0 |
+| cross clippy `x86_64-pc-windows-msvc`, `aarch64-apple-darwin` (`CARGO_FEATURE_PURE=1`) | exit 0, exit 0 |
+| `tools/capture.sh menu` vs `goldens/menu` | 0.000 % differing on all three |
+| `tools/capture.sh driving` / `race` vs goldens | ok (≤ 0.04 % differing, usual noise); no golden regenerated |
+| `tools/capture.sh menu --size 800x600` | looked at `options.png`: panel fits with room to spare |
+| `target/debug/racer-game` under Xvfb, `xprop` | `_NET_WM_ICON = Icon (64 x 64)`, `WM_CLASS = "", "racer"` |

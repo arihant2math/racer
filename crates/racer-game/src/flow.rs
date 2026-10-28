@@ -84,6 +84,14 @@ impl Plugin for FlowPlugin {
                 )
                     .before(menu_input),
             )
+            // Online the race goes on behind the menus; their keys (arrows,
+            // Enter, Space, the pad) must not drive the car meanwhile.
+            .add_systems(
+                RunFixedMainLoop,
+                release_controls_in_menus
+                    .in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop)
+                    .run_if(in_state(AppState::Race)),
+            )
             // Nothing outside a race is ever paused, however the race was left.
             .add_systems(OnExit(AppState::Race), resume_time)
             .add_systems(
@@ -512,12 +520,35 @@ fn fit_to_window(
     }
 }
 
+const MAIN_MENU: &[MenuItem] = &[
+    MenuItem::Action(Action::Race),
+    MenuItem::Action(Action::QuickMatch),
+    MenuItem::Action(Action::CreateLobby),
+    MenuItem::Action(Action::JoinLobby),
+    MenuItem::Action(Action::DirectConnect),
+    MenuItem::Action(Action::Options),
+    MenuItem::Action(Action::Quit),
+];
+
 fn spawn_main_menu(
     mut commands: Commands,
     mut cursor: ResMut<MenuCursor>,
     mut online: ResMut<Online>,
+    mut transitions: MessageReader<StateTransitionEvent<AppState>>,
 ) {
-    cursor.0 = 0;
+    // Back from the Options screen, the cursor stays on Options.
+    let from_options = transitions
+        .read()
+        .last()
+        .is_some_and(|t| t.exited == Some(AppState::Options));
+    cursor.0 = if from_options {
+        MAIN_MENU
+            .iter()
+            .position(|i| matches!(i, MenuItem::Action(Action::Options)))
+            .unwrap_or(0)
+    } else {
+        0
+    };
     // The last online error, once.
     let message = std::mem::take(&mut online.status);
     screen(
@@ -528,15 +559,7 @@ fn spawn_main_menu(
         } else {
             &message
         },
-        &[
-            MenuItem::Action(Action::Race),
-            MenuItem::Action(Action::QuickMatch),
-            MenuItem::Action(Action::CreateLobby),
-            MenuItem::Action(Action::JoinLobby),
-            MenuItem::Action(Action::DirectConnect),
-            MenuItem::Action(Action::Options),
-            MenuItem::Action(Action::Quit),
-        ],
+        MAIN_MENU,
         DespawnOnExit(AppState::MainMenu),
     );
 }
@@ -602,6 +625,20 @@ fn set_paused(paused: &mut Paused, time: &mut Time<Virtual>, on: bool) {
 
 fn resume_time(mut paused: ResMut<Paused>, mut time: ResMut<Time<Virtual>>) {
     set_paused(&mut paused, &mut time, false);
+}
+
+/// While the pause menu or the Options screen is open, the player's car
+/// gets no input (it coasts online; offline the race is paused anyway).
+fn release_controls_in_menus(
+    menus: Query<(), With<PauseMenu>>,
+    mut input: ResMut<crate::input::DriverInput>,
+) {
+    if !menus.is_empty() {
+        *input = crate::input::DriverInput {
+            device: input.device,
+            ..default()
+        };
+    }
 }
 
 /// Opens the pause menu on Esc or gamepad Start, and when a gamepad is

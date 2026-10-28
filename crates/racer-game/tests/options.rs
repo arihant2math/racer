@@ -23,7 +23,8 @@ use bevy::{
 };
 use racer_game::{
     GamePlugin,
-    flow::{AppState, Paused, RaceSetup},
+    flow::{AppState, MenuCursor, Paused, RaceSetup},
+    input::DriverInput,
     settings::{Settings, SettingsFile, SpeedUnit},
 };
 use racer_sim::{
@@ -62,16 +63,20 @@ fn game_app(setup: Option<RaceSetup>, file: Option<SettingsFile>) -> App {
     app
 }
 
+fn press(app: &mut App, code: KeyCode, state: ButtonState) {
+    app.world_mut().write_message(KeyboardInput {
+        key_code: code,
+        logical_key: Key::Unidentified(NativeKey::Unidentified),
+        state,
+        text: None,
+        repeat: false,
+        window: Entity::PLACEHOLDER,
+    });
+}
+
 fn tap(app: &mut App, code: KeyCode) {
     for state in [ButtonState::Pressed, ButtonState::Released] {
-        app.world_mut().write_message(KeyboardInput {
-            key_code: code,
-            logical_key: Key::Unidentified(NativeKey::Unidentified),
-            state,
-            text: None,
-            repeat: false,
-            window: Entity::PLACEHOLDER,
-        });
+        press(app, code, state);
         app.update();
     }
 }
@@ -167,8 +172,7 @@ fn options_by_gamepad_and_back_with_esc() {
     app.update();
     assert_eq!(state(&app), AppState::MainMenu);
 
-    tap(&mut app, KeyCode::ArrowUp); // wraps to Quit; one more up is Options
-    tap(&mut app, KeyCode::ArrowUp);
+    // The cursor is back on Options.
     tap(&mut app, KeyCode::Enter);
     app.update();
     assert_eq!(state(&app), AppState::Options);
@@ -176,6 +180,40 @@ fn options_by_gamepad_and_back_with_esc() {
     app.update();
     assert_eq!(state(&app), AppState::MainMenu);
     assert!(app.should_exit().is_none());
+    // Back on Options: Enter opens it again.
+    tap(&mut app, KeyCode::Enter);
+    app.update();
+    assert_eq!(state(&app), AppState::Options);
+}
+
+#[test]
+fn leaving_options_puts_the_cursor_back_on_options() {
+    let mut app = game_app(None, None);
+    for _ in 0..OPTIONS_ITEM {
+        tap(&mut app, KeyCode::ArrowDown);
+    }
+    tap(&mut app, KeyCode::Enter);
+    app.update();
+    assert_eq!(state(&app), AppState::Options);
+    // Down to Back, Enter.
+    tap(&mut app, KeyCode::ArrowDown);
+    tap(&mut app, KeyCode::Enter);
+    app.update();
+    assert_eq!(state(&app), AppState::MainMenu);
+    assert_eq!(app.world().resource::<MenuCursor>().0, OPTIONS_ITEM);
+    // Any other way into the main menu starts on Race.
+    tap(&mut app, KeyCode::ArrowUp);
+    tap(&mut app, KeyCode::ArrowUp);
+    tap(&mut app, KeyCode::ArrowUp);
+    tap(&mut app, KeyCode::ArrowUp);
+    tap(&mut app, KeyCode::ArrowUp); // Race
+    tap(&mut app, KeyCode::Enter);
+    app.update();
+    assert_eq!(state(&app), AppState::Setup);
+    tap(&mut app, KeyCode::Escape);
+    app.update();
+    assert_eq!(state(&app), AppState::MainMenu);
+    assert_eq!(app.world().resource::<MenuCursor>().0, 0);
 }
 
 #[test]
@@ -214,6 +252,25 @@ fn options_from_the_pause_menu_switch_the_hud_to_mph() {
         app.world().resource::<Paused>().0,
         "options unpaused the race"
     );
+    tap(&mut app, KeyCode::ArrowRight);
+    assert_eq!(units(&app), SpeedUnit::Mph);
+    // Keys held in the menu don't reach the car (online the race goes on).
+    for key in [KeyCode::ArrowLeft, KeyCode::KeyW, KeyCode::Space] {
+        press(&mut app, key, ButtonState::Pressed);
+    }
+    app.update();
+    app.update();
+    let input = *app.world().resource::<DriverInput>();
+    assert_eq!(
+        (input.steer, input.throttle, input.handbrake),
+        (0.0, 0.0, 0.0),
+        "{input:?}"
+    );
+    for key in [KeyCode::ArrowLeft, KeyCode::KeyW, KeyCode::Space] {
+        press(&mut app, key, ButtonState::Released);
+    }
+    app.update();
+    assert_eq!(units(&app), SpeedUnit::Kmh, "Left changed the units back");
     tap(&mut app, KeyCode::ArrowRight);
     assert_eq!(units(&app), SpeedUnit::Mph);
 
