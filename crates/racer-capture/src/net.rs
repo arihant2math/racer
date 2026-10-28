@@ -100,13 +100,6 @@ pub fn run(
             .spawn()
             .map_err(|e| format!("{}: {e}", check.server.display()))?,
     );
-    let difficulties = [
-        Difficulty::Alien,
-        Difficulty::Expert,
-        Difficulty::Pro,
-        Difficulty::Amateur,
-        Difficulty::Novice,
-    ];
     let deadline = Instant::now() + check.timeout;
     let bots: Vec<_> = (0..check.bots)
         .map(|i| {
@@ -118,8 +111,14 @@ pub fn run(
             };
             let mut config = NetClientConfig::direct(addr, 1000 + i as u64, join);
             config.conditions = check.conditions;
-            config.autopilot = Some(difficulties[i % difficulties.len()]);
-            std::thread::spawn(move || bot(config, track, deadline))
+            // Slowest first on the grid (bots join in order), so that the
+            // faster ones have to pass: traffic and contacts.
+            config.autopilot = Some(Difficulty::ALL[i * Difficulty::ALL.len() / check.bots.max(1)]);
+            let start = Duration::from_millis(150 * i as u64);
+            std::thread::spawn(move || {
+                std::thread::sleep(start);
+                bot(config, track, deadline)
+            })
         })
         .collect();
     let results: Vec<BotResult> = bots
@@ -503,6 +502,24 @@ pub fn analyse(
     if share < t.contact_agreement {
         fail(out, format!("contact agreement {:.0} %", share * 100.0));
     }
+
+    // Remote cars.
+    let mut model: Vec<f32> = bots.iter().flat_map(|b| b.stats.remote_errors.iter().map(|e| e.0)).collect();
+    let mut dead: Vec<f32> = bots.iter().flat_map(|b| b.stats.remote_errors.iter().map(|e| e.1)).collect();
+    writeln!(
+        out,
+        "\n## Remote cars\n\nShown position against the server's at the same tick, before smoothing \
+         ({} samples): extrapolated with their inputs p50 {:.2} m, p95 {:.2} m, max {:.2} m; \
+         dead reckoning would give p50 {:.2} m, p95 {:.2} m, max {:.2} m",
+        model.len(),
+        percentile(&mut model, 0.5),
+        percentile(&mut model, 0.95),
+        model.last().copied().unwrap_or(0.0),
+        percentile(&mut dead, 0.5),
+        percentile(&mut dead, 0.95),
+        dead.last().copied().unwrap_or(0.0),
+    )
+    .ok();
 
     // Network and cost.
     writeln!(out, "\n## Network and cost\n").ok();

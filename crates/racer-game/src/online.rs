@@ -48,7 +48,6 @@ impl Plugin for OnlinePlugin {
             .init_resource::<Online>()
             .init_resource::<TextEntry>()
             .add_systems(OnEnter(AppState::MainMenu), leave)
-            .add_systems(OnEnter(AppState::Entry), clear_entry)
             .add_systems(OnEnter(AppState::Race), spawn_ping.run_if(resource_exists::<RemoteRace>))
             .add_systems(
                 Update,
@@ -309,6 +308,12 @@ impl Online {
         self.since_poll = 0.0;
     }
 
+    /// Shows `lobby` without a backend (screenshots).
+    pub fn show(&mut self, lobby: LobbyView) {
+        self.reset(OnlineMode::Lobby, "");
+        self.lobby = Some(lobby);
+    }
+
     pub fn start_quick_match(&mut self, setup: &RaceSetup) {
         self.reset(OnlineMode::Lobby, "Finding a race...");
         let mode = SettingsView::from_setup(setup).mode;
@@ -379,10 +384,6 @@ impl Online {
     }
 }
 
-fn clear_entry(mut entry: ResMut<TextEntry>) {
-    entry.text.clear();
-}
-
 /// Typing on the text-entry screen (Enter and Esc go through the menus).
 fn type_text(mut entry: ResMut<TextEntry>, mut keys: MessageReader<KeyboardInput>) {
     for key in keys.read().filter(|k| k.state.is_pressed()) {
@@ -449,7 +450,7 @@ fn poll_backend(
         }
     }
     online.since_poll += time.delta_secs();
-    let poll = online.since_poll > 0.5 && online.pending.is_none();
+    let poll = online.since_poll > 0.5 && online.pending.is_none() && online.backend.is_some();
     if poll && let Some(code) = online.lobby.as_ref().map(|l| l.code.clone()) {
         online.request("GET", format!("/v1/lobbies/{code}"), None);
     }

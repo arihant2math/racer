@@ -143,6 +143,7 @@ fn drive_cars(
         &CarControls,
         &mut CarTelemetry,
         &Children,
+        &RigidBody,
         Forces,
     )>,
 ) {
@@ -150,7 +151,11 @@ fn drive_cars(
     if dt <= 0.0 {
         return;
     }
-    for (entity, car, mut state, controls, mut telemetry, children, mut forces) in &mut cars {
+    for (entity, car, mut state, controls, mut telemetry, children, body, mut forces) in &mut cars {
+        // Cars moved by someone else (remote cars online) take no forces.
+        if !body.is_dynamic() {
+            continue;
+        }
         let v = &car.vehicle;
         let rot = forces.rotation().0;
         let pos = forces.position().0;

@@ -55,18 +55,22 @@ jobs:
         run: tools/capture.sh greybox captures/greybox
       - name: Capture driving scene
         run: tools/capture.sh driving captures/driving
-      - name: Capture menu and race scenes
+      - name: Capture menu, lobby and race scenes
         run: |
           tools/capture.sh menu captures/menu
+          tools/capture.sh lobby captures/lobby
           CAPTURE_PROFILE=release tools/capture.sh race captures/race --timeout 2400
       - name: Compare with goldens
         run: |
           target/debug/racer-capture diff captures/greybox crates/racer-capture/goldens/greybox
           target/debug/racer-capture diff captures/driving crates/racer-capture/goldens/driving
           target/debug/racer-capture diff captures/menu crates/racer-capture/goldens/menu
+          target/debug/racer-capture diff captures/lobby crates/racer-capture/goldens/lobby
           target/release/racer-capture diff captures/race crates/racer-capture/goldens/race
       - name: AI laps and races (short; tools/ai-check.sh runs the full 100-lap check)
         run: tools/ai-check.sh captures/ai 5 4 5
+      - name: Net check (short; tools/net-check.sh runs the full 8-bot races)
+        run: tools/net-check.sh captures/net 1 1
       - name: Telemetry runs and plots
         run: tools/telemetry.sh captures/telemetry
       - uses: actions/upload-artifact@v4

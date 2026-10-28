@@ -9,6 +9,7 @@ use racer_game::{
     driving::{CameraMode, DrivingPlugin, Location, hood_camera},
     flow::{AppState, OpponentCars, RaceSetup},
     greybox::{GreyboxPlugin, default_camera_transform},
+    online::{EntryPurpose, LobbyView, MemberView, Online, SettingsView, TextEntry},
 };
 use racer_sim::{
     race::{Race, RacePhase, RaceTrack, Racer},
@@ -19,7 +20,7 @@ use racer_sim::{
 use crate::harness::{Pose, PoseCamera};
 
 /// Names accepted by [`add_scene`].
-pub const SCENES: &[&str] = &["greybox", "driving", "race", "menu", "showroom"];
+pub const SCENES: &[&str] = &["greybox", "driving", "race", "menu", "showroom", "lobby"];
 
 /// Adds the named scene to `app` and returns its camera poses.
 pub fn add_scene(app: &mut App, name: &str) -> Option<Vec<Pose>> {
@@ -197,7 +198,63 @@ pub fn add_scene(app: &mut App, name: &str) -> Option<Vec<Pose>> {
                 },
             ])
         }
+        "lobby" => {
+            app.add_plugins(GamePlugin);
+            Some(vec![
+                Pose {
+                    name: "join".into(),
+                    camera: PoseCamera::Game,
+                    prepare: Some(|w| {
+                        *w.resource_mut::<TextEntry>() = TextEntry {
+                            purpose: EntryPurpose::JoinCode,
+                            text: "K7QX2M".into(),
+                        };
+                        w.resource_mut::<NextState<AppState>>().set(AppState::Entry);
+                    }),
+                    ready: Some(|w| in_state(w, AppState::Entry)),
+                },
+                Pose {
+                    name: "lobby-host".into(),
+                    camera: PoseCamera::Game,
+                    prepare: Some(|w| {
+                        w.resource_mut::<Online>().show(sample_lobby());
+                        w.resource_mut::<NextState<AppState>>().set(AppState::Lobby);
+                    }),
+                    ready: Some(|w| in_state(w, AppState::Lobby)),
+                },
+            ])
+        }
         _ => None,
+    }
+}
+
+/// A lobby with three players, seen by its host.
+fn sample_lobby() -> LobbyView {
+    let member = |id, name: &str, ready, car: &str| MemberView {
+        id,
+        name: name.into(),
+        ready,
+        car: car.into(),
+    };
+    LobbyView {
+        code: "K7QX2M".into(),
+        host: 1,
+        you: 1,
+        members: vec![
+            member(1, "Ana", false, "vw-golf-gti-mk8"),
+            member(2, "Bo", true, "bmw-m3-competition-g80"),
+            member(3, "Cy", false, "porsche-911-carrera-s-992"),
+        ],
+        settings: SettingsView {
+            track: "downtown-loop".into(),
+            mode: "circuit".into(),
+            laps: 3,
+            collisions: "full".into(),
+            ai_fill: true,
+        },
+        state: "open".into(),
+        quick: None,
+        server: None,
     }
 }
 

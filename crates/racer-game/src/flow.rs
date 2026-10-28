@@ -710,6 +710,7 @@ fn menu_input(
                 EntryPurpose::Address
             };
             online.status.clear();
+            entry.text.clear();
             next.set(AppState::Entry);
         }
         Action::Submit => match entry.purpose {

@@ -8,6 +8,7 @@ use bevy::{input::gamepad::Gamepad, light::atmosphere::ScatteringMedium, prelude
 use racer_dynamics::{Assists, load_car, spec::CARS};
 use racer_sim::{
     ai::{AiDriver, Difficulty},
+    net::client::RemoteRace,
     race::{
         DriverKind, Race, RaceConfig, RaceMode, RacePhase, RaceTrack, Racer, ResetRequest,
         spawn_racer,
@@ -40,7 +41,11 @@ impl Plugin for RaceScenePlugin {
         app.add_plugins(HudPlugin)
             .insert_resource(RaceTrack(Arc::new(track)))
             .add_systems(Startup, setup_world)
-            .add_systems(OnEnter(AppState::Race), start_race)
+            // Online races are set up by the server.
+            .add_systems(
+                OnEnter(AppState::Race),
+                start_race.run_if(not(resource_exists::<RemoteRace>)),
+            )
             .add_systems(
                 Update,
                 (

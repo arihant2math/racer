@@ -37,7 +37,7 @@ use super::{
 };
 use crate::{
     ai::{AiDriver, CarParams, CarView, Difficulty, Other},
-    race::{DriverKind, Race, RacePhase, RaceTrack, Racer, spawn_racer},
+    race::{DriverKind, Race, RacePhase, RaceTrack, Racer, ResetRequest, spawn_racer},
     rules::Progress,
     track::Layer,
     vehicle::{CarBody, CarControls, CarState, CarTelemetry, ControlSystems, VehicleSystems},
@@ -128,7 +128,7 @@ impl Plugin for NetClientPlugin {
                 .run_if(resource_exists::<Prediction>),
         )
         .add_systems(First, remove_visual_offset)
-        .add_systems(Update, remote_layers)
+        .add_systems(Update, (remote_layers, forward_reset_requests))
         .add_systems(
             PostUpdate,
             (
@@ -226,6 +226,10 @@ pub struct RemoteCar {
     controls: NetControls,
     /// Extrapolated state after each tick from `tick` on.
     path: VecDeque<Body>,
+    /// Where the car was shown at each recent tick, extrapolated with its
+    /// inputs and by dead reckoning, to measure both against the snapshot of
+    /// that tick when it comes.
+    shown: VecDeque<(u32, Vec3, Vec3)>,
 }
 
 impl RemoteCar {
@@ -319,6 +323,10 @@ pub struct NetStats {
     /// Lead of the inputs over the server tick (ticks), per snapshot.
     pub input_lead: Vec<i32>,
     pub rtt_ms: Vec<f32>,
+    /// Remote cars: distance (m) between where they were shown at a tick and
+    /// the server's snapshot of that tick, extrapolated with their inputs
+    /// and by dead reckoning (before the display smoothing).
+    pub remote_errors: Vec<(f32, f32)>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -547,6 +555,7 @@ fn start_race(
                     tick: start.created,
                     controls: NetControls::default(),
                     path: VecDeque::from([body]),
+                    shown: VecDeque::new(),
                 },
             ));
         }
@@ -666,11 +675,18 @@ fn reconcile(world: &mut World) {
         .push(snapshot.input_ack as i32 - snapshot.tick as i32);
 
     // Remote cars: new path from the snapshot, displayed pose kept.
+    let mut remote_errors = Vec::new();
     let mut remotes = world.query::<(&NetCar, &mut RemoteCar, &mut VisualOffset)>();
     for (car, mut remote, mut offset) in remotes.iter_mut(world) {
         let Some(s) = snapshot.cars.iter().find(|s| s.slot == car.slot) else {
             continue;
         };
+        if let Some(&(_, model, dead)) = remote.shown.iter().find(|x| x.0 == snapshot.tick) {
+            remote_errors.push((
+                model.distance(s.body.position),
+                dead.distance(s.body.position),
+            ));
+        }
         let before = remote.at(now);
         remote.tick = snapshot.tick;
         remote.controls = s.controls;
@@ -678,6 +694,10 @@ fn reconcile(world: &mut World) {
         let after = remote.at(now);
         offset.absorb(&before, &after);
     }
+    world
+        .resource_mut::<NetStats>()
+        .remote_errors
+        .extend(remote_errors);
     let ghosted: Vec<(u8, bool)> = snapshot.cars.iter().map(|c| (c.slot, c.ghosted)).collect();
     set_ghosting(world, &ghosted);
 
@@ -894,6 +914,7 @@ fn inputs(
 /// the one after this tick.
 fn place_remote_cars(
     p: Res<Prediction>,
+    resim: Option<Res<Resimulating>>,
     mut cars: Query<(
         &mut RemoteCar,
         &mut Position,
@@ -919,6 +940,15 @@ fn place_remote_cars(
         };
         if to.position == from.position {
             vel.0 = to.velocity;
+        }
+        if resim.is_none() {
+            let base = remote.path[0];
+            let ahead = (p.tick - remote.tick.min(p.tick)) as f32 * dt;
+            let dead = base.position + base.velocity * ahead;
+            remote.shown.push_back((p.tick, to.position, dead));
+            while remote.shown.len() > HISTORY as usize {
+                remote.shown.pop_front();
+            }
         }
     }
 }
@@ -1081,10 +1111,20 @@ fn drive_bot(
     }
 }
 
-/// Ask the server to put the local car back on the track.
-pub fn request_reset(mut resets: Query<&mut MessageSender<RequestReset>>) {
-    for mut s in &mut resets {
-        s.send::<ControlChannel>(RequestReset);
+/// A reset asked for the local car (the reset key) goes to the server,
+/// which decides.
+fn forward_reset_requests(
+    mut commands: Commands,
+    cars: Query<(Entity, &NetCar), With<ResetRequest>>,
+    mut resets: Query<&mut MessageSender<RequestReset>>,
+) {
+    for (entity, car) in &cars {
+        commands.entity(entity).remove::<ResetRequest>();
+        if car.local {
+            for mut s in &mut resets {
+                s.send::<ControlChannel>(RequestReset);
+            }
+        }
     }
 }
 
