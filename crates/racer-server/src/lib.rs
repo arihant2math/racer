@@ -28,7 +28,10 @@ pub fn build_app(config: &ServerConfig) -> App {
     .init_resource::<TickCount>()
     .add_systems(FixedUpdate, count_ticks);
     if let Some(max) = config.max_ticks {
+        // Also checked at startup, before the first fixed step, so that
+        // `--max-ticks 0` runs none.
         app.insert_resource(MaxTicks(max))
+            .add_systems(Startup, exit_after_max_ticks)
             .add_systems(FixedUpdate, exit_after_max_ticks.after(count_ticks));
     }
     app

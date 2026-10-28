@@ -1,0 +1,28 @@
+{
+ "generator": "TRELLIS.2-4B (microsoft/TRELLIS.2, image_to_3d)",
+ "input": "BMW_M3_Competition_G80_1X7A1573.jpg",
+ "seed": 1,
+ "pipeline_type": "1536_cascade",
+ "max_num_tokens": 200000,
+ "raw_verts": 13158010,
+ "raw_faces": 26941406,
+ "glb_decimation_target": 1000000,
+ "texture_size": 4096,
+ "image_cond": "camenduru/dinov3-vitl16-pretrain-lvd1689m (mirror of facebook/dinov3-vitl16-pretrain-lvd1689m)",
+ "rembg": "ZhengPeng7/BiRefNet",
+ "seconds": 200.0,
+ "candidate": "tr2_BMW_M3_Competition_G80_1X7A1573_s1_1536_cascade.glb",
+ "input_photo": "refs/photos/BMW_M3_Competition_G80_1X7A1573.jpg",
+ "aligned": "rigid + uniform scale to car.toml length_m (score_candidates.py), no warp",
+ "frame": "glTF +X right, +Y up, -Z forward, metres, ground y=0, z=0 at the length midpoint",
+ "blueprint_iou": {
+  "side": 0.9217,
+  "plan": 0.9698,
+  "front": 0.8957,
+  "rear": 0.8955,
+  "symmetry": 0.9885,
+  "total": 0.9207
+ },
+ "faces": 940333,
+ "selection": "best mean silhouette IoU among the candidates in candidates.json"
+}

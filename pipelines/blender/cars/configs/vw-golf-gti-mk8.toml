@@ -1,0 +1,8 @@
+# Per-car settings for pipelines/blender/cars/build.py.
+out = "model"
+drive_side = "left"
+tyre_text = "BRIDGESTONE      POTENZA S005      235/35 R19 91Y      BRIDGESTONE      POTENZA S005      "
+caliper = [0.55, 0.02, 0.02]    # GTI red
+rim = { spokes = 10, paired = false, spoke_w = 0.02, twist = 0.55, colour = [0.32, 0.33, 0.35] }  # 19" Adelaide: swept, dark grey
+exhaust = { y = [-0.42, 0.42], z = 0.30 }  # twin tips left and right
+badge = false   # plain hub cap (the crest texture is Porsche)

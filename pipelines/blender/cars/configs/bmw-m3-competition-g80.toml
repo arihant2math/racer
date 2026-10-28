@@ -1,0 +1,8 @@
+# Per-car settings for pipelines/blender/cars/build.py.
+out = "model"
+drive_side = "left"
+tyre_text = "MICHELIN      PILOT SPORT 4S      285/30 ZR20 99Y      MICHELIN      PILOT SPORT 4S      "
+caliper = [0.03, 0.12, 0.45]    # M Compound blue
+rim = { spokes = 10, paired = true, spoke_w = 0.024, twist = 0.0, colour = [0.08, 0.08, 0.085] }  # 826M-style double spokes, Jet Black
+exhaust = { y = [-0.55, -0.42, 0.42, 0.55], z = 0.33 }  # quad tips
+badge = false

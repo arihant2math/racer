@@ -50,7 +50,7 @@ jobs:
         run: tools/setup.sh
       - uses: Swatinem/rust-cache@v2
       - name: Validate tracks
-        run: cargo run -p racer-trackc -- validate data/tracks/*/
+        run: cargo run --locked -p racer-trackc -- validate data/tracks/*/
       - name: Capture greybox scene
         run: tools/capture.sh greybox captures/greybox
       - name: Capture driving scene

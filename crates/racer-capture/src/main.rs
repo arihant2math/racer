@@ -83,16 +83,28 @@ fn flag<T: std::str::FromStr>(flags: &[(&str, &str)], name: &str, default: T) ->
     }
 }
 
+/// Largest capture width or height (wgpu's default 2D texture size limit).
+const MAX_SIZE: u32 = 8192;
+
 fn scene(args: &[String]) -> Result<ExitCode, String> {
     let (pos, flags) = parse(args, &["size", "timeout"])?;
     let [name, out_dir] = pos[..] else {
         return Err(USAGE.into());
     };
+    // Everything is checked before the output directory, window and
+    // renderer are created.
+    if !scenes::SCENES.contains(&name) {
+        return Err(format!(
+            "unknown scene {name:?}; known: {}",
+            scenes::SCENES.join(", ")
+        ));
+    }
     let size: String = flag(&flags, "size", "1280x720".to_string())?;
     let (w, h) = size
         .split_once('x')
         .and_then(|(w, h)| Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?)))
-        .ok_or_else(|| format!("invalid --size {size}"))?;
+        .filter(|&(w, h)| (1..=MAX_SIZE).contains(&w) && (1..=MAX_SIZE).contains(&h))
+        .ok_or_else(|| format!("invalid --size {size} (WxH, each 1 to {MAX_SIZE})"))?;
     let timeout = Duration::from_secs(flag(&flags, "timeout", 600)?);
     let out_dir = PathBuf::from(out_dir);
     std::fs::create_dir_all(&out_dir).map_err(|e| format!("{}: {e}", out_dir.display()))?;
@@ -116,12 +128,7 @@ fn scene(args: &[String]) -> Result<ExitCode, String> {
                     ..default()
                 }),
         );
-    let poses = scenes::add_scene(&mut app, name).ok_or_else(|| {
-        format!(
-            "unknown scene {name:?}; known: {}",
-            scenes::SCENES.join(", ")
-        )
-    })?;
+    let poses = scenes::add_scene(&mut app, name).expect("scene name checked above");
     app.add_plugins(CapturePlugin {
         poses,
         out_dir,
@@ -167,6 +174,17 @@ fn check_files(args: &[String]) -> Result<ExitCode, String> {
     })
 }
 
+/// A tolerance flag: a number in `0..=max` (NaN and negatives would fail
+/// or pass every image).
+fn tolerance(flags: &[(&str, &str)], name: &str, default: f64, max: f64) -> Result<f64, String> {
+    let v: f64 = flag(flags, name, default)?;
+    if (0.0..=max).contains(&v) {
+        Ok(v)
+    } else {
+        Err(format!("--{name} must be between 0 and {max}, got {v}"))
+    }
+}
+
 fn diff(args: &[String]) -> Result<ExitCode, String> {
     let (pos, flags) = parse(args, &["pixel", "max-fraction", "max-mean"])?;
     let [actual, golden] = pos[..] else {
@@ -175,8 +193,8 @@ fn diff(args: &[String]) -> Result<ExitCode, String> {
     let d = Tolerance::default();
     let tol = Tolerance {
         pixel: flag(&flags, "pixel", d.pixel)?,
-        max_differing_fraction: flag(&flags, "max-fraction", d.max_differing_fraction)?,
-        max_mean_error: flag(&flags, "max-mean", d.max_mean_error)?,
+        max_differing_fraction: tolerance(&flags, "max-fraction", d.max_differing_fraction, 1.0)?,
+        max_mean_error: tolerance(&flags, "max-mean", d.max_mean_error, 255.0)?,
     };
     let (actual, golden) = (Path::new(actual), Path::new(golden));
     let pairs = if golden.is_dir() {
@@ -253,6 +271,16 @@ fn ai_laps(args: &[String]) -> Result<ExitCode, String> {
     };
     let laps: u32 = flag(&flags, "laps", 100)?;
     let only: String = flag(&flags, "car", String::new())?;
+    // The first lap is from a standing start; the report needs a flying lap.
+    if laps < 2 {
+        return Err("--laps must be at least 2".into());
+    }
+    if !only.is_empty() && !racer_dynamics::spec::CARS.contains(&only.as_str()) {
+        return Err(format!(
+            "unknown car {only:?}; known: {}",
+            racer_dynamics::spec::CARS.join(", ")
+        ));
+    }
     let out_dir = Path::new(out_dir);
     std::fs::create_dir_all(out_dir).map_err(|e| format!("{}: {e}", out_dir.display()))?;
     let track = std::sync::Arc::new(racer_trackc::load("downtown-loop")?);
@@ -308,19 +336,31 @@ fn ai_races(args: &[String]) -> Result<ExitCode, String> {
     };
     let races: usize = flag(&flags, "races", 12)?;
     let laps: u32 = flag(&flags, "laps", 10)?;
+    let first: usize = flag(&flags, "first", 0)?;
+    if races == 0 || laps == 0 {
+        return Err("--races and --laps must be at least 1".into());
+    }
+    // Race indices seed the grid shuffle, which multiplies them as u64.
+    let end = first
+        .checked_add(races)
+        .filter(|&end| end <= u32::MAX as usize)
+        .ok_or(format!("--first plus --races must be at most {}", u32::MAX))?;
     let out_dir = Path::new(out_dir);
     std::fs::create_dir_all(out_dir).map_err(|e| format!("{}: {e}", out_dir.display()))?;
     let track = std::sync::Arc::new(racer_trackc::load("downtown-loop")?);
     let started = std::time::Instant::now();
-    let first: usize = flag(&flags, "first", 0)?;
-    let jobs: Vec<usize> = (first..first + races).collect();
+    let jobs: Vec<usize> = (first..end).collect();
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get());
     let results = race::parallel(&jobs, threads, |&i| race::mixed(track.clone(), i, laps))
         .into_iter()
         .collect::<Result<Vec<_>, String>>()?;
     let mut report = String::new();
     // Each difficulty fills about 8/5 of the grid; ask for 100 laps over a full run.
-    let min_laps = if races * laps as usize >= 100 { 100 } else { 0 };
+    let min_laps = if races.saturating_mul(laps as usize) >= 100 {
+        100
+    } else {
+        0
+    };
     let ok = race::report_mixed(&results, min_laps, &mut report);
     println!("{report}");
     println!(

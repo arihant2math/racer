@@ -8,6 +8,7 @@ publish.workspace = true
 
 [dependencies]
 bevy = { workspace = true, features = ["3d", "ui", "free_camera"] }
+racer-data.workspace = true
 racer-dynamics.workspace = true
 sdl3 = { workspace = true, optional = true }
 sdl3-sys = { workspace = true, optional = true }

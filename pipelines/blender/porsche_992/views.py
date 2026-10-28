@@ -23,8 +23,9 @@ for o in list(sc.objects):
     if o.type in {"CAMERA", "LIGHT"} and o.name.startswith("_rv"):
         bpy.data.objects.remove(o)
 meshes = [o for o in sc.objects if o.type == "MESH" and o.visible_get() and not o.name.startswith("LOD") and not o.name.startswith("COL")]
+import re
 for o in sc.objects:
-    if o.type == "MESH" and (o.name.startswith("LOD") or o.name.startswith("COL") or "_lod" in o.name):
+    if o.type == "MESH" and (o.name.startswith("LOD") or o.name.startswith("COL") or re.search(r"_LOD[1-3]", o.name, re.I)):
         o.hide_render = True
 mn = Vector((1e9,) * 3); mx = -mn
 for o in meshes:

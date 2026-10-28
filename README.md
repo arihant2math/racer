@@ -22,6 +22,21 @@ Tracks live in `data/tracks/<id>/track.toml` (route nodes with width, elevation,
 aprons and curbs; start, grid, sectors, checkpoints, sprint finish) with the generated
 racing line, car models and speed profiles in `data/tracks/<id>/generated/`.
 
+Binaries find `data/` at run time, in this order: the `RACER_DATA_DIR` environment variable
+(the directory that holds `cars/` and `tracks/`), a `data/` directory next to the executable
+(as in a release archive), and finally the checkout the binary was built from (so `cargo run`
+and `cargo test` need nothing set). To run a built binary elsewhere, copy `data/` next to it
+or point `RACER_DATA_DIR` at it:
+
+```sh
+cp -r target/release/racer-game data /opt/racer/        # /opt/racer/racer-game finds /opt/racer/data
+RACER_DATA_DIR=/path/to/racer/data /somewhere/racer-trackc compile /path/to/my-track
+```
+
+Built car models (`assets/`, from `tools/build_car_992.sh`; not committed) are found the same
+way: `RACER_ASSETS_DIR`, then `assets/` next to the executable, then the checkout. Without
+them `racer-game` and `racer-capture` draw the greybox car bodies.
+
 ## Setup
 
 On Ubuntu 24.04 (a fresh container or a GitHub Actions runner), one non-interactive,
@@ -47,11 +62,17 @@ cargo run -p racer-game -- drive --car 3 --skidpad   # 911 on the skidpad
 cargo run -p racer-game -- greybox                   # M0 scene, free camera
 cargo run -p racer-game --features wheel             # + SDL3 steering wheel/FFB (needs cmake)
 cargo run -p racer-server -- --max-ticks 2400   # headless server for 10 s of simulation
-cargo run -p racer-backend      # http://127.0.0.1:8080/health (RACER_BACKEND_ADDR to change)
+cargo run -p racer-backend      # http://127.0.0.1:8080/health
+RACER_BACKEND_ADDR=localhost:9000 cargo run -p racer-backend   # any host:port (names resolved)
 cargo test --workspace
 cargo test -p racer-dynamics    # reference maneuvers and fuzz tests for every car, ~3 s
 cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings
 ```
+
+`cargo build --workspace`, `cargo build -p racer-game` and `cargo build -p racer-capture` (as
+`tools/capture.sh` runs) resolve the same features, so they share one compiled Bevy.
+`racer-server` and `racer-sim` on their own build a smaller, headless Bevy (no renderer,
+windowing or audio), which is compiled separately the first time.
 
 Driving controls: WASD or arrows, Space handbrake, Q/E shift down/up (automatic by default),
 C clutch, V chase/hood camera, R reset (in a race: back to the last valid track position).
@@ -71,7 +92,10 @@ cargo run -p racer-trackc -- compile data/tracks/downtown-loop    # rewrites gen
 `compile` generates the minimum-curvature racing line and measures each car's point-mass
 model on the racer-dynamics testbed (grip, braking, drive per speed), then writes the line,
 the models and the speed profiles. `cargo test -p racer-trackc` fails if the generated files
-no longer match the track or the cars.
+no longer match the track or the cars. `compile` also removes speed profiles of cars it no
+longer compiles. Validation bounds what it will work on (at most 500 nodes, coordinates within
+50 km of the origin, a 25 km lap, 16 grid slots, 16 sectors) and checks every value before
+building anything, so malformed data is always an error, never a hang or a crash.
 
 ## AI verification
 
@@ -85,7 +109,8 @@ laps, resets and stalls, checks the lap-time spread between difficulties against
 optimal-line time, writes `solo.md` and `mixed.md` reports and plots the AI against the
 optimal speed profile with `tools/plot_race.py`. The underlying commands are
 `racer-capture ai-laps <out> [--laps N] [--car ID]` and
-`racer-capture ai-races <out> [--races N] [--laps N]`.
+`racer-capture ai-races <out> [--races N] [--laps N] [--first I]` (`--first` is the index of
+the first race, which picks its grid, cars and difficulties; races `I..I+N` are run).
 
 ## Telemetry
 

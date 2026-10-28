@@ -1,0 +1,74 @@
+[
+ {
+  "file": "tr2_BMW_M3_Competition_G80_1X7A1573_s1_1536_cascade.glb",
+  "total": 0.9207,
+  "side": 0.9217,
+  "plan": 0.9698,
+  "front": 0.8957,
+  "rear": 0.8955,
+  "symmetry": 0.9885
+ },
+ {
+  "file": "tr2_2021_BMW_M3_Competition_Automatic_3.0_Front_s3_1536_cascade.glb",
+  "total": 0.9178,
+  "side": 0.9174,
+  "plan": 0.9652,
+  "front": 0.8944,
+  "rear": 0.8942,
+  "symmetry": 0.9891
+ },
+ {
+  "file": "tr2_BMW_M3_Competition_G80_1X7A1573_s0_1536_cascade.glb",
+  "total": 0.9157,
+  "side": 0.9332,
+  "plan": 0.9729,
+  "front": 0.8785,
+  "rear": 0.8783,
+  "symmetry": 0.9789
+ },
+ {
+  "file": "tr2_2021_BMW_M3_Competition_Automatic_3.0_Front_s2_1536_cascade.glb",
+  "total": 0.9136,
+  "side": 0.9366,
+  "plan": 0.9669,
+  "front": 0.8751,
+  "rear": 0.8757,
+  "symmetry": 0.9901
+ },
+ {
+  "file": "tr2_BMW_M3_Competition_G80_IMG_1176_s3_1536_cascade.glb",
+  "total": 0.8706,
+  "side": 0.9051,
+  "plan": 0.9297,
+  "front": 0.8237,
+  "rear": 0.8238,
+  "symmetry": 0.9852
+ },
+ {
+  "file": "tr2_BMW_M3_Competition_G80_IMG_1176_s2_1536_cascade.glb",
+  "total": 0.8703,
+  "side": 0.9168,
+  "plan": 0.9266,
+  "front": 0.8188,
+  "rear": 0.819,
+  "symmetry": 0.9943
+ },
+ {
+  "file": "tr2_2021_BMW_M3_Competition_Automatic_3.0_Rear_s0_1536_cascade.glb",
+  "total": 0.8367,
+  "side": 0.8889,
+  "plan": 0.9092,
+  "front": 0.7743,
+  "rear": 0.7742,
+  "symmetry": 0.9759
+ },
+ {
+  "file": "tr2_2021_BMW_M3_Competition_Automatic_3.0_Rear_s1_1536_cascade.glb",
+  "total": 0.8282,
+  "side": 0.8935,
+  "plan": 0.9195,
+  "front": 0.7503,
+  "rear": 0.7495,
+  "symmetry": 0.9968
+ }
+]

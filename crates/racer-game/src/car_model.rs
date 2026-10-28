@@ -11,7 +11,7 @@
 //! - the model is placed in the car's body frame (the sim's origin is the
 //!   centre of mass; the model's is the ground under the wheelbase midpoint).
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use bevy::{
     camera::visibility::VisibilityRange, gltf::GltfMaterialName, prelude::*,
@@ -22,7 +22,12 @@ use racer_sim::vehicle::{Car, CarTelemetry, wheel_center};
 use crate::visuals::CarPaint;
 
 /// Models shipped by the asset pipeline, by car id.
-const MODELS: &[(&str, &str)] = &[("porsche-911-carrera-s-992", "porsche_992.glb")];
+/// All three are built by `tools/build_cars.sh` (pipelines/blender/cars).
+const MODELS: &[(&str, &str)] = &[
+    ("vw-golf-gti-mk8", "model.glb"),
+    ("bmw-m3-competition-g80", "model.glb"),
+    ("porsche-911-carrera-s-992", "model.glb"),
+];
 
 /// Wheel node names in the sim's wheel order (FL, FR, RL, RR).
 const WHEELS: [&str; 4] = ["FL", "FR", "RL", "RR"];
@@ -30,9 +35,13 @@ const WHEELS: [&str; 4] = ["FL", "FR", "RL", "RR"];
 /// LOD switch distances (m): LOD0 below the first, LOD3 beyond the last.
 const LOD_DISTANCES: [f32; 3] = [18.0, 45.0, 110.0];
 
-/// `assets/` in the repository (Bevy's asset root is set to it in the game binary).
+/// The `assets/` directory (see `racer_data::assets_dir` for where it is
+/// found); Bevy's asset root is set to it in the game binary. Absolute,
+/// because Bevy resolves a relative root against the executable's directory,
+/// not the working directory.
 pub fn assets_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets")
+    let dir = racer_data::assets_dir();
+    std::path::absolute(&dir).unwrap_or(dir)
 }
 
 /// Asset path of the car's model, if the pipeline has built it.

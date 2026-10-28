@@ -10,6 +10,10 @@ import bpy
 import numpy as np
 
 
+# Sidewall lettering (cars/build.py overrides it per car).
+TYRE_TEXT = "PIRELLI      P ZERO      305/30 ZR21 (104Y)      N0      PIRELLI      P ZERO      "
+
+
 def _img(name, arr, alpha=False):
     h, w = arr.shape[:2]
     if arr.ndim == 2:
@@ -101,7 +105,7 @@ def tyre_sidewall(w=2048, h=256):
     hgt += 0.6 * np.exp(-((v - 0.12) / 0.04) ** 2) + 0.25 * np.exp(-((v - 0.9) / 0.03) ** 2)
     col = np.repeat(base[..., None], 3, axis=2)
     # Raised lettering band.
-    m = _text_mask("PIRELLI      P ZERO      305/30 ZR21 (104Y)      N0      PIRELLI      P ZERO      ", w, int(h * 0.42))
+    m = _text_mask(TYRE_TEXT, w, int(h * 0.42))
     band = np.zeros((h, w))
     o = int(h * 0.32)
     band[o : o + m.shape[0]] = m

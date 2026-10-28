@@ -57,20 +57,30 @@ else
   echo "==> apt: all packages present"
 fi
 
-if ! command -v cargo >/dev/null 2>&1 && [ -x "$HOME/.cargo/bin/cargo" ]; then
+# The pinned toolchain comes from rustup; a distro cargo without rustup
+# cannot honour rust-toolchain.toml, so rustup is installed even then and put
+# first on PATH.
+if ! command -v rustup >/dev/null 2>&1 && [ -x "$HOME/.cargo/bin/rustup" ]; then
   export PATH="$HOME/.cargo/bin:$PATH"
 fi
-if ! command -v cargo >/dev/null 2>&1; then
+if ! command -v rustup >/dev/null 2>&1; then
   echo "==> rustup: installing rustup"
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs |
     sh -s -- -y --profile minimal --default-toolchain none
   export PATH="$HOME/.cargo/bin:$PATH"
 fi
-if command -v rustup >/dev/null 2>&1; then
-  # Installs the toolchain and components pinned in rust-toolchain.toml.
-  rustup toolchain install
-fi
-echo "==> $(cargo --version)"
+# Installs the toolchain and components pinned in rust-toolchain.toml.
+rustup toolchain install
+pinned="$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)"
+version="$(cargo --version)"
+case "$version" in
+  "cargo $pinned "*) echo "==> $version" ;;
+  *)
+    echo "cargo on PATH is \"$version\", not the pinned $pinned;" \
+      "put $HOME/.cargo/bin first on PATH" >&2
+    exit 1
+    ;;
+esac
 
 if [ "$WITH_BLENDER" -eq 1 ]; then
   dest="$ROOT/.tools/blender-$BLENDER_VERSION"

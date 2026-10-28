@@ -1,6 +1,5 @@
 //! QA repros for racer-capture CLI argument handling (see
-//! `docs/qa/tooling-data-build.md`). Each test fails today and is ignored
-//! with its bug id so the suite stays green.
+//! `docs/qa/tooling-data-build.md`). Fixed; see `docs/qa/fixes-tooling.md`.
 
 use std::process::{Command, Output};
 
@@ -17,10 +16,9 @@ fn out_dir(name: &str) -> String {
 }
 
 #[test]
-#[ignore = "QA-TOOL-8"]
 fn ai_laps_rejects_an_unknown_car() {
     let dir = out_dir("laps");
-    let out = capture(&["ai-laps", &dir, "--car", "no-such-car", "--laps", "1"]);
+    let out = capture(&["ai-laps", &dir, "--car", "no-such-car", "--laps", "2"]);
     std::fs::remove_dir_all(&dir).ok();
     assert!(
         !out.status.success(),
@@ -29,7 +27,18 @@ fn ai_laps_rejects_an_unknown_car() {
 }
 
 #[test]
-#[ignore = "QA-TOOL-8"]
+fn ai_laps_rejects_too_few_laps_for_a_flying_lap() {
+    let dir = out_dir("laps1");
+    for laps in ["0", "1"] {
+        let out = capture(&["ai-laps", &dir, "--laps", laps]);
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(2), "--laps {laps}: {err}");
+        assert!(err.contains("--laps must be at least 2"), "{err}");
+    }
+    assert!(!std::path::Path::new(&dir).exists());
+}
+
+#[test]
 fn ai_races_rejects_zero_races() {
     let dir = out_dir("races");
     let out = capture(&["ai-races", &dir, "--races", "0"]);
@@ -41,7 +50,6 @@ fn ai_races_rejects_zero_races() {
 }
 
 #[test]
-#[ignore = "QA-TOOL-9"]
 fn ai_races_rejects_overflowing_first_without_panicking() {
     let dir = out_dir("first");
     let out = capture(&[
@@ -62,7 +70,6 @@ fn ai_races_rejects_overflowing_first_without_panicking() {
 }
 
 #[test]
-#[ignore = "QA-TOOL-10"]
 fn diff_rejects_nan_tolerances() {
     let golden = concat!(env!("CARGO_MANIFEST_DIR"), "/goldens/greybox/side.png");
     let out = capture(&["diff", golden, golden, "--max-fraction", "nan"]);
@@ -72,4 +79,53 @@ fn diff_rejects_nan_tolerances() {
         "--max-fraction nan was not rejected as a usage error: {}",
         String::from_utf8_lossy(&out.stdout)
     );
+}
+
+/// QA-TOOL-15: bad scene arguments are usage errors, reported before the
+/// output directory, window or renderer exist (no display needed).
+#[test]
+fn scene_rejects_bad_arguments_before_starting() {
+    for (args, what) in [
+        (&["nosuch"][..], "unknown scene"),
+        (&["greybox", "--size", "0x0"], "invalid --size"),
+        (&["greybox", "--size", "1280x0"], "invalid --size"),
+        (&["greybox", "--size", "99999x720"], "invalid --size"),
+    ] {
+        let dir = out_dir("scene");
+        let mut full = vec!["scene", args[0], &dir];
+        full.extend(&args[1..]);
+        let out = capture(&full);
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(2), "{args:?}: {err}");
+        assert!(err.contains(what), "{args:?}: {err}");
+        assert!(
+            !std::path::Path::new(&dir).exists(),
+            "{args:?}: created {dir}"
+        );
+    }
+}
+
+#[test]
+fn diff_rejects_negative_and_oversized_tolerances() {
+    let golden = concat!(env!("CARGO_MANIFEST_DIR"), "/goldens/greybox/side.png");
+    for (flag, value) in [
+        ("--max-fraction", "-1"),
+        ("--max-fraction", "2"),
+        ("--max-mean", "nan"),
+        ("--max-mean", "-0.5"),
+        ("--max-mean", "inf"),
+    ] {
+        let out = capture(&["diff", golden, golden, flag, value]);
+        assert_eq!(out.status.code(), Some(2), "{flag} {value}");
+    }
+    let out = capture(&["diff", golden, golden, "--max-fraction", "0"]);
+    assert!(out.status.success(), "identical images must pass");
+}
+
+#[test]
+fn ai_races_rejects_first_beyond_the_seed_range() {
+    let dir = out_dir("first-range");
+    let out = capture(&["ai-races", &dir, "--races", "1", "--first", "4294967295"]);
+    std::fs::remove_dir_all(&dir).ok();
+    assert_eq!(out.status.code(), Some(2));
 }

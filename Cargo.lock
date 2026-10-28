@@ -4761,11 +4761,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "racer-data"
+version = "0.1.0"
+dependencies = [
+ "serde_core",
+]
+
+[[package]]
 name = "racer-dynamics"
 version = "0.1.0"
 dependencies = [
  "glam",
  "proptest",
+ "racer-data",
  "serde",
  "toml",
 ]
@@ -4776,6 +4784,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "proptest",
+ "racer-data",
  "racer-dynamics",
  "racer-render",
  "racer-sim",
@@ -4816,6 +4825,7 @@ version = "0.1.0"
 dependencies = [
  "glam",
  "proptest",
+ "racer-data",
  "racer-dynamics",
  "serde",
  "toml",
@@ -5845,7 +5855,6 @@ dependencies = [
  "tokio",
  "tower-layer",
  "tower-service",
- "tracing",
 ]
 
 [[package]]
@@ -5866,7 +5875,6 @@ version = "0.1.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63e71662fa4b2a2c3a26f570f037eb95bb1f85397f3cd8076caed2f026a6d100"
 dependencies = [
- "log",
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
