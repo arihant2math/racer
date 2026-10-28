@@ -301,6 +301,8 @@ pub struct Prediction {
     ghosted: Vec<bool>,
     /// Remote cars this car touches, as of the last tick.
     touching: Vec<u8>,
+    /// Tick of the newest standings of each racer.
+    standings: Vec<u32>,
 }
 
 /// Present while ticks are replayed in a rollback.
@@ -591,6 +593,7 @@ fn start_race(
         last_snapshot: start.created,
         ghosted: vec![false; start.grid.len()],
         touching: Vec::new(),
+        standings: Vec::new(),
     });
 }
 
@@ -610,20 +613,24 @@ fn receive_standings(
     mut receivers: Query<&mut MessageReceiver<Standings>>,
     mut racers: Query<(&NetCar, &mut Racer)>,
     mut race: Option<ResMut<Race>>,
-    mut newest: Local<Vec<u32>>,
+    mut prediction: Option<ResMut<Prediction>>,
 ) {
     for s in receivers
         .iter_mut()
         .flat_map(|mut r| r.receive().collect::<Vec<_>>())
     {
+        // Unordered: keep each racer's newest.
+        let Some(p) = prediction.as_mut() else {
+            continue;
+        };
         let slot = usize::from(s.slot);
-        if newest.len() <= slot {
-            newest.resize(slot + 1, 0);
+        if p.standings.len() <= slot {
+            p.standings.resize(slot + 1, 0);
         }
-        if s.tick < newest[slot] {
+        if s.tick < p.standings[slot] {
             continue;
         }
-        newest[slot] = s.tick;
+        p.standings[slot] = s.tick;
         if let Some((_, mut racer)) = racers.iter_mut().find(|(c, _)| c.slot == s.slot) {
             *racer = s.racer;
         }
@@ -663,7 +670,6 @@ type LocalBody<'a> = (
     &'a mut AngularVelocity,
     &'a mut Transform,
     &'a mut CarState,
-    &'a mut VisualOffset,
 );
 
 /// Applies new snapshots: re-runs the remote cars' paths and checks the
@@ -807,7 +813,7 @@ fn body_of(world: &World, entity: Entity) -> Body {
 
 fn set_local(world: &mut World, entity: Entity, body: &Body, state: racer_dynamics::VehicleState) {
     let mut q = world.query::<LocalBody>();
-    let Ok((mut p, mut r, mut v, mut w, mut t, mut s, _)) = q.get_mut(world, entity) else {
+    let Ok((mut p, mut r, mut v, mut w, mut t, mut s)) = q.get_mut(world, entity) else {
         return;
     };
     p.0 = body.position;
@@ -916,7 +922,16 @@ fn inputs(
             continue;
         }
         let net = if resim.is_some() {
-            p.inputs.get(&tick).copied().unwrap_or_default()
+            // A tick the clock skipped has no input: the server held the
+            // one before.
+            match p.inputs.get(&tick) {
+                Some(c) => *c,
+                None => p
+                    .inputs
+                    .range(..tick)
+                    .next_back()
+                    .map_or_else(NetControls::default, |(_, c)| c.held()),
+            }
         } else {
             let net = NetControls::encode(&controls.0);
             p.inputs.insert(tick, net);

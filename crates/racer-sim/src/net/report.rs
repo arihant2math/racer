@@ -15,6 +15,8 @@ pub struct ServerReport {
     /// Wall time of a server tick (ms).
     pub tick_ms_mean: f32,
     pub tick_ms_max: f32,
+    /// Ticks whose step took over 20 ms of wall time, and how long (ms).
+    pub long_ticks: Vec<(u32, f32)>,
 }
 
 /// Two cars starting to touch.

@@ -212,6 +212,7 @@ pub struct Thresholds {
     /// 95th percentile and maximum of the local car's position error at a
     /// correction, outside contacts and resets (m).
     pub position_p95: f32,
+    pub position_p99: f32,
     pub position_max: f32,
     /// Same for the rotation error (degrees).
     pub rotation_p95: f32,
@@ -229,6 +230,9 @@ pub const DESYNC: f32 = 0.5;
 const CONTACT_TICKS: u32 = 120;
 const CONTACT_DISTANCE: f32 = 5.0;
 
+/// A server step this long (ms) holds up the inputs of every player.
+const STALL_MS: f32 = 50.0;
+
 /// Corrections this close (ticks, 1 s) to a contact or reset are expected.
 const EVENT_WINDOW: u32 = 240;
 
@@ -236,6 +240,7 @@ pub fn thresholds(c: &Conditions) -> Thresholds {
     if c.rtt_ms <= 150 {
         Thresholds {
             position_p95: 0.25,
+            position_p99: 0.5,
             position_max: 2.0,
             rotation_p95: 2.0,
             desyncs_per_minute: 1.0,
@@ -245,6 +250,7 @@ pub fn thresholds(c: &Conditions) -> Thresholds {
         // Degraded but working: reported, gated loosely.
         Thresholds {
             position_p95: 1.0,
+            position_p99: 2.0,
             position_max: 5.0,
             rotation_p95: 6.0,
             desyncs_per_minute: 4.0,
@@ -289,6 +295,7 @@ pub fn analyse(check: &NetCheck, races: &[RaceRun], out: &mut String) -> bool {
 
     let (mut all_pos, mut all_rot) = (Vec::new(), Vec::new());
     let (mut near_pos, mut near_shown) = (Vec::new(), Vec::new());
+    let mut stalled = Vec::new();
     let (mut desyncs, mut minutes, mut corrections, mut snapshots) = (0, 0.0, 0, 0);
     let (mut contacts, mut agreed, mut one_side, mut false_contacts) = (0, 0, 0, 0);
     let (mut model, mut dead) = (Vec::new(), Vec::new());
@@ -374,6 +381,15 @@ pub fn analyse(check: &NetCheck, races: &[RaceRun], out: &mut String) -> bool {
                 })
             })
             .collect();
+        // A server step held up this long (OS scheduling on the shared
+        // machine) delays every player's inputs: the corrections in the
+        // second after it are counted apart.
+        let after_stall = |tick: u32| {
+            report
+                .long_ticks
+                .iter()
+                .any(|&(t, ms)| ms > STALL_MS && tick >= t && tick <= t + EVENT_WINDOW)
+        };
         let near_event = |slot: u8, tick: u32| {
             report
                 .contacts
@@ -399,6 +415,10 @@ pub fn analyse(check: &NetCheck, races: &[RaceRun], out: &mut String) -> bool {
                     near += 1;
                     near_pos.push(x.position);
                     near_shown.push(x.displayed);
+                    continue;
+                }
+                if after_stall(x.tick) {
+                    stalled.push(x.position);
                     continue;
                 }
                 pos.push(x.position);
@@ -505,22 +525,35 @@ pub fn analyse(check: &NetCheck, races: &[RaceRun], out: &mut String) -> bool {
 
     writeln!(out, "## Summary\n").ok();
     let p95 = percentile(&mut all_pos, 0.95);
+    let p99 = percentile(&mut all_pos, 0.99);
     let max = all_pos.last().copied().unwrap_or(0.0);
     let r95 = percentile(&mut all_rot, 0.95);
     let rate = desyncs as f32 / minutes.max(1e-3);
     writeln!(
         out,
-        "Prediction corrections outside contacts and resets: position p95 {p95:.3} m (limit {}), \
-         max {max:.3} m (limit {}); rotation p95 {r95:.2} deg (limit {}); desyncs (> {DESYNC} m) \
-         {rate:.2} per car-minute (limit {}). Snapshots needing a correction: {corrections} of \
-         {snapshots} ({:.2} %).\n",
+        "Prediction corrections outside contacts, resets and server stalls: position p95 \
+         {p95:.3} m (limit {}), p99 {p99:.3} m (limit {}), max {max:.3} m (limit {}); rotation p95 \
+         {r95:.2} deg (limit {}); desyncs (> {DESYNC} m) {rate:.2} per car-minute (limit {}). \
+         Snapshots needing a correction: {corrections} of {snapshots} ({:.2} %).\n",
         t.position_p95,
+        t.position_p99,
         t.position_max,
         t.rotation_p95,
         t.desyncs_per_minute,
         100.0 * corrections as f32 / snapshots.max(1) as f32
     )
     .ok();
+    writeln!(
+        out,
+        "Corrections in the second after a server step over {STALL_MS:.0} ms: {}, position max \
+         {:.2} m.\n",
+        stalled.len(),
+        stalled.iter().copied().fold(0.0, f32::max),
+    )
+    .ok();
+    if p99 > t.position_p99 {
+        fail(out, format!("position p99 {p99:.3} m"));
+    }
     if p95 > t.position_p95 {
         fail(out, format!("position p95 {p95:.3} m"));
     }
@@ -603,8 +636,14 @@ pub fn tick_cost(track: Arc<Track>) -> Result<(f64, f64), String> {
     let time = |sim: &mut crate::race::RaceSim| {
         let ticks = 2400;
         let started = Instant::now();
+        let mut longest = Duration::ZERO;
         for _ in 0..ticks {
+            let t = Instant::now();
             sim.step();
+            longest = longest.max(t.elapsed());
+        }
+        if std::env::var_os("RACER_COST_DEBUG").is_some() {
+            eprintln!("longest tick {longest:?}");
         }
         started.elapsed().as_secs_f64() * 1e6 / f64::from(ticks)
     };

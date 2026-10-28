@@ -122,6 +122,9 @@ struct Player {
 #[derive(Resource, Default)]
 struct Players(Vec<Player>);
 
+/// Ticks ahead of the server that a player's inputs may be for (2 s).
+const INPUT_HORIZON: u32 = 480;
+
 /// A car driven by a player's inputs.
 #[derive(Component)]
 struct NetDriver {
@@ -148,6 +151,7 @@ struct RaceLog {
     contacts: Vec<Contact>,
     touching: Vec<(u8, u8)>,
     tick_time: Vec<f32>,
+    long_ticks: Vec<(u32, f32)>,
     tick_started: Option<Instant>,
 }
 
@@ -227,12 +231,20 @@ fn tick_started(mut log: ResMut<RaceLog>) {
     log.tick_started = Some(Instant::now());
 }
 
-/// Wall time of each fixed step while racing (simulation cost).
-fn tick_ended(phase: Res<Phase>, mut log: ResMut<RaceLog>) {
+/// Wall time of each fixed step while racing (simulation cost), and the
+/// steps that took long enough to hold up the players' inputs.
+fn tick_ended(timeline: Res<LocalTimeline>, phase: Res<Phase>, mut log: ResMut<RaceLog>) {
     if let (Phase::Racing, Some(t)) = (*phase, log.tick_started.take()) {
-        log.tick_time.push(t.elapsed().as_secs_f32() * 1000.0);
+        let ms = t.elapsed().as_secs_f32() * 1000.0;
+        log.tick_time.push(ms);
+        if ms > LONG_TICK_MS {
+            log.long_ticks.push((timeline.tick().0, ms));
+        }
     }
 }
+
+/// A fixed step this long (ms) is reported.
+const LONG_TICK_MS: f32 = 20.0;
 
 fn exit_after_max_ticks(
     ticks: Res<TickCount>,
@@ -351,6 +363,12 @@ fn receive_inputs(
             continue;
         };
         for inputs in receiver.receive() {
+            // Inputs are kept for at most two seconds ahead, so a client
+            // cannot make the server hold an unbounded backlog.
+            let horizon = driver.applied.saturating_add(INPUT_HORIZON);
+            if inputs.controls.len() > 2 * INPUT_REDUNDANCY || inputs.last > horizon {
+                continue;
+            }
             let n = inputs.controls.len() as u32;
             for (i, c) in inputs.controls.into_iter().enumerate() {
                 let tick = (inputs.last + 1 + i as u32).saturating_sub(n);
@@ -852,5 +870,6 @@ fn report(
         players: player_records,
         tick_ms_mean: log.tick_time.iter().sum::<f32>() / n,
         tick_ms_max: log.tick_time.iter().copied().fold(0.0, f32::max),
+        long_ticks: log.long_ticks.clone(),
     }
 }
