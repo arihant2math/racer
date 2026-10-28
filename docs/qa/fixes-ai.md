@@ -175,6 +175,25 @@ fails the first case with a `Stuck` reset (in the second it makes contact and is
 new code with only the direction sign disabled makes contact. The new code passes. In the first
 case it stops short, backs off and drives round, which takes about 9.5 s.
 
+## Combined with fix/dynamics
+
+fix/dynamics (`43ba494`, ground as a half-space, QA-PHYS-4) will be merged to main first. I merged
+it into a scratch branch on top of this one (not pushed) and ran the same races. fix/dynamics
+alone left 3 "resets alone" in the Pro and Expert rows. They were `Stuck` resets of AI cars
+waiting behind a stopped car (QA-AI-1), at ~1450 m (race 5, twice) and ~1875 m (race 11).
+
+| Races, 3 laps | Laps | Resets in traffic | Resets alone | Stalls > 10 s | Longest stall | Contacts |
+|---|---|---|---|---|---|---|
+| 0-11, fix/dynamics alone | 238 | 8 | 3 (Pro and Expert rows FAIL) | 4 | 11.6 s | 345 |
+| 0-11, fix/dynamics + fix/ai | 247 | **0** | **0** | 0 | 2.9 s | 78 |
+| 12-23, fix/dynamics alone | 225 | 3 | 0 | 1 | 10.0 s | 282 |
+| 12-23, fix/dynamics + fix/ai | 237 | **0** | **0** | 0 | 3.3 s | 48 |
+
+**Merge note:** both branches update `crates/racer-capture/goldens/race/{hud,pack,results}.png`,
+and git cannot merge PNGs. Whichever merges second should regenerate the race goldens on the
+merged code (`CAPTURE_PROFILE=release tools/capture.sh race <out>`), check them by eye and commit
+them. Neither branch's goldens are right for the combination.
+
 ## Other checks
 
 | Check | Result |
