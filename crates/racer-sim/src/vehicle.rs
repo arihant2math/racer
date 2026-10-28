@@ -172,24 +172,40 @@ fn drive_cars(
             let config = ShapeCastConfig::from_max_distance(g.max_distance as f32);
             let hit = spatial.cast_shape(&wheel, origin, shape_rot, down, &config, &filter)?;
             let up = -*down;
-            // The cylinder cast finds where the wheel touches, but its normal
-            // is unreliable (rim-edge features tilt it by several degrees on
-            // flat ground). A short ray at the contact point gives the exact
-            // surface normal; the distance is then solved against that plane.
-            let probe = hit.point1 + up * 0.05;
-            let surface = spatial
-                .cast_ray(probe, down, 0.1, true, &filter)
-                .filter(|r| r.normal.dot(up) > 0.1 && hit.distance > 0.0);
-            let (normal, distance) = match surface {
-                Some(ray) => {
-                    let (n, point) = (ray.normal, probe + *down * ray.distance);
+            // The cylinder cast finds where the wheel first touches, but on a
+            // face its normal is unreliable (rim-edge features tilt it by
+            // several degrees on flat ground) and its distance is off by
+            // millimetres on big boxes (GJK in f32). A short ray at the
+            // contact point gives the exact surface normal; the distance is
+            // then solved against that plane.
+            let ray_down = |p: Vec3| {
+                spatial
+                    .cast_ray(p + up * 0.05, down, 0.1, true, &filter)
+                    .filter(|r| r.normal.dot(up) > 0.1)
+                    .map(|r| (r.normal, p + up * 0.05 + *down * r.distance))
+            };
+            let plane = ray_down(hit.point1)
+                .filter(|_| hit.distance > 0.0)
+                .and_then(|(n, point)| {
                     let axle = rot * Vec3::X;
                     let an = axle.dot(n);
                     // Support extent of the cylinder along -n.
                     let extent = g.radius as f32 * (1.0 - an * an).max(0.0).sqrt()
                         + 0.5 * g.width as f32 * an.abs();
-                    (n, (n.dot(origin - point) - extent) / n.dot(up))
-                }
+                    let distance = (n.dot(origin - point) - extent) / n.dot(up);
+                    // The plane is the ground only if its face goes on under
+                    // the wheel. At an edge (curb, step) the cylinder touches
+                    // the corner and the plane of the face beyond it would
+                    // lift the wheel onto that face at once; there the cast's
+                    // own distance and normal (from the edge towards the
+                    // wheel centre) are the contact.
+                    let centre = origin + *down * distance;
+                    let (_, under) = ray_down(centre - n * n.dot(centre - point))?;
+                    (n.dot(under - point).abs() < 0.005).then_some((n, distance))
+                });
+            let (normal, distance) = match plane {
+                Some(face) => face,
+                None if hit.distance > 0.0 => (hit.normal1, hit.distance),
                 None => (up, hit.distance),
             };
             Some(WheelContact {

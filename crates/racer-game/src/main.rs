@@ -17,13 +17,20 @@ fn main() -> AppExit {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut app = App::new();
     app.add_plugins((
-        DefaultPlugins.set(WindowPlugin {
-            primary_window: Some(Window {
-                title: "Racer".into(),
+        DefaultPlugins
+            .set(WindowPlugin {
+                primary_window: Some(Window {
+                    title: "Racer".into(),
+                    ..default()
+                }),
+                ..default()
+            })
+            .set(AssetPlugin {
+                file_path: racer_game::car_model::assets_dir()
+                    .to_string_lossy()
+                    .into_owned(),
                 ..default()
             }),
-            ..default()
-        }),
         SimPlugin,
     ));
     match args.first().map(String::as_str) {

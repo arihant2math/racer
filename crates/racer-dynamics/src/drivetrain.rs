@@ -219,7 +219,9 @@ impl Drivetrain {
         state.since_shift = 0.0;
     }
 
-    /// Automatic gear selection among the forward gears; no upshifts while braking.
+    /// Automatic gear selection among the forward gears; no upshifts while
+    /// braking. Throttle in neutral engages 1st, like selecting D; reverse
+    /// stays until the driver shifts out of it.
     pub fn auto_shift(
         &self,
         state: &mut DriveState,
@@ -229,7 +231,13 @@ impl Drivetrain {
         forward_speed: f64,
     ) {
         let gb = &self.gearbox;
-        if state.gear < 1 || state.since_shift < 2.0 * gb.shift_time {
+        if state.gear < 0 || state.since_shift < 2.0 * gb.shift_time {
+            return;
+        }
+        if state.gear == 0 {
+            if throttle > 0.05 {
+                self.shift(state, 1, forward_speed);
+            }
             return;
         }
         let rpm = |gear| gb.ratio(gear) * self.output_speed(omega);
@@ -279,9 +287,14 @@ impl Drivetrain {
         let shifting = state.since_shift < gb.shift_time && g != 0.0;
         // Pulling away (clutch slipping below the launch speed): traction
         // control trims the clutch torque while the engine is held near the
-        // launch speed. Otherwise traction control trims the engine.
+        // launch speed. Otherwise traction control trims the engine. In
+        // neutral or with the pedal down nothing is pulling, so the engine
+        // revs freely.
         let driveline = g.abs() * out.abs();
-        let pulling_away = driveline < eng.launch && we > driveline + 100.0 * RPM_TO_RAD_S;
+        let pulling_away = g != 0.0
+            && clutch_pedal < 1.0
+            && driveline < eng.launch
+            && we > driveline + 100.0 * RPM_TO_RAD_S;
         let throttle = if launch {
             ((eng.launch - we) / (300.0 * RPM_TO_RAD_S)).clamp(0.0, throttle)
         } else if shifting {
