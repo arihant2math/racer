@@ -311,3 +311,97 @@ fix/dynamics numbers above (or merge this branch first).
 - **Spec fields the model doesn't use.** These are not validated: published peaks, reference
   figures, brake disc sizes, and the ordering of `upshift_rpm`/`downshift_rpm`. None of them can
   panic.
+
+## Review
+
+Independent review of `fix/dynamics`, after merging `origin/main` (`c4110b8`, the 911 car model:
+no overlap with this branch, clean merge `b066a7c`). All results below are on the merged tree.
+
+**Checks run.**
+
+| Command | Result |
+|---|---|
+| `tools/setup.sh` | ok |
+| `cargo fmt --all --check` | clean |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | clean |
+| `cargo clippy -p racer-game --all-targets --features wheel --locked -- -D warnings` | clean |
+| `CARGO_FEATURE_PURE=1 cargo clippy … --target x86_64-pc-windows-msvc` / `aarch64-apple-darwin` | both clean |
+| `cargo test --workspace --locked`, twice | 103 passed, 0 failed, 56 ignored, both runs |
+| `cargo test --workspace --locked --no-fail-fast -- --ignored` | 56 run: none is QA-PHYS-*, QA-EDGE-3 or QA-EDGE-4 (see below) |
+| `cargo test -p racer-dynamics --release --test maneuvers` | all pass; figures identical to the M1 table except M3 0-100 4.06 → 4.05 s (+3.8 % vs 3.9 s real) |
+| `cargo run --release -p racer-trackc -- compile data/tracks/downtown-loop` | committed generated files reproduced byte for byte |
+| `tools/capture.sh greybox/driving/menu`, `CAPTURE_PROFILE=release tools/capture.sh race`, then `racer-capture diff` | greybox, menu, race: 0.000 mean error on every image (the committed race goldens reproduce bit for bit, the 911 model doesn't change them); driving: all 6 pass (≤ 0.159) |
+| `tools/telemetry.sh`, on this branch and on `origin/main` | compared below |
+
+Ignored tests: comparing every `#[ignore]` on `origin/main` with this branch, exactly the 13
+QA-PHYS/EDGE-3/EDGE-4 markers are gone and all others are unchanged. Of the 56 still ignored, 7
+pass when run. Five are QA checks or long runs, not repros (`check_*`, `diag_first_lap_resets`,
+the long race). `small_stick_deflection_steers` (QA-UI-10) passes on `origin/main` as well. But
+**`qa_ai_4_a_car_pushing_against_an_obstacle_is_reset_within_a_few_seconds` (QA-AI-4, fix/rules)
+fails on `origin/main` and passes here.** It replays race 7 lap 1, and the contact fixes reshuffle
+that race so the pile-up no longer happens. The stuck-detection bug is still there. **fix/rules**
+needs a repro that doesn't depend on the race replaying the same way.
+
+Telemetry vs `origin/main`: same character everywhere. Skidpad lateral g agrees within 0.01 g on
+all three cars. Launch-brake runs end within 1 m of main, with the same gear steps, rpm and load
+transfer. The branch's traces are visibly cleaner: on main, the wheel casts missing the 4000 m
+ground (PHYS-4) show up as throttle/TCS jitter, ±0.1° slip-angle noise and a 0.09° sideslip
+wobble at launch; here those are flat zero. In the laps, the larger peaks (M3 −3.9 g vs −2.9 g,
+911 −3.7 g vs −2.4 g) are both the crest landing at x ≈ 150 m: an airborne body contact with all
+wheel loads 0, which main has too. The peak depends on which 60 Hz sample lands on the impact. The
+landing load spike (50-57 kN) is the known M1 artefact.
+
+**Physics review of the diff.**
+
+- *Validation* rejects what can panic or go NaN and nothing plausible. The ranges are wide
+  (C in (1, 2], E < 1, lock < 90°, efficiency (0, 1]), and every error names its field. The
+  bracketing in `Curve::new` terminates: for E < 1 the inner function grows without bound, and
+  E = 1 is rejected, the one value where it wouldn't.
+- *PHYS-3*: the sign conventions are right (`slip_lat` is driven by +vy, `slip_ratio` by
+  `slip_speed`). The clamp only fires while the relaxed slip unwinds past the peak. At speed the
+  relaxation time σ/|vx| is milliseconds, so steady sliding and the maneuvers are unaffected (only
+  the M3 launch moves, by 0.01 s). At rest the standstill spring keeps up to the peak force, so a
+  braked car still holds on a grade (regression test). No stiction artefact in the stop traces.
+- *PHYS-4*: the half-space child sits exactly at the box's top face (avian's `cuboid` takes full
+  lengths). It carries `GroundSurface`, friction and layers, which are all that wheel casts and
+  contacts read. `TrackPiece` stays on the parent, and the only collision lookup by piece kind is
+  for walls. Elevation is unaffected: the test track's crest and the downtown roads are above
+  `GROUND_Y`. Within the box's footprint the half-space only differs below the box's 1 m depth,
+  and no road goes there. QA-EDGE-13 (fix/tooling) already treats a road below the ground as
+  invalid. parry gives the half-space a finite (±MAX/2) AABB, so the BVH stays valid.
+- *PHYS-5*: `normal1` is the hit shape's outward normal (checked in avian 0.7's docs), so the
+  edge normal points from the corner towards the wheel, as the notes say. Edge normals steeper
+  than 72° are dropped by `Vehicle::step`'s existing `normal·up > 0.3` check, so an edge can't
+  give a near-horizontal suspension force. The extra ray per wheel is cheap. The QA test shows no
+  snagging or energy injection at the step: loads peak at 1.5× static.
+- *Guards*: the `dt` check and `sanitized()` are a few compares per step. They run before any
+  state is touched, so the state stays bit-identical (test). `replay_from_a_snapshot_is_bit_identical`,
+  the `step_is_deterministic`/`replay_after_restore_is_bit_identical` proptests and
+  `check_races_are_deterministic` pass.
+- *Drivetrain*: launch control needs `gear > 0` and is unaffected. In automatic, a car in neutral
+  with throttle and brake now engages 1st and then gets launch control. The AI drives manual,
+  including its reverse/pull manoeuvres, so its gear choice is unaffected. Reverse stays engaged
+  in automatic, and N → R by two quick shift-downs still works (the hold is checked after
+  `shift`).
+
+**Issues found and fixed.**
+
+1. `b81c549`: `validate` let a negative `curb_mass_kg` through when the payload made the total
+   positive. It never checked the tire section width either (`"-50/40 R18"` or `"0/40 R18"` loaded
+   with a negative or zero wheel width). Curb mass must now be positive, and a new
+   `spec::tire_width` is validated and used by `from_spec`, replacing its silent 225 mm fallback.
+   Both cases were added to `validation_names_the_bad_field`.
+2. `009660c`: the notes said `front_split` in [0, 1] while the code requires (0, 1]. Keeping the
+   code is right: the field defaults to 0 when omitted, so 0 most likely means it's missing. The
+   notes now say so, and that tire widths are checked.
+
+**Left open.**
+
+- QA-AI-4's repro no longer reproduces on this branch (above). That is for fix/rules.
+- I didn't re-run the AI-race statistics (`racer-capture ai-races`). The fixer's numbers stand as
+  fix/ai's baseline.
+- In automatic, engaging 1st from neutral doesn't check for rolling backwards. That matches the
+  existing manual `shift`. Minor, not changed.
+
+**Verdict.** Approved. The fixes are correct and in scope (with the two noted derived-file
+regenerations), and every check passes on the merged tree.
