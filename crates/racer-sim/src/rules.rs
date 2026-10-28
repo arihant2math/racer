@@ -26,8 +26,9 @@ pub const GHOST_AFTER_RESET: f32 = 3.0;
 const STUCK_SPEED: f32 = 1.0;
 /// A racing car that gains less than [`STUCK_PROGRESS`] metres of progress
 /// in this many seconds is stuck too, however much it rocks back and forth
-/// (pushing against a wall or a car, short reverse manoeuvres).
-const NO_PROGRESS_AFTER: f32 = 5.0;
+/// (pushing against a wall or a car, short reverse manoeuvres). Longer than
+/// the speed rule, so a car that is sorting itself out gets the chance.
+const NO_PROGRESS_AFTER: f32 = 7.0;
 const STUCK_PROGRESS: f32 = 10.0;
 /// Samples searched either side of the previous position.
 const WINDOW: usize = 24;
