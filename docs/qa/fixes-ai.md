@@ -239,7 +239,11 @@ Independent review of `fix/ai`. While it was under review, `fix/dynamics`, `fix/
 commit `74b56bd`), and every number below comes from that merged code, which is what will ship.
 Only the three race goldens conflicted. Main's copy was taken in the merge, and the goldens are
 regenerated on the final code (see Verification). `data/tracks/downtown-loop/generated/` merged
-cleanly. This branch does not touch it, so main's copy stands.
+cleanly. This branch does not touch it, so main's copy stands. Near the end, main moved on to
+`feedcfb` (fix/tooling and the new car models). I merged that too, with no conflicts. It changes
+no simulation code: races 0-11 were bit-identical afterwards, and the race captures still
+matched the regenerated goldens (mean error ≤ 0.010). The fmt, clippy and test results below were
+taken on that final merge.
 
 ### Verification
 
@@ -252,7 +256,7 @@ main (`74b56bd`). "Final" includes the review commits.
 | `cargo fmt --all --check` | clean |
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | clean |
 | `CARGO_FEATURE_PURE=1 cargo clippy ... --target x86_64-pc-windows-msvc` / `aarch64-apple-darwin` `-- -D warnings` | both clean |
-| `cargo test --workspace --locked --no-fail-fast`, twice | 142 passed, 0 failed, 25 ignored, both runs (an earlier pair of runs found findings 2 and 4) |
+| `cargo test --workspace --locked --no-fail-fast`, twice | 172 passed, 0 failed, 5 ignored, both runs, on the final merge (on `80e6ca4` it was 142 / 0 / 25. An earlier pair of runs there found findings 2 and 4) |
 | `#[ignore]` markers vs `origin/main` | the only ones removed are QA-AI-1, 2, 3, 5 and 6. QA-AI-4 was already un-ignored by race-rules. QA-AI-7 had no repro before. No QA-AI test is ignored. Every other group's marker is unchanged |
 | Race goldens, `CAPTURE_PROFILE=release tools/capture.sh race` on the final code | `grid` matches main's golden (mean error 0.001). `hud`, `pack` and `results` differ from main's (mean error 1.9 / 10.8 / 5.1) because the first lap plays out differently. I checked them by eye (0 resets, a sensible order) and committed them. A second capture matches them (mean error ≤ 0.009) |
 
