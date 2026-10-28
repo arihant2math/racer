@@ -7,6 +7,7 @@
 //! racer-capture telemetry <out-dir> [car-id...]
 //! racer-capture ai-laps <out-dir> [--laps N] [--car ID]
 //! racer-capture ai-races <out-dir> [--races N] [--laps N] [--first I]
+//! racer-capture net-race <out-dir> [--bots N] [--laps N] [--conditions RTT,JITTER,LOSS%] [--server PATH] [--timeout SECS]
 //! ```
 //! `diff` takes two files or two directories; with directories every PNG in the
 //! golden directory must have a matching file in the actual directory.
@@ -21,7 +22,7 @@ use bevy::{prelude::*, window::WindowResolution, winit::WinitSettings};
 use racer_capture::{
     check::{self, Tolerance},
     harness::CapturePlugin,
-    race, scenes, telemetry,
+    net, race, scenes, telemetry,
 };
 
 const USAGE: &str = "usage:
@@ -30,7 +31,8 @@ const USAGE: &str = "usage:
   racer-capture diff <actual> <golden> [--pixel N] [--max-fraction F] [--max-mean E]
   racer-capture telemetry <out-dir> [car-id...]
   racer-capture ai-laps <out-dir> [--laps N] [--car ID]
-  racer-capture ai-races <out-dir> [--races N] [--laps N] [--first I]";
+  racer-capture ai-races <out-dir> [--races N] [--laps N] [--first I]
+  racer-capture net-race <out-dir> [--bots N] [--laps N] [--conditions RTT,JITTER,LOSS%] [--server PATH] [--timeout SECS]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -41,6 +43,7 @@ fn main() -> ExitCode {
         Some("telemetry") => telemetry(&args[1..]),
         Some("ai-laps") => ai_laps(&args[1..]),
         Some("ai-races") => ai_races(&args[1..]),
+        Some("net-race") => net_race(&args[1..]),
         _ => Err(USAGE.into()),
     };
     match result {
@@ -375,4 +378,54 @@ fn ai_races(args: &[String]) -> Result<ExitCode, String> {
     } else {
         ExitCode::FAILURE
     })
+}
+
+fn net_race(args: &[String]) -> Result<ExitCode, String> {
+    let (pos, flags) = parse(args, &["bots", "laps", "conditions", "server", "timeout"])?;
+    let [out_dir] = pos[..] else {
+        return Err(USAGE.into());
+    };
+    let bots: usize = flag(&flags, "bots", 8)?;
+    let laps: u32 = flag(&flags, "laps", 3)?;
+    if !(1..=8).contains(&bots) || laps == 0 {
+        return Err("--bots takes 1 to 8 and --laps at least 1".into());
+    }
+    let conditions = racer_sim::net::protocol::Conditions::parse(&flag(
+        &flags,
+        "conditions",
+        "150,15,1".to_string(),
+    )?)?;
+    // The server binary next to this one (as cargo builds them).
+    let server = match flags.iter().rev().find(|(f, _)| *f == "server") {
+        Some((_, path)) => PathBuf::from(path),
+        None => std::env::current_exe()
+            .map_err(|e| e.to_string())?
+            .with_file_name(format!("racer-server{}", std::env::consts::EXE_SUFFIX)),
+    };
+    if !server.is_file() {
+        return Err(format!(
+            "no server binary at {} (build racer-server, or pass --server)",
+            server.display()
+        ));
+    }
+    let timeout = Duration::from_secs(flag(&flags, "timeout", 1200)?);
+    let out_dir = Path::new(out_dir);
+    std::fs::create_dir_all(out_dir).map_err(|e| format!("{}: {e}", out_dir.display()))?;
+    let track = std::sync::Arc::new(racer_trackc::load("downtown-loop")?);
+    let check = net::NetCheck {
+        server,
+        bots,
+        laps,
+        conditions,
+        timeout,
+    };
+    let started = std::time::Instant::now();
+    let (report, results) = net::run(&check, out_dir, track)?;
+    let mut text = String::new();
+    let ok = net::analyse(&check, &report, &results, &mut text);
+    println!("{text}");
+    println!("wall time {} s", started.elapsed().as_secs());
+    let path = out_dir.join("net.md");
+    std::fs::write(&path, &text).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(if ok { ExitCode::SUCCESS } else { ExitCode::FAILURE })
 }

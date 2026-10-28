@@ -1099,3 +1099,24 @@ pub fn headless_world(app: &mut App, track: std::sync::Arc<racer_trackc::Track>)
     world.flush();
 }
 
+
+/// A headless client app (test bots): the simulation, the track's colliders
+/// and the net client, single-threaded so that many run side by side. Drive
+/// it with `update()` in real time.
+pub fn headless_client(config: NetClientConfig, track: std::sync::Arc<racer_trackc::Track>) -> App {
+    use bevy::app::TaskPoolOptions;
+    let mut app = App::new();
+    app.add_plugins((
+        MinimalPlugins.set(TaskPoolPlugin {
+            task_pool_options: TaskPoolOptions::with_num_threads(1),
+        }),
+        TransformPlugin,
+        crate::SimPlugin,
+        crate::vehicle::VehiclePlugin,
+        NetClientPlugin,
+    ))
+    .insert_resource(config);
+    headless_world(&mut app, track);
+    crate::finish_headless(&mut app);
+    app
+}

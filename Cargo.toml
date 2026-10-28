@@ -17,11 +17,13 @@ racer-trackc = { path = "crates/racer-trackc" }
 racer-sim = { path = "crates/racer-sim" }
 racer-render = { path = "crates/racer-render" }
 racer-game = { path = "crates/racer-game" }
+racer-server = { path = "crates/racer-server" }
 
 bevy = { version = "=0.19.1", default-features = false }
 image = { version = "=0.25.10", default-features = false, features = ["png"] }
 glam = { version = "=0.32.1", default-features = false, features = ["std"] }
 serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
 # Not used directly: racer-data enables its default features (QA-TOOL-16).
 serde_core = "=1.0.229"
 toml = { version = "=1.1.8", default-features = false, features = ["parse", "serde", "std"] }
@@ -67,7 +69,8 @@ axum = { version = "=0.8.9", default-features = false, features = [
     "tokio",
     "tracing",
 ] }
-tokio = { version = "=1.54.1", features = ["macros", "rt-multi-thread", "net", "signal"] }
+tokio = { version = "=1.54.1", features = ["macros", "rt-multi-thread", "net", "signal", "time"] }
+getrandom = "=0.3.4"
 tower = { version = "=0.5.3", features = ["util"] }
 
 # Property-based testing (dev-dependency only). No fork/timeout: plain in-process runs.

@@ -14,3 +14,4 @@ racer-sim.workspace = true
 racer-dynamics.workspace = true
 racer-trackc.workspace = true
 avian3d.workspace = true
+serde_json.workspace = true

@@ -8,5 +8,12 @@ publish.workspace = true
 
 [dependencies]
 bevy = { workspace = true, features = ["std", "multi_threaded", "bevy_log"] }
+avian3d.workspace = true
+lightyear.workspace = true
+racer-dynamics.workspace = true
 racer-sim.workspace = true
+racer-trackc.workspace = true
+serde_json.workspace = true
 
+
+[dev-dependencies]

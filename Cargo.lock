@@ -6530,6 +6530,7 @@ dependencies = [
  "racer-game",
  "racer-sim",
  "racer-trackc",
+ "serde_json",
 ]
 
 [[package]]
@@ -6576,8 +6577,13 @@ dependencies = [
 name = "racer-server"
 version = "0.1.0"
 dependencies = [
+ "avian3d",
  "bevy",
+ "lightyear",
+ "racer-dynamics",
  "racer-sim",
+ "racer-trackc",
+ "serde_json",
 ]
 
 [[package]]

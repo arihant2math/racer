@@ -57,7 +57,9 @@ impl Plugin for RacePlugin {
                 .run_if(
                     resource_exists::<Race>
                         .and_then(resource_exists::<RaceConfig>)
-                        .and_then(resource_exists::<RaceTrack>),
+                        .and_then(resource_exists::<RaceTrack>)
+                        // Online, the server runs the rules.
+                        .and_then(not(resource_exists::<crate::net::client::RemoteRace>)),
                 ),
         );
     }
@@ -186,6 +188,21 @@ impl Race {
             winner: None,
             elapsed: 0.0,
             countdown: f64::from(config.countdown),
+        }
+    }
+
+    /// Fixed steps of `dt` seconds from a new race until it runs: the race
+    /// runs from the `n`th step of the clock on (the cars are held on the
+    /// grid for the `n - 1` before it).
+    pub fn steps_to_start(&self, dt: f64) -> u32 {
+        let mut elapsed = self.elapsed;
+        let mut n = 0;
+        loop {
+            n += 1;
+            elapsed += dt;
+            if (elapsed - self.countdown) as f32 >= 0.0 {
+                return n;
+            }
         }
     }
 }

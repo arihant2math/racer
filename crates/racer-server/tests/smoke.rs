@@ -28,6 +28,7 @@ fn server_starts_ticks_and_exits_cleanly() {
 fn in_process_app_counts_fixed_ticks() {
     let mut app = racer_server::build_app(&racer_server::ServerConfig {
         max_ticks: Some(10),
+        ..Default::default()
     });
     app.finish();
     app.cleanup();
@@ -46,7 +47,10 @@ fn in_process_app_counts_fixed_ticks() {
 
 #[test]
 fn zero_max_ticks_exits_before_the_first_tick() {
-    let mut app = racer_server::build_app(&racer_server::ServerConfig { max_ticks: Some(0) });
+    let mut app = racer_server::build_app(&racer_server::ServerConfig {
+        max_ticks: Some(0),
+        ..Default::default()
+    });
     app.finish();
     app.cleanup();
     // Long enough for a fixed step to be due if the first frame ran one.

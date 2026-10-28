@@ -9,3 +9,4 @@
 pub mod client;
 pub mod extrapolate;
 pub mod protocol;
+pub mod report;

@@ -2,6 +2,7 @@
 
 pub mod check;
 pub mod harness;
+pub mod net;
 pub mod race;
 pub mod scenes;
 pub mod telemetry;
