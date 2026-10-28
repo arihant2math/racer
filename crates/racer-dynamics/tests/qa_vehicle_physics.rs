@@ -1,6 +1,6 @@
-//! QA repro tests for vehicle-physics bugs (docs/qa/vehicle-physics.md).
-//! Each test fails on the current code and is ignored so the suite stays
-//! green; run them with `cargo test -p racer-dynamics -- --ignored QA_PHYS`.
+//! QA repro tests for vehicle-physics bugs (docs/qa/vehicle-physics.md),
+//! kept as regression tests now that the bugs are fixed
+//! (docs/qa/fixes-dynamics.md).
 
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
@@ -59,7 +59,6 @@ fn assert_all_rejected(cases: Vec<(&str, CarSpec)>) {
 }
 
 #[test]
-#[ignore = "QA-PHYS-1"]
 fn qa_phys_1_degenerate_parameters_are_rejected() {
     let mut cases = Vec::new();
     let mut case = |name, edit: &dyn Fn(&mut CarSpec)| {
@@ -113,7 +112,6 @@ fn qa_phys_1_degenerate_parameters_are_rejected() {
 }
 
 #[test]
-#[ignore = "QA-PHYS-1"]
 fn qa_phys_1_nan_and_inf_in_car_toml_are_rejected() {
     let text =
         std::fs::read_to_string(racer_dynamics::spec::cars_dir().join("vw-golf-gti-mk8/car.toml"))
@@ -129,7 +127,6 @@ fn qa_phys_1_nan_and_inf_in_car_toml_are_rejected() {
 }
 
 #[test]
-#[ignore = "QA-PHYS-2"]
 fn qa_phys_2_empty_gear_and_torque_tables_are_rejected() {
     let mut cases = Vec::new();
     let mut s = gti();
@@ -145,7 +142,6 @@ fn qa_phys_2_empty_gear_and_torque_tables_are_rejected() {
 }
 
 #[test]
-#[ignore = "QA-PHYS-3"]
 fn qa_phys_3_car_stopped_after_a_sideways_slide_stays_put() {
     let v = Vehicle::from_spec(&gti()).unwrap();
     let mut sim = Sim::new(&v, &Flat);
@@ -162,38 +158,86 @@ fn qa_phys_3_car_stopped_after_a_sideways_slide_stays_put() {
         held
     });
     let back = furthest - sim.body.position.x;
+    println!("stopped at x = {furthest:.3} m, sprang back {back:.3} m");
     assert!(
         back < 0.1,
         "after stopping at x = {furthest:.2} m the braked car crept {back:.2} m back sideways"
     );
 }
 
+/// QA-PHYS-3 regression, longitudinal: after a locked-wheel stop (ABS off)
+/// the car doesn't roll back on the unwinding slip spring.
 #[test]
-#[ignore = "QA-PHYS-6"]
+fn qa_phys_3_car_stopped_on_locked_wheels_stays_put() {
+    let v = Vehicle::from_spec(&gti()).unwrap();
+    let mut sim = Sim::new(&v, &Flat);
+    sim.launch_at(15.0);
+    let mut held = Controls {
+        brake: 1.0,
+        ..auto_controls()
+    };
+    held.assists.abs = false;
+    let mut furthest = f64::INFINITY;
+    sim.run(8.0, |s| {
+        furthest = furthest.min(s.body.position.z);
+        held
+    });
+    let back = sim.body.position.z - furthest;
+    println!("stopped at z = {furthest:.3} m, rolled back {back:.3} m");
+    // Elastic tire deflection at the peak (about 1.3 cm) plus the pitch rebound.
+    assert!(back < 0.05, "rolled back {back:.3} m after the stop");
+}
+
+/// QA-PHYS-3 regression: the relaxation spring still holds a braked car on
+/// a 20 % grade (the slip clamp only drops slip past the peak).
+#[test]
+fn qa_phys_3_braked_car_holds_on_a_grade() {
+    struct Grade;
+    impl racer_dynamics::testbed::Ground for Grade {
+        fn height(&self, _x: f64, z: f64) -> f64 {
+            -0.2 * z
+        }
+    }
+    let v = Vehicle::from_spec(&gti()).unwrap();
+    let mut sim = Sim::new(&v, &Grade);
+    let held = Controls {
+        brake: 1.0,
+        ..auto_controls()
+    };
+    sim.run(2.0, |_| held);
+    let start = sim.body.position;
+    sim.run(10.0, |_| held);
+    let moved = sim.body.position.distance(start);
+    assert!(
+        moved < 0.01,
+        "braked car moved {moved:.3} m on a 20 % grade"
+    );
+}
+
+#[test]
 fn qa_phys_6_zero_dt_step_is_a_no_op() {
     let v = Vehicle::from_spec(&gti()).unwrap();
     let mut sim = Sim::new(&v, &Flat);
     sim.launch_at(20.0);
     let contacts = sim.contacts();
     let before = sim.state;
-    let mut state = sim.state;
     let c = Controls {
         throttle: 1.0,
         ..auto_controls()
     };
-    let r = catch_unwind(AssertUnwindSafe(|| {
-        v.step(&mut state, &sim.body, &c, &contacts, 0.0);
-        state
-    }));
-    let after = r.expect("Vehicle::step panicked with dt = 0");
-    assert_eq!(
-        after.wheels.map(|w| w.omega),
-        before.wheels.map(|w| w.omega)
-    );
+    for dt in [0.0, -1.0 / 240.0, f64::NAN, f64::INFINITY] {
+        let mut state = before;
+        let r = catch_unwind(AssertUnwindSafe(|| {
+            let out = v.step(&mut state, &sim.body, &c, &contacts, dt);
+            (state, out.force)
+        }));
+        let (after, force) = r.unwrap_or_else(|_| panic!("Vehicle::step panicked with dt = {dt}"));
+        assert_eq!(after, before, "dt = {dt} changed the state");
+        assert_eq!(force, DVec3::ZERO, "dt = {dt} produced a force");
+    }
 }
 
 #[test]
-#[ignore = "QA-PHYS-7"]
 fn qa_phys_7_nan_controls_do_not_panic_or_poison_the_state() {
     let v = Vehicle::from_spec(&gti()).unwrap();
     let r = catch_unwind(AssertUnwindSafe(|| {
@@ -212,7 +256,6 @@ fn qa_phys_7_nan_controls_do_not_panic_or_poison_the_state() {
 }
 
 #[test]
-#[ignore = "QA-PHYS-8"]
 fn qa_phys_8_engine_revs_freely_in_neutral() {
     let v = Vehicle::from_spec(&gti()).unwrap();
     let mut sim = Sim::new(&v, &Flat);
@@ -232,7 +275,6 @@ fn qa_phys_8_engine_revs_freely_in_neutral() {
 }
 
 #[test]
-#[ignore = "QA-PHYS-9"]
 fn qa_phys_9_automatic_gearbox_engages_drive_from_neutral() {
     let v = Vehicle::from_spec(&gti()).unwrap();
     let mut sim = Sim::new(&v, &Flat);
@@ -251,4 +293,45 @@ fn qa_phys_9_automatic_gearbox_engages_drive_from_neutral() {
         sim.state.drive.gear,
         sim.speed()
     );
+}
+
+/// QA-PHYS-8 regression: with the clutch pedal down in 1st the engine also
+/// revs freely, and the car stays put.
+#[test]
+fn qa_phys_8_engine_revs_freely_with_the_clutch_pressed() {
+    let v = Vehicle::from_spec(&gti()).unwrap();
+    let mut sim = Sim::new(&v, &Flat);
+    sim.run(2.0, |_| Controls {
+        throttle: 1.0,
+        clutch: 1.0,
+        ..Controls::default()
+    });
+    let rpm = sim.last.unwrap().telemetry.rpm;
+    assert!(
+        rpm > 6000.0,
+        "clutch pressed, full throttle holds {rpm:.0} rpm"
+    );
+    assert!(sim.speed().abs() < 0.05, "moved at {:.2} m/s", sim.speed());
+}
+
+/// QA-PHYS-9 regression: the automatic only leaves neutral forwards; reverse
+/// (two shift-downs at rest) stays engaged under throttle.
+#[test]
+fn qa_phys_9_automatic_gearbox_keeps_reverse() {
+    let v = Vehicle::from_spec(&gti()).unwrap();
+    let mut sim = Sim::new(&v, &Flat);
+    let auto = auto_controls();
+    for _ in 0..2 {
+        sim.step(&Controls {
+            shift_down: true,
+            ..auto
+        });
+    }
+    assert_eq!(sim.state.drive.gear, -1);
+    sim.run(3.0, |_| Controls {
+        throttle: 0.5,
+        ..auto
+    });
+    assert_eq!(sim.state.drive.gear, -1);
+    assert!(sim.speed() < -2.0, "reversing at {:.2} m/s", sim.speed());
 }
