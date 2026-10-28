@@ -237,4 +237,31 @@ AI and race rules, camera/HUD/lights, gate).
 
 `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, cross-target
 clippy for `x86_64-pc-windows-msvc` and `aarch64-apple-darwin` with `CARGO_FEATURE_PURE=1`, and
-`cargo test --workspace`: see the commit; results below.
+`cargo test --workspace --no-fail-fast`: all exit 0 on the pushed tree, after merging `main`
+(`feat/options`, c1444c5) in. The one conflict was the driving HUD's speed: it keeps main's
+`units.format` with this branch's absolute speed. `flow::release_controls_in_menus` zeroes the
+pedals while a pause menu is open, so a reverse hold restarts and nothing engages behind a menu.
+Look-back reads B and the right stick button directly, and neither is a menu key.
+The first gate run caught my first trigger fix (a rescaled deadzone) breaking QA-UI-4's
+`keyboard_steering_survives_a_gamepad_trigger`, which expects 0.6 to pass through exactly; the
+cutoff deadzone keeps it.
+
+### Not done, remains
+
+- **Not re-run: `tools/ai-check.sh`, `tools/net-check.sh`, `tools/capture.sh`.** Each needs a cold
+  release build, and with 4 cores that did not fit in the 2 h budget next to two debug gates. Why
+  I expect no change: the AI drives the manual, so it never sets `brake_reverse`, and the
+  reset-monitor change only acts on that flag. The net-check bots are the same AI. The rollback
+  check only adds conditions to `state_off`, so it can only add corrections where the reverse
+  state really differed. The reverse lights are hidden unless the car is in reverse, and captures
+  never reverse. The TCS claim (byte-identical AI reports) is the author's measurement; I
+  did not repeat it.
+- No scripted reversing in `net-check.sh`. `reversing_in_the_automatic_is_predicted_like_the_server`
+  (UDP, 60 ms RTT) is still the netcode coverage for reverse.
+- Remote cars' extrapolation still ignores reverse (author's known gap).
+- The wrong-way warning still flashes on a reverse longer than about 1 s (author's known gap; my
+  longer-reverse test checks that it clears once the car drives on).
+- A lever reverse in the manual does not get the reset monitor's `backing_up`: a manual-gearbox
+  human who reverses far can still be reset by the no-progress backstop.
+- Hood look-back turns the hood camera round in place, so it looks back through the car body
+  (back faces are culled, so the cabin is see-through). A camera at the tail would be nicer.
