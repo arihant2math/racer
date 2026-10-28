@@ -666,7 +666,7 @@ fn spawn_pause_menu(commands: &mut Commands, online: bool) {
     );
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn menu_input(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,

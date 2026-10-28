@@ -227,6 +227,7 @@ fn update_minimap(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn update_hud(
     race: Option<Res<Race>>,
     config: Option<Res<RaceConfig>>,
