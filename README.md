@@ -75,10 +75,14 @@ cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings
 windowing or audio), which is compiled separately the first time.
 
 Driving controls: WASD or arrows, Space handbrake, Q/E shift down/up (automatic by default),
-C clutch, V chase/hood camera, R reset (in a race: back to the last valid track position).
+C clutch, V chase/hood camera, hold B to look back, R reset (in a race: back to the last valid
+track position). Reverse: in the automatic, hold the brake at a standstill (0.6 s), then the brake
+pedal drives backwards and the throttle brakes and goes back to 1st; in the manual, shift down
+from neutral at a standstill (see `docs/features/reverse.md`).
 In a race, Esc (gamepad Start) pauses. Driving scene only: 1/2/3 Golf GTI/M3/911, T track,
 K skidpad. Gamepad: left stick, right/left triggers, south button handbrake, bumpers shift,
-north button reset, select/back button chase/hood camera; unplugging the pad pauses a race.
+north button reset, select/back button chase/hood camera, right stick button look back;
+unplugging the pad pauses a race.
 Menus: arrows or d-pad to select and change, Enter/Space or south button to confirm, Esc or
 east button to go back (the main menu only quits from its Quit item); mouse clicks work too.
 

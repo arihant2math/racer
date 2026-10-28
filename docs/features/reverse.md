@@ -130,8 +130,54 @@ uses the manual gearbox, where the brake only brakes. `fuzz.rs`/`properties.rs` 
 
 ### Forward driving and AI unchanged
 
-RESULTS_PLACEHOLDER
+Same release binary build settings, same seeds, run from untouched `e973a3f` (before) and this
+branch (after):
+
+`racer-capture telemetry` (what `tools/telemetry.sh` runs; scripted lap, skidpad ramp, launch and
+ABS stop for all three cars): **all 9 CSVs are byte-identical** before and after. For reference:
+GTI lap 51.08 s (max 119.3 km/h), launch-brake 12.60 s; M3 lap 48.62 s (133.2 km/h),
+launch-brake 9.70 s; 911 lap 47.93 s (136.3 km/h), launch-brake 8.93 s. The launch-brake
+maneuver holds the brake 0.5 s after stopping, under the 0.6 s reverse hold, so it is unchanged
+too.
+
+`racer-capture ai-laps --laps 5` (the solo half of `tools/ai-check.sh captures/ai 5 4 5`): the
+`solo.md` report and all 15 per-car, per-difficulty trace CSVs are **byte-identical** before and
+after. Mean flying laps, before = after: GTI 103.53 / 98.44 / 94.17 / 90.48 / 87.87 s (Novice to
+Alien), M3 95.80 / 91.09 / 87.25 / 84.22 / 82.41 s, 911 94.97 / 90.08 / 86.34 / 82.88 / 80.93 s;
+0 resets and 0 stalls everywhere; every difficulty inside its target band.
+
+`racer-capture ai-races --races 4 --laps 5` (the mixed half): `mixed.md` is **byte-identical**
+before and after: 144 laps, 32 contacts, 0 resets in traffic or alone, 0 stalls over 10 s,
+longest stall 3.0 s, nothing permanently stuck, every difficulty ok. (Identical output means
+the reverse-only TCS change did not alter these races either.)
+
+Captures: `racer-capture scene driving` with this branch's release binary under Xvfb/lavapipe
+diffs within tolerance against the committed driving goldens on all six poses (mean error
+0.03-0.16, 0.04-0.31 % differing pixels). I looked at `chase.png`: same scene and HUD; the only
+visible difference is the HUD reading `gear N, 0 rpm` because the release build rendered before
+the first physics tick, which has nothing to do with this branch. No goldens were regenerated.
+
+Checks before pushing: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D
+warnings`, cross-target clippy for `x86_64-pc-windows-msvc` and `aarch64-apple-darwin` with
+`CARGO_FEATURE_PURE=1`, and `cargo test --workspace` (all passing, exit 0).
 
 ## Known gaps
 
-GAPS_PLACEHOLDER
+- **Wrong-way warning on longer reverses.** Reversing for more than about 1 s above 1 m/s (about
+  2 m at full pedal) shows "wrong way" for a moment, because the rule counts any backwards motion
+  along the track, whichever way the car faces. A better rule would ignore backwards motion while
+  the car faces along the track, but QA-RULES-1's regression test relies on that motion freezing
+  `last_valid`, so the change needs the reset logic revisited with it. I left the rules alone.
+- **Remote cars reversing** are extrapolated between snapshots as if braking (the extrapolation
+  model in `net/extrapolate.rs` does not know the gear or the pedal swap). Snapshots come at 60 Hz
+  and reversing is slow, so the error is small; the local car's prediction is exact.
+- **Reverse lights** exist only on the greybox body; built car models (`assets/`) have none. No
+  capture shows them lit (the scripted scenes never reverse); a unit test checks the camera, not
+  the lights.
+- **No golden or screenshot of reversing** (the game runs at about 1 fps here and the capture
+  scenes are scripted forwards). The HUD's `R` and positive speed come from code that already
+  existed in the race HUD.
+- **Help text**: the driving scene's help line does not mention "hold S to reverse" or "B look
+  back", to keep the driving goldens unchanged; the README's controls line does.
+- The no-progress backstop (10 m per 7 s) still applies: a driver who spends 7 s reversing and
+  dithering is reset, as before.
