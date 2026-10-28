@@ -218,3 +218,31 @@ not a code issue.) Captures at 1280×720, 1024×600, 800×600 and 2560×1080 wer
 1280×720 is pixel-identical to every golden, the rest match the earlier review. The built 911 GLB
 lives in the gitignored `assets/` (absent here and in CI), so cars still render as greybox and
 **no golden changed**; none was regenerated. Verdict unchanged: approve.
+
+### Merge with `main` at `dc60932` (fix/dynamics landed)
+
+Meanwhile another session pushed `aa20732` to `fix/game-ui`, a merge of `main` at `dc60932`, which
+now carries fix/dynamics. It was merged in (no rebase, no force push); git merged it cleanly, but
+that merge had taken fix/dynamics' **`race/results.png`**, rendered with the old results layout
+(top-aligned panel, player's row `ABS TCS ESC` only), so it could not match this branch.
+On the combined tree:
+
+- fmt, clippy (workspace and `--features wheel`), cross-target clippy (Windows, macOS): clean.
+- `cargo test --workspace` failed in both runs, on one test: `force_feedback_is_released_while_paused`
+  asserted the race force on one fixed frame (120 frames after green). With the dynamics fixes the
+  test car (steer 0.4, throttle 0.6 from the mock wheel) is crawling at 5 m/s with its front tyres past
+  peak slip at that frame, so the aligning torque, and the force, is momentarily 0 (it was about
+  -0.87 for the second before). Not a regression of the pause fix. The test now pauses at the first
+  frame (within 300) where the race force is above 0.05, then asserts it reads 0 after 60 paused
+  frames; it still fails on the unfixed pause path. Afterwards: two workspace runs (118 passed, 44 ignored), `--features
+  wheel` and the `qa_flow` force test three times in a row, all green.
+- `--ignored`: 38 other-group repros fail; the 5 checks pass, and so does `QA-AI-4`
+  (`qa_ai_4_a_car_pushing_against_an_obstacle_is_reset_within_a_few_seconds`), still ignored, which
+  is fix/ai's to un-ignore (apparently fixed as a side effect of fix/dynamics).
+- Captures at 1280×720, 1024×600, 800×600 and 2560×1080, all looked at: menu goldens pixel-identical;
+  `race/grid`, `hud`, `pack` within tolerance of fix/dynamics' goldens (≤ 0.008 % of pixels);
+  `race/results.png` regenerated from the combined tree: fix/dynamics' race times with this
+  branch's centred layout and the player's row `ABS TCS ESC Steer Line Auto`. The only golden
+  changed in this round.
+
+Verdict unchanged: approve.
