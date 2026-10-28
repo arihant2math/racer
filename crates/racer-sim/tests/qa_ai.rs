@@ -471,14 +471,23 @@ fn check_races_are_deterministic() {
 }
 
 /// Standing still facing backwards on the avenue: turns round in a few
-/// reverse-and-pull manoeuvres and drives on without a reset.
+/// reverse-and-pull manoeuvres and drives on without a reset. That takes
+/// longer than the rules' no-progress backstop (10 m in 7 s), which would
+/// reset it facing the right way, so the reset monitor is cleared: this
+/// checks the driving.
 #[test]
 #[ignore = "QA check"]
 fn check_an_ai_facing_backwards_turns_round() {
     let (mut app, cars) = race_app(short(), &[(GTI, ai(Difficulty::Pro))]);
     start(&mut app);
     place(&mut app, cars[0], 150.0, 0.0, std::f32::consts::PI, 0.0);
-    run(&mut app, 15.0, |_| {});
+    run(&mut app, 15.0, |a| {
+        a.world_mut()
+            .get_mut::<Racer>(cars[0])
+            .unwrap()
+            .monitor
+            .clear()
+    });
     let r = racer(&app, cars[0]);
     assert!(r.resets.is_empty(), "{:?}", r.resets);
     assert!(r.progress.distance > 200.0 && !r.progress.wrong_way);

@@ -252,7 +252,7 @@ main (`74b56bd`). "Final" includes the review commits.
 | `cargo fmt --all --check` | clean |
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | clean |
 | `CARGO_FEATURE_PURE=1 cargo clippy ... --target x86_64-pc-windows-msvc` / `aarch64-apple-darwin` `-- -D warnings` | both clean |
-| `cargo test --workspace --locked --no-fail-fast`, twice | 142 passed, 0 failed, 25 ignored, both runs (an earlier pair of runs found findings 2 and 3) |
+| `cargo test --workspace --locked --no-fail-fast`, twice | 142 passed, 0 failed, 25 ignored, both runs (an earlier pair of runs found findings 2 and 4) |
 | `#[ignore]` markers vs `origin/main` | the only ones removed are QA-AI-1, 2, 3, 5 and 6. QA-AI-4 was already un-ignored by race-rules. QA-AI-7 had no repro before. No QA-AI test is ignored. Every other group's marker is unchanged |
 | Race goldens, `CAPTURE_PROFILE=release tools/capture.sh race` on the final code | `grid` matches main's golden (mean error 0.001). `hud`, `pack` and `results` differ from main's (mean error 1.9 / 10.8 / 5.1) because the first lap plays out differently. I checked them by eye (0 resets, a sensible order) and committed them. A second capture matches them (mean error ≤ 0.009) |
 
@@ -329,7 +329,7 @@ I read `git diff f381b04 fix/ai -- crates/racer-sim` against the brief.
 
 ### Findings and fixes
 
-1. **QA-AI-1 was only fixed on straights. Fixed (`35a1b87`).** I scripted a player parked on
+1. **QA-AI-1 was only fixed on straights. Fixed (`3932187`).** I scripted a player parked on
    the racing line at 25 places round the lap, with a Pro, Novice or Alien GTI arriving at
    15 m/s. On the fixer's code, the AI is reset as `Stuck` again and again and never gets past
    at 5 of the 25 places, for every difficulty, including 500, 1450, 1600 and 1875 m. Those
@@ -355,7 +355,13 @@ I read `git diff f381b04 fix/ai -- crates/racer-sim` against the brief.
    9.5 s. That reset is the rules' backstop working. The test now clears the AI's reset monitor
    too, so it checks the driving: no contact, no reset, past within 12 s. It still fails on the
    pre-fix AI (contact in the 186 m case).
-3. **A `racer-dynamics` property test is flaky. Not this branch: for fix/dynamics.**
+3. **The ignored QA check `check_an_ai_facing_backwards_turns_round` fails on main. Fixed in
+   the test.** It has nothing to do with this branch. It fails on `main` itself: race-rules'
+   no-progress rule resets the AI at 7.0 s while it turns round (reverse, pull, reverse). That
+   reset is acceptable, since it puts the car back facing the right way. As with QA-AI-7, the
+   check now clears the reset monitor so it tests the driving. It passes. The other three
+   `qa_ai` QA checks (determinism, full catch-up, the first-lap diagnostic) pass unchanged.
+4. **A `racer-dynamics` property test is flaky. Not this branch: for fix/dynamics.**
    `two_half_steps_match_one_full_step` failed once in four workspace runs (proptest, random
    seed). The failing case was `car = 0`, `(yaw, speed, lateral, yaw_rate) = (0, 5, 2.697,
    -0.405)`, alphas `[0, -0.081, 0, 0]`, with wheel 1 at 7.02 vs 7.84. It passed in 6 further
@@ -377,5 +383,5 @@ I read `git diff f381b04 fix/ai -- crates/racer-sim` against the brief.
 
 The six fixes are real and root-caused, the AI stays honest, and difficulty still separates the
 drivers. On the code that will ship, 40 races (1,026 race laps, 12 of the races on new seeds) show 0 resets and 0 stalls over 10 s. Car contacts are 68 vs 345 on races 0-11. The
-review found one real gap, stopped cars in corners, and fixed it. It also fixed one merge-time
-test failure. **Ready to merge.**
+review found one real gap, stopped cars in corners, and fixed it. It also fixed two test failures caused
+by race-rules' new reset rule. **Ready to merge.**
