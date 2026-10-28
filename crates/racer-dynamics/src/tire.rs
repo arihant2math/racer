@@ -76,12 +76,17 @@ struct Curve {
 impl Curve {
     fn new(c: f64, e: f64) -> Self {
         // Peak where C atan(x - E (x - atan x)) = pi/2; the inner function is
-        // monotonic for E < 1, so bisect for x and set B = x.
+        // monotonic and unbounded for E < 1 (checked by `CarSpec::validate`,
+        // with 1 < C), so bracket and bisect for x and set B = x.
         let target = (std::f64::consts::FRAC_PI_2 / c).tan();
+        let inner = |x: f64| x - e * (x - x.atan());
         let (mut lo, mut hi) = (0.0f64, 100.0f64);
+        while inner(hi) < target {
+            (lo, hi) = (hi, 2.0 * hi);
+        }
         for _ in 0..80 {
             let x = 0.5 * (lo + hi);
-            if x - e * (x - x.atan()) < target {
+            if inner(x) < target {
                 lo = x;
             } else {
                 hi = x;
@@ -217,6 +222,14 @@ mod tests {
         );
         let tan7 = 7f64.to_radians().tan();
         assert!((t.force(0.0, tan7, 4000.0, 1.0).fy + 1.1 * 4000.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn curve_peaks_at_one_for_shape_factors_close_to_one() {
+        for c in [1.001, 1.01, 1.3, 2.0] {
+            let curve = Curve::new(c, 0.2);
+            assert!((curve.eval(1.0) - 1.0).abs() < 1e-9, "C {c}: {curve:?}");
+        }
     }
 
     #[test]

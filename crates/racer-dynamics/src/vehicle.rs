@@ -10,7 +10,7 @@ use crate::{
     DRIVETRAIN_SUBSTEPS,
     assists::{self, Assists},
     drivetrain::{DriveState, Drivetrain},
-    spec::{AxleFit, CarSpec, tire_radius},
+    spec::{AxleFit, CarSpec, tire_radius, tire_width},
     tire::{Surface, Tire},
 };
 
@@ -54,6 +54,22 @@ pub struct Controls {
     /// Automatic gearbox mode (manual shifting otherwise).
     pub automatic: bool,
     pub assists: Assists,
+}
+
+impl Controls {
+    /// The controls clamped to their ranges, with non-finite values (a NaN
+    /// from a bad AI pose or a malformed network input) read as 0.
+    pub fn sanitized(&self) -> Self {
+        let clean = |v: f64, lo: f64| if v.is_finite() { v.clamp(lo, 1.0) } else { 0.0 };
+        Controls {
+            throttle: clean(self.throttle, 0.0),
+            brake: clean(self.brake, 0.0),
+            steer: clean(self.steer, -1.0),
+            handbrake: clean(self.handbrake, 0.0),
+            clutch: clean(self.clutch, 0.0),
+            ..*self
+        }
+    }
 }
 
 /// Result of the wheel's shape cast, done by the caller along the body's
@@ -185,7 +201,9 @@ pub struct StepOutput {
 }
 
 impl Vehicle {
+    /// Builds the model from a spec, rejecting out-of-range data (see [`CarSpec::validate`]).
     pub fn from_spec(spec: &CarSpec) -> Result<Self, String> {
+        spec.validate()?;
         let c = &spec.chassis;
         let e = &spec.estimated;
         let mass = c.curb_mass_kg + e.chassis.payload_kg;
@@ -196,14 +214,10 @@ impl Vehicle {
             tire_radius(&spec.tires.front)?,
             tire_radius(&spec.tires.rear)?,
         ];
-        let width = |size: &str| {
-            size.split('/')
-                .next()
-                .and_then(|w| w.parse::<f64>().ok())
-                .unwrap_or(225.0)
-                / 1000.0
-        };
-        let widths = [width(&spec.tires.front), width(&spec.tires.rear)];
+        let widths = [
+            tire_width(&spec.tires.front)?,
+            tire_width(&spec.tires.rear)?,
+        ];
         let tracks = [c.track_front_m, c.track_rear_m];
         let corner_mass = [mass * f / 2.0, mass * (1.0 - f) / 2.0];
         let axles = [&e.suspension.front, &e.suspension.rear];
@@ -313,6 +327,9 @@ impl Vehicle {
 
     /// Advances the vehicle by one chassis step `dt` (wheels and drivetrain
     /// substepped internally) and returns the chassis force and torque.
+    ///
+    /// A `dt` that is not positive and finite leaves `state` alone and
+    /// returns no force. Controls are [sanitized](Controls::sanitized).
     pub fn step(
         &self,
         state: &mut VehicleState,
@@ -321,6 +338,14 @@ impl Vehicle {
         contacts: &[Option<WheelContact>; 4],
         dt: f64,
     ) -> StepOutput {
+        if !(dt.is_finite() && dt > 0.0) {
+            return StepOutput {
+                force: DVec3::ZERO,
+                torque: DVec3::ZERO,
+                telemetry: Telemetry::default(),
+            };
+        }
+        let controls = &controls.sanitized();
         let rot = chassis.rotation;
         let up = rot * DVec3::Y;
         let forward = rot * DVec3::NEG_Z;
@@ -477,6 +502,19 @@ impl Vehicle {
                 // First-order relaxation, integrated implicitly so it stays
                 // stable at any speed; at standstill it becomes a spring.
                 let slip_speed = omega[i] * r - p.vx;
+                // Slip past the peak is the patch sliding, not carcass
+                // deflection: once the patch moves back the other way only
+                // the elastic part (up to the peak) springs back. Without
+                // this a slide to rest winds the spring far past the peak
+                // and it unwinds as a creep against the brakes.
+                if ws.slip_ratio * slip_speed < 0.0 {
+                    let peak = tire.peak_slip_ratio;
+                    ws.slip_ratio = ws.slip_ratio.clamp(-peak, peak);
+                }
+                if ws.slip_lat * p.vy < 0.0 {
+                    let peak = tire.peak_slip_tan;
+                    ws.slip_lat = ws.slip_lat.clamp(-peak, peak);
+                }
                 let decay = |sigma: f64| 1.0 + h * p.vx.abs() / sigma;
                 ws.slip_ratio = (ws.slip_ratio + h * slip_speed / tire.relaxation_long)
                     / decay(tire.relaxation_long);

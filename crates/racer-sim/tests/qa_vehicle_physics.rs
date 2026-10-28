@@ -1,7 +1,6 @@
 //! QA repro tests for vehicle-physics bugs in the Avian integration
-//! (docs/qa/vehicle-physics.md). Each test fails on the current code and is
-//! ignored so the suite stays green; run them with
-//! `cargo test -p racer-sim --test qa_vehicle_physics -- --ignored`.
+//! (docs/qa/vehicle-physics.md), kept as regression tests now that the bugs
+//! are fixed (docs/qa/fixes-dynamics.md).
 
 use avian3d::prelude::*;
 use bevy::prelude::*;
@@ -30,9 +29,8 @@ fn telemetry(app: &App, car: Entity) -> racer_dynamics::Telemetry {
 }
 
 /// A car parked, then rolling at 1 m/s, on the test track's grass (the
-/// 4000 m ground box) keeps all four wheels on the ground.
+/// 4000 m ground) keeps all four wheels on the ground, with steady loads.
 #[test]
-#[ignore = "QA-PHYS-4"]
 fn qa_phys_4_wheels_keep_contact_on_the_grass_box() {
     let track = test_track();
     // A grass spot well away from the road and the skidpad.
@@ -65,6 +63,7 @@ fn qa_phys_4_wheels_keep_contact_on_the_grass_box() {
             app.update();
         }
         let mut dropouts = 0;
+        let mut max_load: f64 = 0.0;
         for step in 0..240 * 4 {
             let rolling = step >= 240 * 2;
             let slow = telemetry(&app, car).speed < 1.0;
@@ -80,12 +79,17 @@ fn qa_phys_4_wheels_keep_contact_on_the_grass_box() {
             app.update();
             let t = telemetry(&app, car);
             dropouts += t.wheels.iter().filter(|w| !w.contact).count();
+            max_load = t.wheels.iter().map(|w| w.load).fold(max_load, f64::max);
         }
         if dropouts > 0 {
             lost.push(format!(
                 "{id}: {dropouts} of {} wheel-steps without contact",
                 4 * 240 * 4
             ));
+        }
+        // Static corner loads are 3.7-4.6 kN; the misses swung them to 16.6 kN.
+        if max_load > 6000.0 {
+            lost.push(format!("{id}: wheel load peaked at {max_load:.0} N"));
         }
     }
     assert!(
@@ -99,7 +103,6 @@ fn qa_phys_4_wheels_keep_contact_on_the_grass_box() {
 /// test track's curbs and pad): the wheel should climb the edge over several
 /// centimetres of travel, not jump to the bump stop.
 #[test]
-#[ignore = "QA-PHYS-5"]
 fn qa_phys_5_wheel_climbs_a_step_edge_smoothly() {
     let spec = load_car("vw-golf-gti-mk8").unwrap();
     let mut app = app();
@@ -155,6 +158,9 @@ fn qa_phys_5_wheel_climbs_a_step_edge_smoothly() {
         }
         prev = t.travel;
     }
+    println!(
+        "max travel drop {max_jump:.4} m per step, max load {max_load:.0} N, static {static_load:.0} N"
+    );
     assert!(
         max_jump < 0.02 && max_load < 3.0 * static_load,
         "at the step edge travel dropped {max_jump:.3} m in one step, load peaked at \

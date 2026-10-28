@@ -4,8 +4,8 @@
 //! arbitrary fields for `standings`. See `docs/qa/adversarial-edge-cases.md`.
 //!
 //! Small case counts by default; `QA_EDGE_CASES=<n>` for a deeper run.
-//! Failing properties are `#[ignore = "QA-EDGE-N"]` regressions with the
-//! shrunk counterexample hard-coded.
+//! The `qa_edge_*` tests are regressions with the shrunk counterexamples
+//! the properties found hard-coded (fixed, see `docs/qa/fixes-race-rules.md`).
 
 use std::sync::LazyLock;
 
@@ -65,9 +65,10 @@ fn leg() -> impl Strategy<Value = Leg> {
     prop_oneof![
         12 => (-40.0..250.0f32, -0.9..0.9f32, 5.0..90.0f32)
             .prop_map(|(distance, lateral, speed)| Leg::Drive { distance, lateral, speed }),
-        // Up to 20 m: longer ones hit QA-EDGE-2 (and on the dense track
-        // QA-EDGE-1), which have their own regression tests.
-        1 => (5.0..20.0f32).prop_map(|distance| Leg::Excursion { distance }),
+        // Up to 60 m: past ~26 m the car is off the track until it is
+        // reset (QA-EDGE-2), and on the dense track it can pass two gates
+        // (QA-EDGE-1).
+        1 => (5.0..60.0f32).prop_map(|distance| Leg::Excursion { distance }),
         1 => Just(Leg::Reset),
     ]
 }
@@ -105,10 +106,6 @@ struct Run<'a> {
     starts: Vec<f32>,
     lap_sectors: Vec<Vec<f32>>,
     laps_counted: i64,
-    /// A lap was taken back (QA-EDGE-10 makes best sectors stale after that).
-    undone: bool,
-    /// The last leg drove backwards.
-    reversed: bool,
     problems: Vec<String>,
 }
 
@@ -126,8 +123,6 @@ impl<'a> Run<'a> {
             starts: vec![0.0],
             lap_sectors: Vec::new(),
             laps_counted: 0,
-            undone: false,
-            reversed: false,
             problems: Vec::new(),
         }
     }
@@ -142,7 +137,6 @@ impl<'a> Run<'a> {
             }
             ProgressEvent::LapUndone => {
                 self.laps_counted -= 1;
-                self.undone = true;
                 self.starts.pop();
                 self.lap_sectors.pop();
             }
@@ -154,7 +148,7 @@ impl<'a> Run<'a> {
         self.now += DT;
         let laps = self.p.laps;
         let forward = velocity.normalize_or(Vec3::NEG_Z);
-        if let Some(e) = self.p.update(self.g, position, velocity, forward, DT) {
+        for e in self.p.update(self.g, position, velocity, forward, DT) {
             self.event(e);
         }
         let up = 1.0;
@@ -173,7 +167,7 @@ impl<'a> Run<'a> {
     fn reset(&mut self) {
         let (pose, d, x) = reset_pose(self.g, self.monitor.last_valid, &[]);
         self.monitor.clear();
-        for e in self.p.move_back_to(self.g, d, x) {
+        for e in self.p.move_to(self.g, d, x) {
             self.event(e);
         }
         let p2 = Progress::new(self.g, pose.position);
@@ -269,7 +263,7 @@ impl<'a> Run<'a> {
                     .fold(f32::MAX, f32::min)
             })
             .collect();
-        if !self.undone && !self.lap_sectors.is_empty() && t.best_sectors != best {
+        if !self.lap_sectors.is_empty() && t.best_sectors != best {
             self.problem(format!(
                 "best sectors {:?}, standing laps' best {best:?}",
                 t.best_sectors
@@ -289,13 +283,7 @@ impl<'a> Run<'a> {
                     self.drive(distance, 0.0, 30.0, true);
                     self.drive(1.0, 0.0, 30.0, false);
                 }
-                // After reversing, a reset can place the car ahead of gates it
-                // took back (QA-EDGE-11, own regression test): skip those.
-                Leg::Reset if self.reversed => {}
                 Leg::Reset => self.reset(),
-            }
-            if let Leg::Drive { distance, .. } = leg {
-                self.reversed = distance < 0.0;
             }
             self.check();
         }
@@ -324,13 +312,16 @@ proptest! {
         prop_assert!(run.problems.is_empty(), "{:#?}", run.problems);
     }
 
-    /// The same with excursions off the corridor and resets mixed in (on the
-    /// shipped track: on the dense one any excursion can jump two gates,
-    /// QA-EDGE-1).
+    /// The same with excursions off the corridor and resets mixed in, on
+    /// both tracks (the dense one has gates closer than one step's window).
     #[test]
-    fn progress_survives_excursions_and_resets(legs in prop::collection::vec(leg(), 1..30)) {
-        let g = &TRACKS[0];
-        let mut run = Run::new(g, 0);
+    fn progress_survives_excursions_and_resets(
+        track in 0usize..2,
+        slot in 0usize..8,
+        legs in prop::collection::vec(leg(), 1..30),
+    ) {
+        let g = &TRACKS[track];
+        let mut run = Run::new(g, slot);
         run.run(&legs);
         prop_assert!(run.problems.is_empty(), "{:#?}", run.problems);
     }
@@ -374,6 +365,9 @@ proptest! {
             match (sa, sb) {
                 (Status::Finished(ta), Status::Finished(tb)) => {
                     prop_assert!(pa.laps > pb.laps || (pa.laps == pb.laps && ta <= tb));
+                    if pa.laps == pb.laps && ta == tb {
+                        prop_assert!(pa.distance >= pb.distance);
+                    }
                 }
                 _ => prop_assert!(pa.key().0 > pb.key().0
                     || (pa.key().0 == pb.key().0 && pa.key().1 > pb.key().1)
@@ -418,7 +412,6 @@ proptest! {
 /// back: progress credits the first gate only and the car is stuck on the
 /// second for every later lap.
 #[test]
-#[ignore = "QA-EDGE-1"]
 fn qa_edge_1_one_update_over_two_gates_loses_the_lap_for_good() {
     let g = &TRACKS[1];
     // The first pair of gates closer together than the 26 m the window allows.
@@ -466,7 +459,6 @@ fn qa_edge_1_one_update_over_two_gates_loses_the_lap_for_good() {
 /// Shrunk case: from the grid, 33.5 m outside the corridor (about a second
 /// at 30 m/s, inside the 3 s off-track reset), then a lap on the road.
 #[test]
-#[ignore = "QA-EDGE-2"]
 fn qa_edge_2_rejoining_far_downstream_freezes_progress() {
     let g = &TRACKS[0];
     let mut run = Run::new(g, 0);
@@ -491,13 +483,12 @@ fn qa_edge_2_rejoining_far_downstream_freezes_progress() {
 /// QA-EDGE-11: a reset after reversing back over a checkpoint puts the car
 /// ahead of that checkpoint without crediting it again. `ResetMonitor`
 /// keeps `last_valid` from the first second of reversing (before the
-/// wrong-way flag), `reset_pose` goes 8 m behind that, and `move_back_to`
+/// wrong-way flag), `reset_pose` goes 8 m behind that, and `move_to`
 /// only ever takes credit back. The gate is then behind the car for good:
 /// it can never complete the lap. Shrunk case (shipped track): drive 210.7 m
 /// from pole, reverse 39.7 m at 5 m/s (back over the checkpoint at ~180 m),
 /// reset (stuck, or the driver's reset key, or an AI giving up on recovery).
 #[test]
-#[ignore = "QA-EDGE-11"]
 fn qa_edge_11_reset_after_reversing_skips_an_uncredited_gate() {
     let g = &TRACKS[0];
     let mut run = Run::new(g, 0);
@@ -536,7 +527,6 @@ fn qa_edge_11_reset_after_reversing_skips_an_uncredited_gate() {
 /// next lap is then timed from the wrong point. Shrunk case: two laps
 /// (Timing events alone), undo both, redo one.
 #[test]
-#[ignore = "QA-EDGE-9"]
 fn qa_edge_9_second_lap_undone_restores_the_wrong_lap_start() {
     let g = &TRACKS[0];
     let mut t = Timing::start(0.0);
@@ -565,7 +555,6 @@ fn qa_edge_9_second_lap_undone_restores_the_wrong_lap_start() {
 /// no longer counts keeps its sector times as "best" on the HUD. Shrunk case:
 /// one fast lap, taken back over the line.
 #[test]
-#[ignore = "QA-EDGE-10"]
 fn qa_edge_10_undone_lap_keeps_its_best_sectors_and_delta_reference() {
     let g = &TRACKS[0];
     let mut t = Timing::start(0.0);
@@ -581,9 +570,14 @@ fn qa_edge_10_undone_lap_keeps_its_best_sectors_and_delta_reference() {
         "no lap stands, yet best sectors are {:?}",
         t.best_sectors
     );
-    // The redone lap's first checkpoint still gets a delta, against the
-    // checkpoint times of the lap that was taken back.
-    t.on_event(ProgressEvent::Lap, 51.0, g);
-    t.on_event(ProgressEvent::Checkpoint(0), 60.0, g);
+    // Back over the last checkpoint and forwards again: no lap stands, so
+    // there is nothing to measure a delta against.
+    t.on_event(ProgressEvent::CheckpointUndone(n - 1), 51.0, g);
+    t.on_event(ProgressEvent::Checkpoint(n - 1), 52.0, g);
     assert_eq!(t.delta, None, "delta against a lap that does not count");
+    // The lap redone stands again, with its own sectors as the bests.
+    t.on_event(ProgressEvent::Lap, 53.0, g);
+    assert_eq!(t.best_lap, Some(53.0));
+    assert_eq!(t.best_sectors, t.last_sectors);
+    assert!((t.last_sectors.iter().sum::<f32>() - 53.0).abs() < 1e-3);
 }
