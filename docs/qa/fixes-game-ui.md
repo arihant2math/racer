@@ -112,3 +112,93 @@ puts the player's car on autopilot, yet its row lists the setup's aids; that is 
 - Captures: `tools/capture.sh menu` and `CAPTURE_PROFILE=release tools/capture.sh race` at
   1280×720, 1024×600 and 2560×1080. Every setup and results capture was looked at, plus
   the main menu and the HUD at 1024×600. All rows and columns are visible at every size.
+
+## Review
+
+Independent review of `fix/game-ui` at `85e35a8` against `origin/main`. The fixer's notes were
+not taken on trust: every claim below was re-checked.
+
+### Checks run
+
+| Command | Result |
+| --- | --- |
+| `tools/setup.sh` | exit 0, nothing missing. |
+| `cargo fmt --all --check` | Clean. |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | Clean. |
+| `cargo clippy -p racer-game --all-targets --features wheel --locked -- -D warnings` | Clean. |
+| `CARGO_FEATURE_PURE=1 cargo clippy --workspace --all-targets --locked --target x86_64-pc-windows-msvc -- -D warnings` | Clean. |
+| same, `--target aarch64-apple-darwin` | Clean. |
+| `cargo test --workspace --locked`, twice | Both green: 98 passed, 0 failed, 57 ignored. |
+| `cargo test -p racer-game --features wheel --locked` | Green; `qa_wheel` (virtual gamepad ignored, virtual wheel opened) and `pedals_rest_at_either_end` pass. |
+| `cargo test --workspace --locked --no-fail-fast -- --ignored` | 57 ignored tests run: 52 QA repros of the other groups fail as on `main` (PHYS, RULES, AI, EDGE-1..14, TOOL), 5 `QA check`/`diagnostic`/long-run tests pass. No QA-UI or QA-EDGE-15 test is ignored any more. |
+| `#[ignore]` inventory, `origin/main` vs branch | Only the 13 QA-UI ignores and QA-EDGE-15 were removed; every other group's ignore is unchanged. |
+| Branch's `qa_flow.rs`/`format_properties.rs` against `main`'s `src/` (separate worktree) | 13 QA-UI tests and `qa_edge_15_...` fail on the old source, as claimed; `small_stick_deflection_steers` passes there (QA-UI-10, below). |
+
+### QA-UI-10 ("not a bug")
+
+Confirmed against `bevy_input-0.19.1/src/gamepad.rs`: `gamepad_event_processing_system` runs
+`AxisSettings::filter`, which only decides whether the change passes the threshold and computes
+the *scaled* value for `GamepadAxisChangedEvent`; the `Gamepad` component stores
+`filtered_value.raw` (`gamepad_axis.analog.set(axis, filtered_value.raw)`), and buttons/triggers
+likewise. `bevy_gilrs-0.19.1` builds gilrs with `with_default_filters(false)`, so gilrs adds no
+deadzone either. The repro test feeds `RawGamepadEvent`s through that path, and 0.12 already
+steered on the old code. The game's 8 % stick / 5 % trigger gates are the only ones. Verdict
+stands: not a bug, the test is a fair regression test.
+
+### Captures
+
+`tools/capture.sh menu` and `CAPTURE_PROFILE=release tools/capture.sh race` at 1280×720
+(default), 1024×600, 800×600 (the original QA-UI-13 repro size) and 2560×1080; every setup,
+main-menu and results image looked at, plus HUD and grid at the extremes.
+
+- 1280×720: all six captures are pixel-identical to the goldens (`racer-capture diff`: mean
+  error 0, 0 % differing pixels). `race/grid`, `hud`, `pack` goldens are byte-identical to
+  `main`; only `menu/main-menu`, `menu/setup`, `race/results` changed.
+- The three updated goldens are correct: setup shows the title, all 15 option rows, Start race
+  and Back with margin; the main menu is the same layout with the smaller title; results show
+  all 8 rows, every column, and the player's row `ABS TCS ESC Steer Line Auto`.
+- 1024×600 and 800×600: setup and results scaled down as a whole, every row and column on
+  screen; results table no longer cut on either side.
+- 2560×1080: panels centred at natural size (not scaled up), nothing stretched.
+
+### Code review
+
+Root causes, not symptoms: pause was not reaching FFB because fixed steps stop (fixed by a
+`PostUpdate` release while virtual time is paused); results stuck paused because nothing unpaused
+on leaving the race (`OnExit(Race)`); `0:60.000` from rounding two fields separately (rounded once);
+the wheel backend's "first joystick" choice (now SDL's own wheel type, which SDL checks against
+its known-wheel list before any gamepad heuristics, `SDL_joystick.c` in sdl3-src 3.4.18). Mouse
+picking honours the fit-to-window scale (`bevy_ui` picking inverts `UiGlobalTransform`, which
+includes `UiTransform`).
+
+Input interplay: keyboard + pad combine (stronger steering wins, pedals max); the wheel still
+overrides when present, as before, but a gamepad can no longer be taken for one. North (reset)
+and Select (camera) were unbound in races and menus, so no conflict with South/East/d-pad/Start/
+bumpers. Reset and shifts are dropped while paused; the camera toggle is allowed while paused
+(as V already was). Force feedback: released every frame while paused, 0 whenever no player car
+exists (menus, setup, after a race is cleared), and the SDL haptic is closed on wheel unplug and
+app exit (unchanged). State across restarts: `Paused`/virtual time reset on every exit from the
+race; the camera snaps on a new car entity or a new reset. Scope: only `crates/racer-game`, its
+goldens, the README controls paragraph and this note. No dead code. README controls match the
+bindings.
+
+### Issues found
+
+None that needed a code change. Left open, all minor:
+
+- `toggle_pause` reads `GamepadConnectionEvent` only while in `AppState::Race`, so a pad unplugged
+  in the one or two frames before a race starts can still be read on its first frame and pause it.
+  Harmless (the player resumes) and hard to hit.
+- `fit_to_window` runs in `Update` on the previous frame's layout, so a newly spawned panel that
+  is too large shows unscaled for one frame before it is fitted.
+- `rests_low` relies on SDL knowing an axis's initial value at open; backends that only learn it
+  on the first poll fall back to the old "rests at +1" mapping. Wheels SDL does not classify as
+  wheels are no longer picked up (documented above). Still unverified on hardware.
+- Unplugging the SDL *wheel* mid-race does not pause (only gamepads do); not part of QA-UI-9.
+- The 250 px Assists column just fits the longest label (`ABS TCS ESC Steer Line Auto`).
+
+### Verdict
+
+Approve. Every QA-UI bug and QA-EDGE-15 is fixed at its cause with a regression test that fails
+on the old source, QA-UI-10 is correctly closed as not a bug, all checks are green, and the
+three golden updates are deliberate and correct.
