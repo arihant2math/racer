@@ -72,6 +72,7 @@ axum = { version = "=0.8.9", default-features = false, features = [
 tokio = { version = "=1.54.1", features = ["macros", "rt-multi-thread", "net", "signal", "time"] }
 getrandom = "=0.3.4"
 tower = { version = "=0.5.3", features = ["util"] }
+ureq = { version = "=3.5.0", default-features = false, features = ["json"] }
 
 # Property-based testing (dev-dependency only). No fork/timeout: plain in-process runs.
 proptest = { version = "=1.12.0", default-features = false, features = ["std"] }

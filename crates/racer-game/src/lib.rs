@@ -7,6 +7,7 @@ pub mod flow;
 pub mod greybox;
 pub mod hud;
 pub mod input;
+pub mod online;
 pub mod race_scene;
 #[cfg(feature = "wheel")]
 mod sdl_wheel;
@@ -25,6 +26,7 @@ impl Plugin for GamePlugin {
             input::InputPlugin,
             flow::FlowPlugin,
             race_scene::RaceScenePlugin,
+            online::OnlinePlugin,
         ));
     }
 }

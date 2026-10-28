@@ -8,12 +8,16 @@ use bevy::{
 use racer_dynamics::Assists;
 use racer_sim::{
     ai::Difficulty,
+    net::client::{NetSession, RemoteRace, SessionState},
     race::{Collisions, Gap, RaceMode, Racer},
     rules::Status,
     vehicle::Car,
 };
 
-use crate::race_scene::{self, DriverAids, RaceEntity};
+use crate::{
+    online::{EntryPurpose, Online, OnlineMode, TextEntry},
+    race_scene::{self, DriverAids, RaceEntity},
+};
 
 #[derive(States, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum AppState {
@@ -24,6 +28,10 @@ pub enum AppState {
     Loading,
     Race,
     Results,
+    /// Typing an invite code or a server address.
+    Entry,
+    /// Waiting for an online race: a backend lobby or a direct connection.
+    Lobby,
 }
 
 /// The menus and race flow (the race scene itself is in [`race_scene`]).
@@ -55,6 +63,21 @@ impl Plugin for FlowPlugin {
                     .run_if(crate::car_model::models_ready),
             )
             .add_systems(OnEnter(AppState::Results), spawn_results)
+            .add_systems(OnEnter(AppState::Entry), spawn_entry)
+            .add_systems(OnEnter(AppState::Lobby), |mut layout: ResMut<LobbyLayout>| {
+                *layout = LobbyLayout::None
+            })
+            .init_resource::<LobbyLayout>()
+            .add_systems(
+                Update,
+                (
+                    update_entry.run_if(in_state(AppState::Entry)),
+                    (lobby_screen, update_lobby_text)
+                        .chain()
+                        .run_if(in_state(AppState::Lobby)),
+                )
+                    .before(menu_input),
+            )
             // Nothing outside a race is ever paused, however the race was left.
             .add_systems(OnExit(AppState::Race), resume_time)
             .add_systems(
@@ -99,6 +122,8 @@ pub struct RaceSetup {
     pub automatic: bool,
     /// Let the AI drive the player's car (demos and captures).
     pub autopilot: bool,
+    /// Online lobbies: AI cars in the slots no player takes.
+    pub ai_fill: bool,
 }
 
 impl Default for RaceSetup {
@@ -119,6 +144,7 @@ impl Default for RaceSetup {
             racing_line: false,
             automatic: true,
             autopilot: false,
+            ai_fill: true,
         }
     }
 }
@@ -141,6 +167,8 @@ pub enum Setting {
     SteeringAssist,
     RacingLine,
     Gearbox,
+    /// Online lobbies only.
+    AiFill,
 }
 
 fn on_off(on: bool) -> String {
@@ -188,6 +216,7 @@ impl Setting {
             Setting::SteeringAssist => "Steering assist",
             Setting::RacingLine => "Racing line",
             Setting::Gearbox => "Gearbox",
+            Setting::AiFill => "AI fill",
         }
     }
 
@@ -213,6 +242,7 @@ impl Setting {
             Setting::SteeringAssist => on_off(s.steering_assist),
             Setting::RacingLine => on_off(s.racing_line),
             Setting::Gearbox => if s.automatic { "Automatic" } else { "Manual" }.into(),
+            Setting::AiFill => on_off(s.ai_fill),
         }
     }
 
@@ -252,6 +282,7 @@ impl Setting {
             Setting::SteeringAssist => s.steering_assist = !s.steering_assist,
             Setting::RacingLine => s.racing_line = !s.racing_line,
             Setting::Gearbox => s.automatic = !s.automatic,
+            Setting::AiFill => s.ai_fill = !s.ai_fill,
         }
     }
 }
@@ -265,6 +296,17 @@ pub enum Action {
     Resume,
     Restart,
     Menu,
+    QuickMatch,
+    CreateLobby,
+    JoinLobby,
+    DirectConnect,
+    /// Text entry: join the lobby or connect to the address typed.
+    Submit,
+    /// Lobby: toggle ready (guests).
+    Ready,
+    /// Lobby: start the race (host).
+    StartOnline,
+    Leave,
 }
 
 impl Action {
@@ -277,6 +319,14 @@ impl Action {
             Action::Resume => "Resume",
             Action::Restart => "Restart race",
             Action::Menu => "Main menu",
+            Action::QuickMatch => "Quick match",
+            Action::CreateLobby => "Create lobby",
+            Action::JoinLobby => "Join lobby",
+            Action::DirectConnect => "Direct connect",
+            Action::Submit => "Connect",
+            Action::Ready => "Ready",
+            Action::StartOnline => "Start race",
+            Action::Leave => "Leave",
         }
     }
 }
@@ -408,14 +458,28 @@ fn fit_to_window(
     }
 }
 
-fn spawn_main_menu(mut commands: Commands, mut cursor: ResMut<MenuCursor>) {
+fn spawn_main_menu(
+    mut commands: Commands,
+    mut cursor: ResMut<MenuCursor>,
+    mut online: ResMut<Online>,
+) {
     cursor.0 = 0;
+    // The last online error, once.
+    let message = std::mem::take(&mut online.status);
     screen(
         &mut commands,
         "RACER",
-        "Street racing in a greybox city",
+        if message.is_empty() {
+            "Street racing in a greybox city"
+        } else {
+            &message
+        },
         &[
             MenuItem::Action(Action::Race),
+            MenuItem::Action(Action::QuickMatch),
+            MenuItem::Action(Action::CreateLobby),
+            MenuItem::Action(Action::JoinLobby),
+            MenuItem::Action(Action::DirectConnect),
             MenuItem::Action(Action::Quit),
         ],
         DespawnOnExit(AppState::MainMenu),
@@ -467,6 +531,7 @@ fn resume_time(mut paused: ResMut<Paused>, mut time: ResMut<Time<Virtual>>) {
 /// unplugged mid-race.
 #[allow(clippy::too_many_arguments)]
 fn toggle_pause(
+    online: Option<Res<RemoteRace>>,
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
     pads: Query<&Gamepad>,
@@ -480,14 +545,25 @@ fn toggle_pause(
     let pressed = keys.just_pressed(KeyCode::Escape)
         || pads.iter().any(|p| p.just_pressed(GamepadButton::Start))
         || unplugged;
-    if !pressed || paused.0 {
+    if !pressed || paused.0 || !menus.is_empty() {
+        return;
+    }
+    cursor.0 = 0;
+    // Online, the race goes on behind the menu.
+    if online.is_some() {
+        screen(
+            &mut commands,
+            "Online race",
+            "The race goes on. Esc to resume",
+            &[
+                MenuItem::Action(Action::Resume),
+                MenuItem::Action(Action::Leave),
+            ],
+            (PauseMenu, DespawnOnExit(AppState::Race)),
+        );
         return;
     }
     set_paused(&mut paused, &mut time, true);
-    cursor.0 = 0;
-    for e in &menus {
-        commands.entity(e).despawn();
-    }
     screen(
         &mut commands,
         "Paused",
@@ -518,6 +594,7 @@ fn menu_input(
     mut exit: MessageWriter<AppExit>,
     real: Res<Time<Real>>,
     mut entered: Local<f64>,
+    (mut online, mut entry): (ResMut<Online>, ResMut<TextEntry>),
 ) {
     if state.is_changed() {
         *entered = real.elapsed_secs_f64();
@@ -531,7 +608,13 @@ fn menu_input(
     let key = |k: &[KeyCode]| keys.any_just_pressed(k.iter().copied());
     let mut activate =
         key(&[KeyCode::Enter, KeyCode::NumpadEnter, KeyCode::Space]) || pad(GamepadButton::South);
-    let mut back = key(&[KeyCode::Escape, KeyCode::Backspace])
+    // Backspace deletes a character on the text-entry screen.
+    let back_keys: &[KeyCode] = if *state.get() == AppState::Entry {
+        &[KeyCode::Escape]
+    } else {
+        &[KeyCode::Escape, KeyCode::Backspace]
+    };
+    let mut back = key(back_keys)
         || pad(GamepadButton::East)
         || (*state.get() == AppState::Race && pad(GamepadButton::Start));
     // The results come up while the player may still be driving: a
@@ -567,6 +650,14 @@ fn menu_input(
         MenuItem::Setting(s) => {
             if dir != 0 || activate {
                 s.change(&mut setup, if dir == 0 { 1 } else { dir });
+                if *state.get() == AppState::Lobby {
+                    if s == Setting::Car {
+                        let ready = online.me().is_some_and(|m| m.ready);
+                        online.set_ready(ready, &setup);
+                    } else if online.is_host() {
+                        online.push_settings(&setup);
+                    }
+                }
             }
             None
         }
@@ -600,16 +691,50 @@ fn menu_input(
         }
         Action::Back => next.set(AppState::MainMenu),
         Action::Resume => unpause(&mut commands, &mut paused, &mut time),
-        Action::Menu => {
+        Action::Menu | Action::Leave => {
             unpause(&mut commands, &mut paused, &mut time);
             next.set(AppState::MainMenu);
         }
+        Action::QuickMatch => {
+            online.start_quick_match(&setup);
+            next.set(AppState::Lobby);
+        }
+        Action::CreateLobby => {
+            online.create_lobby(&setup);
+            next.set(AppState::Lobby);
+        }
+        Action::JoinLobby | Action::DirectConnect => {
+            entry.purpose = if action == Action::JoinLobby {
+                EntryPurpose::JoinCode
+            } else {
+                EntryPurpose::Address
+            };
+            online.status.clear();
+            next.set(AppState::Entry);
+        }
+        Action::Submit => match entry.purpose {
+            EntryPurpose::JoinCode if entry.text.len() == 6 => {
+                online.join_lobby(&entry.text, &setup);
+                next.set(AppState::Lobby);
+            }
+            EntryPurpose::JoinCode => online.status = "An invite code has 6 characters".into(),
+            EntryPurpose::Address => match online.connect_direct(&entry.text) {
+                Ok(()) => next.set(AppState::Lobby),
+                Err(e) => online.status = e,
+            },
+        },
+        Action::Ready => {
+            let ready = online.me().is_some_and(|m| m.ready);
+            online.set_ready(!ready, &setup);
+        }
+        Action::StartOnline => online.start(),
     }
 }
 
 fn draw_menu(
     cursor: Res<MenuCursor>,
     setup: Res<RaceSetup>,
+    online: Res<Online>,
     mut rows: Query<(&MenuItem, &MenuIndex, &Children, &mut BackgroundColor)>,
     mut texts: Query<&mut Text>,
 ) {
@@ -618,6 +743,9 @@ fn draw_menu(
         background.0 = if selected { HIGHLIGHT } else { Color::NONE };
         let label = match item {
             MenuItem::Setting(s) => format!("{:<20} <  {}  >", s.label(), s.value(&setup)),
+            MenuItem::Action(Action::Ready) if online.me().is_some_and(|m| m.ready) => {
+                "Ready: yes (press to cancel)".into()
+            }
             MenuItem::Action(a) => a.label().to_string(),
         };
         for child in children.iter() {
@@ -645,7 +773,18 @@ const RESULT_COLUMNS: [(&str, f32); 8] = [
     ("Assists", 250.0),
 ];
 
-fn spawn_results(mut commands: Commands, mut cursor: ResMut<MenuCursor>, racers: Query<&Racer>) {
+fn spawn_results(
+    mut commands: Commands,
+    mut cursor: ResMut<MenuCursor>,
+    racers: Query<&Racer>,
+    online: Option<Res<RemoteRace>>,
+) {
+    // An online race can't be restarted from here.
+    let actions: &[Action] = if online.is_some() {
+        &[Action::Menu]
+    } else {
+        &[Action::Restart, Action::Menu]
+    };
     cursor.0 = 0;
     let rows = racers.iter().count();
     commands
@@ -700,7 +839,7 @@ fn spawn_results(mut commands: Commands, mut cursor: ResMut<MenuCursor>, racers:
                             }
                         });
                 }
-                for (i, a) in [Action::Restart, Action::Menu].into_iter().enumerate() {
+                for (i, &a) in actions.iter().enumerate() {
                     panel
                         .spawn((
                             MenuItem::Action(a),
@@ -797,6 +936,243 @@ fn update_results(
         };
         if text.0 != value {
             text.0 = value;
+        }
+    }
+}
+
+/// The text being typed on the entry screen.
+#[derive(Component)]
+struct EntryText;
+
+/// The status line of a screen (errors, progress).
+#[derive(Component)]
+struct StatusText;
+
+fn spawn_entry(mut commands: Commands, mut cursor: ResMut<MenuCursor>, entry: Res<TextEntry>) {
+    cursor.0 = 0;
+    let (title, hint) = match entry.purpose {
+        EntryPurpose::JoinCode => ("Join lobby", "Type the invite code"),
+        EntryPurpose::Address => ("Direct connect", "Type the server address, host:port"),
+    };
+    let root = screen(
+        &mut commands,
+        title,
+        hint,
+        &[
+            MenuItem::Action(Action::Submit),
+            MenuItem::Action(Action::Back),
+        ],
+        DespawnOnExit(AppState::Entry),
+    );
+    commands.entity(root).with_children(|root| {
+        root.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: percent(25),
+                flex_direction: FlexDirection::Column,
+                align_items: AlignItems::Center,
+                ..default()
+            },
+            children![
+                (
+                    EntryText,
+                    Text::new(""),
+                    TextFont::from_font_size(30.0),
+                    TextColor(Color::WHITE),
+                    BackgroundColor(PANEL),
+                    Node {
+                        padding: UiRect::axes(px(16), px(6)),
+                        min_width: px(320),
+                        ..default()
+                    },
+                ),
+                (
+                    StatusText,
+                    Text::new(""),
+                    TextFont::from_font_size(16.0),
+                    TextColor(Color::srgb(1.0, 0.55, 0.4)),
+                ),
+            ],
+        ));
+    });
+}
+
+fn update_entry(
+    entry: Res<TextEntry>,
+    online: Res<Online>,
+    mut texts: Query<(&mut Text, Has<EntryText>), Or<(With<EntryText>, With<StatusText>)>>,
+) {
+    for (mut text, is_entry) in &mut texts {
+        let value = if is_entry {
+            format!("{}_", entry.text)
+        } else {
+            online.status.clone()
+        };
+        if text.0 != value {
+            text.0 = value;
+        }
+    }
+}
+
+/// Which items the lobby screen shows.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LobbyLayout {
+    #[default]
+    None,
+    /// Waiting for the backend.
+    Waiting,
+    Host,
+    Guest,
+    /// A quick match: starts by itself.
+    Quick,
+    Direct,
+}
+
+/// The lobby's player list and status.
+#[derive(Component)]
+struct LobbyText;
+
+/// (Re)builds the lobby screen when its layout changes (the backend
+/// answered, the host left, ...).
+fn lobby_screen(
+    mut commands: Commands,
+    online: Res<Online>,
+    mut layout: ResMut<LobbyLayout>,
+    mut cursor: ResMut<MenuCursor>,
+    roots: Query<Entity, With<LobbyRoot>>,
+) {
+    let wanted = match (&online.mode, &online.lobby) {
+        (OnlineMode::Direct(_), _) => LobbyLayout::Direct,
+        (_, None) => LobbyLayout::Waiting,
+        (_, Some(l)) if l.quick.is_some() => LobbyLayout::Quick,
+        (_, Some(_)) if online.is_host() => LobbyLayout::Host,
+        _ => LobbyLayout::Guest,
+    };
+    if wanted == *layout {
+        return;
+    }
+    *layout = wanted;
+    for e in &roots {
+        commands.entity(e).despawn();
+    }
+    let mut items = vec![MenuItem::Setting(Setting::Car)];
+    match wanted {
+        LobbyLayout::Host => {
+            items.extend(
+                [
+                    Setting::Mode,
+                    Setting::Laps,
+                    Setting::Collisions,
+                    Setting::AiFill,
+                ]
+                .map(MenuItem::Setting),
+            );
+            items.push(MenuItem::Action(Action::StartOnline));
+        }
+        LobbyLayout::Guest => items.push(MenuItem::Action(Action::Ready)),
+        _ => {}
+    }
+    items.push(MenuItem::Action(Action::Leave));
+    cursor.0 = items.len().saturating_sub(2);
+    let title = match (&online.mode, &online.lobby) {
+        (OnlineMode::Direct(addr), _) => format!("Server {addr}"),
+        (_, Some(l)) if l.quick.is_some() => "Quick match".into(),
+        (_, Some(l)) => format!("Lobby {}", l.code),
+        _ => "Online".into(),
+    };
+    let root = screen(
+        &mut commands,
+        &title,
+        "Up/Down select, Left/Right change, Enter confirm, Esc leave",
+        &items,
+        (LobbyRoot, DespawnOnExit(AppState::Lobby)),
+    );
+    commands.entity(root).with_children(|root| {
+        root.spawn((
+            Node {
+                position_type: PositionType::Absolute,
+                bottom: px(24),
+                ..default()
+            },
+            BackgroundColor(PANEL),
+            children![(
+                LobbyText,
+                Text::new(""),
+                TextFont::from_font_size(16.0),
+                TextColor(Color::WHITE),
+                Node {
+                    padding: UiRect::all(px(12)),
+                    ..default()
+                },
+            )],
+        ));
+    });
+}
+
+#[derive(Component)]
+struct LobbyRoot;
+
+/// Players, readiness, the host's settings and the status line.
+fn update_lobby_text(
+    online: Res<Online>,
+    session: Res<NetSession>,
+    setup: Res<RaceSetup>,
+    mut texts: Query<&mut Text, With<LobbyText>>,
+) {
+    let mut lines = Vec::new();
+    if let Some(l) = &online.lobby {
+        lines.push(format!(
+            "Invite code {}   {} {}   {} lap(s)   collisions {}   AI fill {}",
+            l.code,
+            l.settings.mode,
+            l.settings.track,
+            l.settings.laps,
+            l.settings.collisions,
+            on_off(l.settings.ai_fill),
+        ));
+        for m in &l.members {
+            let car = racer_dynamics::spec::CARS
+                .iter()
+                .position(|c| *c == m.car)
+                .map_or_else(|| race_scene::car_name(setup.car), race_scene::car_name);
+            lines.push(format!(
+                "{} {:<24} {:<12} {}",
+                if m.id == l.host { "*" } else { " " },
+                m.name,
+                if m.id == l.host {
+                    "host"
+                } else if m.ready {
+                    "ready"
+                } else {
+                    "not ready"
+                },
+                car,
+            ));
+        }
+    }
+    if let SessionState::Lobby(status) = &session.state {
+        lines.push(format!(
+            "On the server: {} of {} player(s): {}",
+            status.players.len(),
+            status.expected,
+            status.players.join(", ")
+        ));
+        if let Some(t) = status.timeout {
+            lines.push(format!("Starting without the others in {t:.0} s"));
+        }
+    }
+    match &session.state {
+        SessionState::Connecting => lines.push("Connecting to the server...".into()),
+        SessionState::Failed(e) => lines.push(e.clone()),
+        _ => {}
+    }
+    if !online.status.is_empty() {
+        lines.push(online.status.clone());
+    }
+    let value = lines.join("\n");
+    for mut text in &mut texts {
+        if text.0 != value {
+            text.0 = value.clone();
         }
     }
 }

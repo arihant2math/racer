@@ -145,19 +145,23 @@ pub struct NetClientConfig {
     pub autopilot: Option<Difficulty>,
 }
 
+/// The netcode.io key of the server (the backend hands out each race's key
+/// to its lobby members; direct connections use [`DEV_KEY`]) and a client
+/// id unique in the race.
 #[derive(Clone, Debug)]
-pub enum ClientAuth {
-    /// A connect token from the backend.
-    Token(Vec<u8>),
-    /// Direct connection to a server using [`DEV_KEY`].
-    Dev { client_id: u64 },
+pub struct ClientAuth {
+    pub key: [u8; 32],
+    pub client_id: u64,
 }
 
 impl NetClientConfig {
     pub fn direct(server: SocketAddr, client_id: u64, join: Join) -> Self {
         NetClientConfig {
             server,
-            auth: ClientAuth::Dev { client_id },
+            auth: ClientAuth {
+                key: DEV_KEY,
+                client_id,
+            },
             join,
             conditions: Conditions::default(),
             autopilot: None,
@@ -323,20 +327,11 @@ fn connect(
         commands.entity(old).despawn();
     }
     *stats = NetStats::default();
-    let auth = match &config.auth {
-        ClientAuth::Token(bytes) => match lightyear::netcode::ConnectToken::try_from_bytes(bytes) {
-            Ok(token) => Authentication::Token(token),
-            Err(e) => {
-                session.state = SessionState::Failed(format!("bad connect token: {e:?}"));
-                return;
-            }
-        },
-        ClientAuth::Dev { client_id } => Authentication::Manual {
-            server_addr: config.server,
-            client_id: *client_id,
-            private_key: DEV_KEY,
-            protocol_id: PROTOCOL_ID,
-        },
+    let auth = Authentication::Manual {
+        server_addr: config.server,
+        client_id: config.auth.client_id,
+        private_key: config.auth.key,
+        protocol_id: PROTOCOL_ID,
     };
     let netcode = match NetcodeClient::new(auth, NetcodeConfig::default()) {
         Ok(n) => n,
