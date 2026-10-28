@@ -246,3 +246,7 @@ On the combined tree:
   changed in this round.
 
 Verdict unchanged: approve.
+
+The orchestrator's `66c54ff` regenerated the same golden independently; the two images are
+pixel-identical and theirs is the one kept. `main` at `66c54ff` still has the fixed-frame FFB test,
+which fails on the combined tree; the fix above is on `fix/game-ui` (`4113bf7`) and needs to land too.
