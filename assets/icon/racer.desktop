@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Racer
+GenericName=Racing game
+Comment=Multiplayer street racing
+Exec=racer-game
+Icon=racer
+Terminal=false
+Categories=Game;ActionGame;
+# The window's app id (Wayland) and class (X11), set in racer-game's icon.rs.
+StartupWMClass=racer

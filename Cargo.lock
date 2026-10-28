@@ -6598,6 +6598,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "getrandom 0.3.4",
+ "image",
  "proptest",
  "racer-data",
  "racer-dynamics",
@@ -6608,7 +6609,9 @@ dependencies = [
  "sdl3-sys",
  "serde",
  "serde_json",
+ "toml",
  "ureq",
+ "winit",
 ]
 
 [[package]]

@@ -12,6 +12,7 @@ use racer_sim::{
 use crate::{
     flow::{AppState, lap_time},
     input::Player,
+    settings::Settings,
     visuals::CarPaint,
 };
 
@@ -234,7 +235,11 @@ fn update_hud(
     players: Query<(&Racer, &Car, &CarTelemetry), With<Player>>,
     mut texts: Query<(&HudText, &mut Text, &mut TextColor)>,
     mut bars: Query<&mut Node, With<RpmBar>>,
+    settings: Option<Res<Settings>>,
 ) {
+    let units = settings
+        .map(|s| s.interface.speed_units)
+        .unwrap_or_default();
     let (Some(race), Some(config)) = (race, config) else {
         return;
     };
@@ -300,7 +305,7 @@ fn update_hud(
                 t.delta
                     .map_or("Delta  --".into(), |d| format!("Delta {d:+.2}"))
             }
-            HudText::Speed => format!("{:3.0} km/h", tel.telemetry.speed.abs() * 3.6),
+            HudText::Speed => units.format(tel.telemetry.speed.abs(), 3),
             HudText::Gear => {
                 let gear = match tel.telemetry.gear {
                     g if g < 0 => "R".to_string(),

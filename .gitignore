@@ -1,6 +1,7 @@
 /target
 /.tools
 /captures
-/assets
+/assets/*
+!/assets/icon/
 *.blend1
 __pycache__/
