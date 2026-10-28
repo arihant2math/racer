@@ -248,3 +248,76 @@ All on this branch, in a fresh container after `tools/setup.sh` (4 cores, lavapi
 Not run: the `race` capture (release, 2400 s timeout; unchanged code paths), and the scripts
 with `CARGO_TARGET_DIR` set (another full release build; they use the same `cargo metadata`
 lookup as `capture.sh`).
+
+## Review
+
+Independent review on the branch after merging `origin/main` (including c4110b8, the 911 car
+model pipeline). Everything below was run on the merged result, in a fresh container.
+
+### Merge
+
+One conflict, in `racer-capture scene()`: main added an `AssetPlugin` root for the car models,
+this branch moved the scene-name check before window creation. Resolved with both: main's
+`AssetPlugin`, and the up-front check (main's new `showroom` scene is in `scenes::SCENES`, so
+it passes). main's `car_model::assets_dir()` was `CARGO_MANIFEST_DIR/../../assets`, the same
+compile-time path QA-TOOL-12 removed for `data/`; it now calls `racer_data::assets_dir()`
+(`RACER_ASSETS_DIR`, then `assets/` beside the executable, then the checkout), which shares
+the lookup with `racer_data::dir()`. `racer-game` depends on `racer-data` directly for it.
+
+### Verification
+
+| Step | Result |
+|---|---|
+| `tools/setup.sh` from `/tmp`, then again from `/` | both `setup complete`, second run installs nothing |
+| `cargo fmt --all --check` | clean |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | clean |
+| same with `CARGO_FEATURE_PURE=1 --target x86_64-pc-windows-msvc` and `aarch64-apple-darwin` | clean |
+| `cargo test --workspace --locked`, twice | all pass both times (112 passed, 49 ignored) |
+| `cargo test --workspace --locked --no-fail-fast -- --ignored` | 43 fail, all other groups' (racer-dynamics QA-EDGE-3/4, racer-game QA-EDGE-15 and qa_flow, racer-sim QA-EDGE-1/2/9/10/11 and qa_race_rules, qa_ai, qa_vehicle_physics). The `#[ignore]` list differs from main only by this group's ids (QA-TOOL-1 to 11, QA-EDGE-5/6/7/8/12/13/14), none left |
+| release binaries + `data/` copied to a directory with a space in its name, the checkout's `data/` moved away | `racer-trackc validate`/`compile` on a copy of the shipped track: ok, `generated/` byte-identical; `racer-server --max-ticks 240`: ok; `racer-capture ai-laps`: ok; `racer-capture scene greybox` under xvfb: 3 poses; `racer-game` and `racer-game race --autopilot` under xvfb for 40 s: no panic or error |
+| same, `data/` renamed and `RACER_DATA_DIR` pointing at it (also with the game started from `/tmp`) | all of the above work; without the variable, a clear "No such file" naming the path tried |
+| relocated `racer-game race --car 3` with a relative `RACER_ASSETS_DIR` from another directory (placeholder GLB) | loads, no asset errors |
+| `racer-trackc validate`/`compile data/tracks/downtown-loop` (README) | ok; `compile` leaves the tree clean (byte-identical) |
+| malformed tracks, release `racer-trackc validate`: empty file, invalid TOML, missing `track.toml`, NaN width, `checkpoint_spacing = 0`, `grid_slots = i64::MAX`, 5000 nodes, unsafe id, coordinates ×15, ×1e6, ×1e15 | every one exit 1 with a one-line reason (or the TOML parser's message), no panic, each under 0.05 s; a ×11 (23.6 km) lap, the largest accepted size, takes 2.3 s; `compile` on a bad track exit 1; no or unknown command exit 2 with usage |
+| README: `racer-server --max-ticks 2400`, `--max-ticks` (no value), `--help`; `RACER_BACKEND_ADDR=localhost:9000 racer-backend` + `curl /health`; `RACER_BACKEND_ADDR=nope` | `reached 2400 ticks`; usage, exit 2; usage, exit 0; `"ok"`; `racer-backend: nope: invalid socket address`, exit 1 |
+| from a directory with a space: `tools/capture.sh greybox`/`menu`, `racer-capture diff` against the goldens, `check` | all ok, bit-identical to the goldens |
+| same directory: `tools/telemetry.sh rel-tel vw-golf-gti-mk8`, `tools/ai-check.sh rel-ai 1 1 1` | outputs under the caller's directory, nothing written to the checkout; see the `--laps 1` issue below |
+| QA-TOOL-16: `cargo build --workspace`, then `-p racer-game`, `-p racer-capture` | 0 crates compiled; `-p racer-trackc` compiles 8 small non-Bevy crates, `-p racer-server` its headless Bevy (69 crates), as the README explains |
+
+### Review of the diff
+
+The fixes are at the root causes the notes name, and the validation limits are generous next to
+the shipped track (2.1 km, banking and grade under 12°, 14 nodes). Two limits can reject data a
+user might reasonably write: the 15° surface slope, and the ground check, which also rejects a
+banked corner at elevation 0 because its low edge dips under the ground. Both describe geometry
+the game cannot draw correctly (a ramp, a road inside the ground plane) and the messages say
+where and why, so they stay. Scripts are `set -euo pipefail`, quote every path, and worked
+from a directory with a space in its name. No dead code or scope creep found; the
+`racer-data` `serde_core` dependency is unused by design and commented as such.
+
+Issues found and fixed:
+
+1. Car models were still found through the compile-time checkout path (from main, see
+   "Merge"): fixed with `racer_data::assets_dir()`.
+2. A relative `RACER_ASSETS_DIR` would not have worked: Bevy resolves a relative asset root
+   against the executable's directory (or `BEVY_ASSET_ROOT`/`CARGO_MANIFEST_DIR`), while
+   `model_path()` checks the file against the working directory. `car_model::assets_dir()` now
+   makes the path absolute. The README documents the assets lookup.
+3. `racer-capture ai-laps --laps 1` was accepted but runs only the standing-start lap, so the
+   report has no flying lap (best time `f32::MAX`, every row FAIL). `--laps` must now be at
+   least 2 (usage error, exit 2). Test: `qa_cli::ai_laps_rejects_too_few_laps_for_a_flying_lap`.
+
+Left open:
+
+- `racer-capture` exits 2 for every error, including run-time ones such as a missing data
+  directory, where `racer-trackc` and `racer-backend` exit 1. Usage and run-time errors are not
+  told apart in its `main`, and nothing depends on the difference yet.
+- On macOS the "next to the executable" lookup means `Contents/MacOS/data` inside an app
+  bundle. That is enough for a plain archive; a `.app` would want `Contents/Resources`, which
+  can be added to the helper when there is a bundle.
+- Not run: the release `race` capture and the full 100-lap `ai-check.sh` (unchanged code paths;
+  the short CI-sized AI check is QA-AI-2's, as the notes say).
+
+Verdict: approve. The group's issues are fixed at the root, every repro runs un-ignored and
+passes, the CLIs fail cleanly, and the merged branch builds, lints and tests clean on all three
+targets.
