@@ -10,7 +10,7 @@ use crate::{
     DRIVETRAIN_SUBSTEPS,
     assists::{self, Assists},
     drivetrain::{DriveState, Drivetrain},
-    spec::{AxleFit, CarSpec, tire_radius},
+    spec::{AxleFit, CarSpec, tire_radius, tire_width},
     tire::{Surface, Tire},
 };
 
@@ -214,14 +214,10 @@ impl Vehicle {
             tire_radius(&spec.tires.front)?,
             tire_radius(&spec.tires.rear)?,
         ];
-        let width = |size: &str| {
-            size.split('/')
-                .next()
-                .and_then(|w| w.parse::<f64>().ok())
-                .unwrap_or(225.0)
-                / 1000.0
-        };
-        let widths = [width(&spec.tires.front), width(&spec.tires.rear)];
+        let widths = [
+            tire_width(&spec.tires.front)?,
+            tire_width(&spec.tires.rear)?,
+        ];
         let tracks = [c.track_front_m, c.track_rear_m];
         let corner_mass = [mass * f / 2.0, mass * (1.0 - f) / 2.0];
         let axles = [&e.suspension.front, &e.suspension.rear];

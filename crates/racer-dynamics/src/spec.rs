@@ -375,12 +375,8 @@ impl CarSpec {
     pub fn validate(&self) -> Result<(), String> {
         let c = &self.chassis;
         let e = &self.estimated;
-        finite("chassis.curb_mass_kg", c.curb_mass_kg)?;
+        positive("chassis.curb_mass_kg", c.curb_mass_kg)?;
         non_negative("estimated.chassis.payload_kg", e.chassis.payload_kg)?;
-        positive(
-            "chassis.curb_mass_kg + estimated.chassis.payload_kg",
-            c.curb_mass_kg + e.chassis.payload_kg,
-        )?;
         between(
             "chassis.front_weight_fraction",
             c.front_weight_fraction,
@@ -551,6 +547,7 @@ impl CarSpec {
             ("rear", &self.tires.rear, &e.suspension.rear, &e.tires.rear),
         ] {
             positive(&format!("tires.{axle} radius"), tire_radius(size)?)?;
+            positive(&format!("tires.{axle} width"), tire_width(size)?)?;
             let field = |f: &str| format!("estimated.suspension.{axle}.{f}");
             positive(&field("ride_frequency_hz"), fit.ride_frequency_hz)?;
             non_negative(&field("damping_ratio_bump"), fit.damping_ratio_bump)?;
@@ -631,6 +628,14 @@ pub fn tire_radius(size: &str) -> Result<f64, String> {
     Ok((rim * 25.4 / 2.0 + width * aspect / 100.0) / 1000.0)
 }
 
+/// Section width (m) from an ISO tire size like "225/40 R18".
+pub fn tire_width(size: &str) -> Result<f64, String> {
+    let bad = || format!("bad tire size {size:?}");
+    let (width, _) = size.split_once('/').ok_or_else(bad)?;
+    let width: f64 = width.trim().parse().map_err(|_| bad())?;
+    Ok(width / 1000.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -672,6 +677,11 @@ mod tests {
         check(&|s| s.gearbox.ratios[3] = -1.0, "gearbox.ratios[3]");
         check(&|s| s.gearbox.ratios = vec![1.0; 200], "gearbox.ratios");
         check(&|s| s.tires.rear = "235/35 Rnan".into(), "tires.rear");
+        check(
+            &|s| s.tires.front = "-50/40 R18".into(),
+            "tires.front width",
+        );
+        check(&|s| s.chassis.curb_mass_kg = -100.0, "chassis.curb_mass_kg");
         check(
             &|s| s.estimated.engine.launch_rpm = 500.0,
             "estimated.engine.idle_rpm",
