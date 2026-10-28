@@ -1,5 +1,8 @@
 # Porsche 911 Carrera S (992.1) asset pipeline
 
+> Superseded in game by the generic `pipelines/blender/cars/` build from the AWS TRELLIS.2 base
+> (`refs/base_mesh/base.glb`); this blueprint-modelled pipeline is kept for reference.
+
 ```sh
 tools/build_car_992.sh            # -> assets/cars/porsche-911-carrera-s-992/porsche_992.{glb,blend}
 ```

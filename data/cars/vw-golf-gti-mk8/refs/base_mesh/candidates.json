@@ -1,0 +1,101 @@
+[
+ {
+  "file": "tr2_2022_Volkswagen_Golf_GTI_in_Oryx_White_Pearl_Front_Left_04-24-2022_s1_1536_cascade.glb",
+  "total": 0.9245,
+  "side": 0.9565,
+  "plan": 0.9765,
+  "front": 0.8849,
+  "rear": 0.8802,
+  "symmetry": 0.9816
+ },
+ {
+  "file": "tr2_2022_Volkswagen_Golf_GTI_in_Oryx_White_Pearl_Front_Left_04-24-2022_s0_1536_cascade.glb",
+  "total": 0.9196,
+  "side": 0.9613,
+  "plan": 0.9717,
+  "front": 0.8747,
+  "rear": 0.8707,
+  "symmetry": 0.9654
+ },
+ {
+  "file": "tr2_Volkswagen_Golf_VIII_GTI_IMG_3706_s0_1536_cascade.glb",
+  "total": 0.9135,
+  "side": 0.9354,
+  "plan": 0.9723,
+  "front": 0.8771,
+  "rear": 0.8691,
+  "symmetry": 0.9971
+ },
+ {
+  "file": "tr2_2022_Volkswagen_Golf_GTI_in_Oryx_White_Pearl_Rear_Left_04-24-2022_s0_1536_cascade.glb",
+  "total": 0.911,
+  "side": 0.9292,
+  "plan": 0.961,
+  "front": 0.8806,
+  "rear": 0.8733,
+  "symmetry": 0.9934
+ },
+ {
+  "file": "tr2_2020_Volkswagen_Golf_GTi_TSi_S-A_2.0_Front_s0_1536_cascade.glb",
+  "total": 0.9091,
+  "side": 0.9263,
+  "plan": 0.9809,
+  "front": 0.8686,
+  "rear": 0.8605,
+  "symmetry": 0.9838
+ },
+ {
+  "file": "tr2_2022_Volkswagen_Golf_GTI_in_Oryx_White_Pearl_Rear_Left_04-24-2022_s1_1536_cascade.glb",
+  "total": 0.9069,
+  "side": 0.9532,
+  "plan": 0.9694,
+  "front": 0.8546,
+  "rear": 0.8504,
+  "symmetry": 0.9705
+ },
+ {
+  "file": "tr2_2020_Volkswagen_Golf_GTi_TSi_S-A_2.0_Front_s1_1536_cascade.glb",
+  "total": 0.9032,
+  "side": 0.9415,
+  "plan": 0.9717,
+  "front": 0.8544,
+  "rear": 0.8452,
+  "symmetry": 0.9971
+ },
+ {
+  "file": "tr2_Volkswagen_Golf_GTI_VIII_s0_1536_cascade.glb",
+  "total": 0.9022,
+  "side": 0.9411,
+  "plan": 0.9614,
+  "front": 0.8573,
+  "rear": 0.8489,
+  "symmetry": 0.9962
+ },
+ {
+  "file": "tr2_Volkswagen_Golf_GTI_VIII_s1_1536_cascade.glb",
+  "total": 0.9018,
+  "side": 0.9309,
+  "plan": 0.9757,
+  "front": 0.8543,
+  "rear": 0.8462,
+  "symmetry": 0.9851
+ },
+ {
+  "file": "tr2_Volkswagen_Golf_VIII_GTI_IMG_3604_s1_1536_cascade.glb",
+  "total": 0.8548,
+  "side": 0.9183,
+  "plan": 0.9327,
+  "front": 0.7888,
+  "rear": 0.7795,
+  "symmetry": 0.9915
+ },
+ {
+  "file": "tr2_Volkswagen_Golf_VIII_GTI_IMG_3604_s0_1536_cascade.glb",
+  "total": 0.7836,
+  "side": 0.8829,
+  "plan": 0.8593,
+  "front": 0.7005,
+  "rear": 0.6918,
+  "symmetry": 0.9884
+ }
+]

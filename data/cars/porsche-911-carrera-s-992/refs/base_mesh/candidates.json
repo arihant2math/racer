@@ -1,0 +1,56 @@
+[
+ {
+  "file": "tr2_Porsche_992_Carrera_S_coupe_IMG_5832_s1_1536_cascade.glb",
+  "total": 0.9324,
+  "side": 0.959,
+  "plan": 0.9791,
+  "front": 0.8956,
+  "rear": 0.8958,
+  "symmetry": 0.9924
+ },
+ {
+  "file": "tr2_Porsche_992_Carrera_S_coupe_IMG_5847_s1_1536_cascade.glb",
+  "total": 0.9256,
+  "side": 0.9558,
+  "plan": 0.9747,
+  "front": 0.886,
+  "rear": 0.8859,
+  "symmetry": 0.9919
+ },
+ {
+  "file": "tr2_Porsche_992_Carrera_S_coupe_IMG_5847_s0_1536_cascade.glb",
+  "total": 0.9234,
+  "side": 0.9537,
+  "plan": 0.977,
+  "front": 0.8817,
+  "rear": 0.8812,
+  "symmetry": 0.9708
+ },
+ {
+  "file": "tr2_Porsche_992_Carrera_S_coupe_IMG_5832_s0_1536_cascade.glb",
+  "total": 0.9232,
+  "side": 0.957,
+  "plan": 0.9657,
+  "front": 0.8852,
+  "rear": 0.8848,
+  "symmetry": 0.9464
+ },
+ {
+  "file": "tr2_Porsche_992_Carrera_S_coupe_IMG_5838_s1_1536_cascade.glb",
+  "total": 0.9219,
+  "side": 0.9543,
+  "plan": 0.9691,
+  "front": 0.8825,
+  "rear": 0.8819,
+  "symmetry": 0.9748
+ },
+ {
+  "file": "tr2_Porsche_992_Carrera_S_coupe_IMG_5838_s0_1536_cascade.glb",
+  "total": 0.9146,
+  "side": 0.951,
+  "plan": 0.9614,
+  "front": 0.8731,
+  "rear": 0.8728,
+  "symmetry": 0.9661
+ }
+]

@@ -1,5 +1,49 @@
 # Car model generation: status and handoff
 
+## Status (2026-10-27): all three cars in game from AWS TRELLIS.2 bases
+
+| Car | Base (TRELLIS.2-4B, 1536³ cascade) | Blueprint IoU side/plan/front/rear (mean) | LOD0/1/2/3 tris |
+|---|---|---|---|
+| VW Golf GTI Mk8 | `Golf_GTI_in_Oryx_White_Pearl_Front_Left`, seed 1, best of 16 | 0.957 / 0.977 / 0.885 / 0.880 (0.925) | 348k / 126k / 46k / 24k |
+| BMW M3 Competition G80 | `BMW_M3_Competition_G80_1X7A1573`, seed 1, best of 8 | 0.922 / 0.970 / 0.896 / 0.895 (0.921); blueprint is the G20 3 Series, shorter nose | 348k / 126k / 53k / 48k |
+| Porsche 911 Carrera S 992 | `Carrera_S_coupe_IMG_5832`, seed 1, best of 10 | 0.959 / 0.979 / 0.896 / 0.896 (0.932; old Hunyuan base 0.870) | 348k / 126k / 43k / 31k |
+
+- GPU: g6e.xlarge (L40S 48 GB) in us-east-1c, instance `racer-modelgen`
+  (`i-0ce37ea33c0871bb6`, key `racer-gpu-20261027`, SG `racer-gpu-ssh`
+  restricted to the operator IP). **Stopped** when idle; the 250 GB volume
+  keeps the venvs and ~33 GB of weights. Start it, update `~/.ssh/config`
+  `Host racer-gpu` with the new IP, then see `tools/car_refs/gpu/README.md`.
+- Gated HF models (facebook/dinov3, briaai/RMBG-2.0) were swapped for an
+  ungated DINOv3 mirror and the original BiRefNet (no HF token).
+- Candidates are ranked by `tools/car_refs/score_candidates.py` (rigid +
+  uniform-scale alignment, no warp; silhouette IoU against `blueprint.json`),
+  the winner is written by `tools/car_refs/normalize_base.py` to
+  `data/cars/<id>/refs/base_mesh/base.{glb,json}` (Git LFS) with
+  `candidates.json` next to it.
+- The game build is the generic `pipelines/blender/cars/` (see its README):
+  the generated mesh and PBR texture are kept, faces are split into
+  `car_paint` / `glass` / generated-texture detail, wheels and brakes are
+  modelled from `car.toml`. `tools/build_cars.sh` builds all cars into
+  `assets/cars/<id>/model.glb`; `car_model.rs` maps all three.
+- `racer-capture scene showroom` takes `RACER_SHOWROOM_CAR=<index>` (0 Golf,
+  1 M3, 2 911).
+- The older 911-only Blender pipeline (`pipelines/blender/porsche_992`,
+  blueprint-modelled parts, Hunyuan base) is kept for reference; its glTF
+  (`porsche_992.glb`) is no longer loaded.
+
+Known gaps against "GTA V quality", in order of impact:
+1. Paint/detail labels come from a texture with lighting baked in, so the
+   paint boundary is ragged where the photo had reflections or shadow; the
+   rear of the car (unseen in a front 3/4 photo) is hallucinated. Next: run
+   TRELLIS.2 / Hunyuan multi-view (front 3/4 + rear 3/4) or fuse two
+   candidates; or re-texture with a clean albedo and paint mask from
+   semantic segmentation of renders.
+2. Glass is opaque (the generated shell has no usable cabin); no interior.
+3. Lamps keep the generated texture; no emissive light materials yet.
+4. Wheel designs are parametric approximations (`configs/<id>.toml`).
+
+The rest of this document is the original handoff (before the AWS run).
+
 Goal: GTA V-quality, game-ready models for all three cars in `data/cars/`
 (VW Golf GTI Mk8, BMW M3 Competition G80, Porsche 911 Carrera S 992.1),
 produced by scripts from inputs in the repo (PLAN.md section 7). The 911 has a

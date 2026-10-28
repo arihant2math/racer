@@ -1,0 +1,7 @@
+# Per-car settings for pipelines/blender/cars/build.py.
+out = "model"            # assets/cars/<id>/<out>.glb
+drive_side = "left"      # driver seat (cockpit camera)
+tyre_text = "PIRELLI      P ZERO      305/30 ZR21 (104Y)      N0      PIRELLI      P ZERO      "
+caliper = [0.55, 0.015, 0.02]   # Carrera S red
+rim = { spokes = 10, paired = true, spoke_w = 0.022, twist = 0.0, colour = [0.62, 0.63, 0.65] }
+exhaust = { y = [-0.43, 0.43], z = 0.345 }  # tip centres (x left/right, height), blueprint rear view

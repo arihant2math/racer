@@ -137,11 +137,16 @@ pub fn add_scene(app: &mut App, name: &str) -> Option<Vec<Pose>> {
             ])
         }
         "showroom" => {
-            // The 911 (pipeline model) at rest on the start line, close up.
+            // A pipeline car model at rest on the start line, close up.
+            // RACER_SHOWROOM_CAR picks the car index (default 2, the 911).
+            let car_index = std::env::var("RACER_SHOWROOM_CAR")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(2);
             app.insert_resource(CameraMode::Fixed).add_plugins((
                 VehiclePlugin,
                 DrivingPlugin {
-                    car: 2,
+                    car: car_index,
                     location: Location::Track,
                 },
             ));
