@@ -131,7 +131,7 @@ pub struct Vehicle {
     governor: Option<f64>,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct WheelState {
     /// Spin (rad/s), positive rolling forward.
     pub omega: f64,
@@ -147,7 +147,7 @@ pub struct WheelState {
 
 /// Everything the vehicle carries between steps. Plain `Copy` data, so
 /// rollback is a copy.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct VehicleState {
     pub wheels: [WheelState; 4],
     pub drive: DriveState,

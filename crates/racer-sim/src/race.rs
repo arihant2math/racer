@@ -74,7 +74,7 @@ pub enum RaceSystems {
 #[derive(Resource, Clone)]
 pub struct RaceTrack(pub Arc<Track>);
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum RaceMode {
     #[default]
     Circuit,
@@ -97,7 +97,7 @@ impl RaceMode {
 }
 
 /// Car-to-car contact.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Collisions {
     #[default]
     Full,
@@ -118,7 +118,7 @@ impl Collisions {
     }
 }
 
-#[derive(Resource, Clone, Debug)]
+#[derive(Resource, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct RaceConfig {
     pub mode: RaceMode,
     /// Laps for circuits and time trials.
@@ -156,7 +156,7 @@ impl RaceConfig {
     }
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum RacePhase {
     #[default]
     Countdown,
@@ -191,14 +191,14 @@ impl Race {
 }
 
 /// Who drives a racer.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum DriverKind {
     Human,
     Ai(Difficulty),
 }
 
 /// A car in the race.
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Racer {
     pub name: String,
     pub driver: DriverKind,
@@ -218,10 +218,11 @@ pub struct Racer {
     pub assists: Assists,
     /// Laps credited when the winner took the flag: once the winner is home
     /// a car finishes as soon as it has more.
+    #[serde(skip)]
     flag_laps: Option<u32>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Reset {
     pub time: f32,
     pub reason: ResetReason,

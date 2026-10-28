@@ -2,7 +2,7 @@
 //! for players, AI and the server.
 
 /// Which assists are switched on. Per player, sent with the inputs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Assists {
     /// Anti-lock brakes: keeps each braked wheel near its peak slip.
     pub abs: bool,

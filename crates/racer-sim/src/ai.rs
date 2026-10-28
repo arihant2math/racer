@@ -28,7 +28,7 @@ use racer_trackc::{CarModel, Geometry, Limits, RacingLine, line::bounds, profile
 pub const CAR_LENGTH: f32 = 4.8;
 pub const CAR_WIDTH: f32 = 1.95;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
 pub enum Difficulty {
     Novice,
     Amateur,

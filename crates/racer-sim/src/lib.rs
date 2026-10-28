@@ -2,6 +2,7 @@
 
 pub mod ai;
 pub mod autopilot;
+pub mod net;
 pub mod race;
 pub mod rules;
 pub mod track;

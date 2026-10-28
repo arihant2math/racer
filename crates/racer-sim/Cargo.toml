@@ -11,6 +11,8 @@ bevy = { workspace = true, features = ["std"] }
 racer-dynamics.workspace = true
 racer-trackc.workspace = true
 avian3d.workspace = true
+lightyear.workspace = true
+serde.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

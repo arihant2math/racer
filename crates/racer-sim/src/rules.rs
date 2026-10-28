@@ -54,7 +54,7 @@ pub enum ProgressEvent {
 }
 
 /// A car's position along the track.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Progress {
     /// Unwrapped centreline distance from the start line (m).
     pub distance: f32,
@@ -224,7 +224,7 @@ fn nearest(track: &Geometry, position: Vec3, hint: usize, window: usize) -> usiz
 }
 
 /// Why a car is reset.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ResetReason {
     Flipped,
     Stuck,
@@ -235,7 +235,7 @@ pub enum ResetReason {
 
 /// Watches for a car that needs resetting and remembers where it last was
 /// on the track in a valid state.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ResetMonitor {
     flipped: f32,
     stuck: f32,
@@ -341,7 +341,7 @@ pub fn reset_pose(track: &Geometry, last_valid: (f32, f32), others: &[Vec3]) -> 
 }
 
 /// A car's lap and sector times.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Timing {
     /// Race time the current lap started.
     pub lap_start: f32,
@@ -352,10 +352,13 @@ pub struct Timing {
     pub last_sectors: Vec<f32>,
     /// Best time of each sector over the laps that stand.
     pub best_sectors: Vec<f32>,
-    /// Lap time at each checkpoint of the current lap.
+    /// Lap time at each checkpoint of the current lap (server only: the
+    /// clients show the delta it gives).
+    #[serde(skip)]
     checkpoint_times: Vec<f32>,
     /// Every completed lap that stands, so laps taken back (as many as the
     /// car reverses over) restore the lap before exactly.
+    #[serde(skip)]
     history: Vec<LapRecord>,
     /// Current lap against the best lap at the last checkpoint (s, negative is faster).
     pub delta: Option<f32>,
@@ -471,7 +474,7 @@ impl Timing {
 }
 
 /// How a car's race stands.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum Status {
     Racing,
     /// Finished at this race time.

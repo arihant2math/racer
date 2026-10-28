@@ -127,7 +127,7 @@ pub struct Drivetrain {
 }
 
 /// Drivetrain state carried between steps.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct DriveState {
     pub engine_omega: f64,
     /// -1 reverse, 0 neutral, 1.. forward.
