@@ -224,11 +224,27 @@ The CI "Validate tracks" step runs with `--locked` like the others (the report's
 
 ## Runs
 
+All on this branch, in a fresh container after `tools/setup.sh` (4 cores, lavapipe).
+
 | Step | Result |
 |---|---|
 | `cargo fmt --all --check` | clean |
 | `cargo clippy --workspace --all-targets --locked -- -D warnings` | clean |
-| `cargo test --workspace --locked` | see below |
-| `CARGO_FEATURE_PURE=1 cargo clippy --workspace --all-targets --locked --target <t> -- -D warnings` | see below |
-| `racer-trackc validate data/tracks/downtown-loop`, `compile` | ok; `git diff data/` empty (byte-identical) |
-| relocated `racer-trackc` (TOOL-12) | see QA-TOOL-12 |
+| `cargo clippy -p racer-game --features wheel --all-targets --locked -- -D warnings` | clean |
+| `CARGO_FEATURE_PURE=1 cargo clippy --workspace --all-targets --locked --target x86_64-pc-windows-msvc -- -D warnings` | clean |
+| same for `aarch64-apple-darwin` | clean |
+| `cargo test --workspace --locked` | all pass; the only ignored tests left belong to the other fix groups |
+| `racer-trackc validate data/tracks/*/` | ok (2143 m, 24 checkpoints, 8 grid slots, unchanged) |
+| `racer-trackc compile` on a copy of the shipped track (relocated binary, both data lookups) | every generated file byte-identical to the committed ones |
+| `cargo build --workspace`, then `cargo build -p racer-capture`, `-p racer-game` (QA-TOOL-16) | nothing recompiled (0 `Compiling` lines; before the fix this rebuilt Bevy, >10 min) |
+| `tools/capture.sh greybox`/`driving`/`menu`, then `racer-capture diff` against the goldens and `check` | all ok (greybox and menu bit-identical; driving mean error ≤ 0.16, as before) |
+| `racer-game` with no args, `race --car 2 --ai 7 --difficulty pro --laps 3`, `race --autopilot`, `drive`, `drive --car 3 --skidpad`, `greybox` under Xvfb for 45 s each | ran until killed, no panics |
+| `racer-server --max-ticks 2400`; `--max-ticks` (no value) | `reached 2400 ticks`; usage error, exit 2 |
+| `RACER_BACKEND_ADDR=localhost:9000 racer-backend`, `curl localhost:9000/health` | `"ok"` |
+| `cargo test -p racer-dynamics` | pass |
+| `tools/ai-check.sh rel-ai 5 4 5` and `tools/telemetry.sh rel-tel vw-golf-gti-mk8`, run from a scratch directory whose name has a space (QA-TOOL-13) | outputs written to `<scratch>/rel-ai` and `<scratch>/rel-tel`, nothing in the repository. Telemetry exit 0. ai-check exit 1: every solo row ok, but the mixed-race Alien row fails on 3 resets in traffic at 381-383 m and 954 m (turn 1 and the ~946 m corner), which is QA-AI-2 (fix/ai), as the QA report's cross-area note predicted for this CI step |
+| fake distro `cargo 1.75.0` + no-op `rustup` on PATH, `tools/setup.sh` (QA-TOOL-14) | exit 1, "not the pinned 1.97.0"; real setup ok and idempotent |
+
+Not run: the `race` capture (release, 2400 s timeout; unchanged code paths), and the scripts
+with `CARGO_TARGET_DIR` set (another full release build; they use the same `cargo metadata`
+lookup as `capture.sh`).
