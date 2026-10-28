@@ -236,7 +236,7 @@ All on this branch, in a fresh container after `tools/setup.sh` (4 cores, lavapi
 | `cargo test --workspace --locked` | all pass; the only ignored tests left belong to the other fix groups |
 | `racer-trackc validate data/tracks/*/` | ok (2143 m, 24 checkpoints, 8 grid slots, unchanged) |
 | `racer-trackc compile` on a copy of the shipped track (relocated binary, both data lookups) | every generated file byte-identical to the committed ones |
-| `cargo build --workspace`, then `cargo build -p racer-capture`, `-p racer-game` (QA-TOOL-16) | nothing recompiled (0 `Compiling` lines; before the fix this rebuilt Bevy, >10 min) |
+| `cargo build --workspace`, then `cargo build -p racer-capture`, `-p racer-game` (QA-TOOL-16) | nothing recompiled (0 `Compiling` lines; QA measured over 10 min of Bevy rebuild here before the fix) |
 | `tools/capture.sh greybox`/`driving`/`menu`, then `racer-capture diff` against the goldens and `check` | all ok (greybox and menu bit-identical; driving mean error ≤ 0.16, as before) |
 | `racer-game` with no args, `race --car 2 --ai 7 --difficulty pro --laps 3`, `race --autopilot`, `drive`, `drive --car 3 --skidpad`, `greybox` under Xvfb for 45 s each | ran until killed, no panics |
 | `racer-server --max-ticks 2400`; `--max-ticks` (no value) | `reached 2400 ticks`; usage error, exit 2 |
