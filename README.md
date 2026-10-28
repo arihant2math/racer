@@ -108,6 +108,8 @@ address servers listen on and the one clients are told, default `127.0.0.1`), an
 `RACER_BACKEND_STATE` (a JSON file that keeps the players across restarts). Game settings:
 `RACER_BACKEND` (default `http://127.0.0.1:8080`), `RACER_NAME`, and `RACER_CONFIG_DIR` (where
 the device key is kept; default the platform's config directory, e.g. `~/.config/racer`).
+Player options (Options in the main or pause menu) are saved there too, in `settings.toml`
+(see [`docs/features/options.md`](docs/features/options.md)).
 
 Without the backend (development): start a server and use Direct connect in the menu.
 
@@ -183,8 +185,9 @@ loads, slip angles and ratios, plus a track map or the skidpad balance curve).
 ```sh
 tools/capture.sh greybox captures/greybox
 tools/capture.sh driving captures/driving
-tools/capture.sh menu captures/menu                              # main menu, race setup
+tools/capture.sh menu captures/menu                              # main menu, race setup, options
 tools/capture.sh lobby captures/lobby                            # join-code entry, lobby (host)
+tools/capture.sh units captures/units                            # HUD in mph (no golden)
 CAPTURE_PROFILE=release tools/capture.sh race captures/race --timeout 2400
                                                                  # grid, pack, HUD, results
 ```

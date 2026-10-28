@@ -7,8 +7,10 @@ use racer_game::{
     driving::{DrivingPlugin, Location},
     flow::{AppState, RaceSetup},
     greybox::{GreyboxPlugin, SceneCamera},
+    icon::{APP_ID, WindowIconPlugin},
     input::InputPlugin,
     online::Online,
+    settings::SettingsFile,
 };
 use racer_sim::{SimPlugin, vehicle::VehiclePlugin};
 
@@ -22,6 +24,7 @@ fn main() -> AppExit {
             .set(WindowPlugin {
                 primary_window: Some(Window {
                     title: "Racer".into(),
+                    name: Some(APP_ID.into()),
                     ..default()
                 }),
                 ..default()
@@ -33,7 +36,12 @@ fn main() -> AppExit {
                 ..default()
             }),
         SimPlugin,
+        WindowIconPlugin,
     ));
+    // The player's options (the game saves them when they change).
+    let settings_file = SettingsFile(SettingsFile::default_path());
+    app.insert_resource(settings_file.load())
+        .insert_resource(settings_file);
     match args.first().map(String::as_str) {
         Some("greybox") => {
             app.add_plugins((FreeCameraPlugin, GreyboxPlugin))

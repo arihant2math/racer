@@ -12,6 +12,7 @@ use racer_sim::{
 use crate::{
     greybox::{SceneCamera, spawn_environment},
     input::Player,
+    settings::Settings,
     visuals::{CarPaint, PAINT, VisualsPlugin},
 };
 
@@ -292,7 +293,11 @@ fn update_hud(
     selection: Res<Selection>,
     cars: Query<(&Car, &CarTelemetry, &Transform), With<Player>>,
     mut hud: Query<&mut Text, With<Hud>>,
+    settings: Option<Res<Settings>>,
 ) {
+    let units = settings
+        .map(|s| s.interface.speed_units)
+        .unwrap_or_default();
     let (Some((car, t, transform)), Ok(mut text)) = (cars.iter().next(), hud.single_mut()) else {
         return;
     };
@@ -312,14 +317,14 @@ fn update_hud(
         }
     };
     text.0 = format!(
-        "{}  [{:?}]\n{:5.0} km/h  gear {}  {:5.0} rpm\n\
+        "{}  [{:?}]\n{}  gear {}  {:5.0} rpm\n\
          slip angle  F {:+5.1}/{:+5.1}  R {:+5.1}/{:+5.1} deg\n\
          slip ratio  F {:+.2}/{:+.2}  R {:+.2}/{:+.2}\n\
          lat {:+.2} g  long {:+.2} g   {} {} {}\n\
          WASD/arrows drive, Space handbrake, Q/E shift, V camera\n1/2/3 car, T track, K skidpad, R reset",
         car.vehicle.name,
         selection.location,
-        tel.speed.abs() * 3.6,
+        units.format(tel.speed.abs(), 5),
         gear,
         tel.rpm,
         deg(w[0].slip_angle),

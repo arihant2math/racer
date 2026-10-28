@@ -17,6 +17,7 @@ use racer_sim::{
 use crate::{
     online::{EntryPurpose, Online, OnlineMode, TextEntry},
     race_scene::{self, DriverAids, RaceEntity},
+    settings::{self, OptionRow, Settings},
 };
 
 #[derive(States, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -32,6 +33,9 @@ pub enum AppState {
     Entry,
     /// Waiting for an online race: a backend lobby or a direct connection.
     Lobby,
+    /// The Options screen from the main menu (in a race it opens over the
+    /// pause menu instead, see [`OptionsMenu`]).
+    Options,
 }
 
 /// The menus and race flow (the race scene itself is in [`race_scene`]).
@@ -64,6 +68,7 @@ impl Plugin for FlowPlugin {
             )
             .add_systems(OnEnter(AppState::Results), spawn_results)
             .add_systems(OnEnter(AppState::Entry), spawn_entry)
+            .add_systems(OnEnter(AppState::Options), spawn_main_options)
             .add_systems(
                 OnEnter(AppState::Lobby),
                 |mut layout: ResMut<LobbyLayout>| *layout = LobbyLayout::None,
@@ -78,6 +83,14 @@ impl Plugin for FlowPlugin {
                         .run_if(in_state(AppState::Lobby)),
                 )
                     .before(menu_input),
+            )
+            // Online the race goes on behind the menus; their keys (arrows,
+            // Enter, Space, the pad) must not drive the car meanwhile.
+            .add_systems(
+                RunFixedMainLoop,
+                release_controls_in_menus
+                    .in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop)
+                    .run_if(in_state(AppState::Race)),
             )
             // Nothing outside a race is ever paused, however the race was left.
             .add_systems(OnExit(AppState::Race), resume_time)
@@ -176,7 +189,7 @@ fn on_off(on: bool) -> String {
     if on { "On".into() } else { "Off".into() }
 }
 
-fn cycle<T: Copy + PartialEq>(all: &[T], current: T, dir: i32) -> T {
+pub(crate) fn cycle<T: Copy + PartialEq>(all: &[T], current: T, dir: i32) -> T {
     let i = all.iter().position(|x| *x == current).unwrap_or(0) as i32;
     all[(i + dir).rem_euclid(all.len() as i32) as usize]
 }
@@ -308,6 +321,10 @@ pub enum Action {
     /// Lobby: start the race (host).
     StartOnline,
     Leave,
+    /// Opens the Options screen.
+    Options,
+    /// Leaves the Options screen: back to the main or the pause menu.
+    OptionsDone,
 }
 
 impl Action {
@@ -328,6 +345,8 @@ impl Action {
             Action::Ready => "Ready",
             Action::StartOnline => "Start race",
             Action::Leave => "Leave",
+            Action::Options => "Options",
+            Action::OptionsDone => "Back",
         }
     }
 }
@@ -336,7 +355,16 @@ impl Action {
 #[derive(Component, Clone, Copy, Debug)]
 pub enum MenuItem {
     Setting(Setting),
+    /// A player option (Options screen), see [`settings`].
+    Option(OptionRow),
     Action(Action),
+}
+
+/// A line of a menu panel: a section heading or a selectable item.
+#[derive(Clone, Copy, Debug)]
+pub enum Row<'a> {
+    Heading(&'a str),
+    Item(MenuItem),
 }
 
 #[derive(Component)]
@@ -349,6 +377,10 @@ pub struct MenuRoot;
 /// Root of the pause overlay.
 #[derive(Component)]
 struct PauseMenu;
+
+/// Root of the Options screen opened from the pause menu.
+#[derive(Component)]
+struct OptionsMenu;
 
 #[derive(Resource, Default)]
 pub struct MenuCursor(pub usize);
@@ -364,6 +396,18 @@ fn screen(
     title: &str,
     subtitle: &str,
     items: &[MenuItem],
+    extra: impl Bundle,
+) -> Entity {
+    let rows: Vec<Row> = items.iter().map(|i| Row::Item(*i)).collect();
+    screen_rows(commands, title, subtitle, &rows, extra)
+}
+
+/// A menu panel with section headings between its items.
+fn screen_rows(
+    commands: &mut Commands,
+    title: &str,
+    subtitle: &str,
+    rows: &[Row],
     extra: impl Bundle,
 ) -> Entity {
     commands
@@ -396,11 +440,28 @@ fn screen(
                         ..default()
                     },
                 ));
-                for (i, item) in items.iter().enumerate() {
+                let mut index = 0;
+                for row in rows {
+                    let item = match row {
+                        Row::Heading(heading) => {
+                            panel.spawn((
+                                Text::new(*heading),
+                                TextFont::from_font_size(16.0),
+                                TextColor(Color::srgb(0.7, 0.7, 0.72)),
+                                Node {
+                                    margin: UiRect::new(px(10), px(0), px(8), px(2)),
+                                    ..default()
+                                },
+                            ));
+                            continue;
+                        }
+                        Row::Item(item) => *item,
+                    };
+                    index += 1;
                     panel
                         .spawn((
-                            *item,
-                            MenuIndex(i),
+                            item,
+                            MenuIndex(index - 1),
                             Button,
                             Node {
                                 padding: UiRect::axes(px(10), px(2)),
@@ -459,12 +520,35 @@ fn fit_to_window(
     }
 }
 
+const MAIN_MENU: &[MenuItem] = &[
+    MenuItem::Action(Action::Race),
+    MenuItem::Action(Action::QuickMatch),
+    MenuItem::Action(Action::CreateLobby),
+    MenuItem::Action(Action::JoinLobby),
+    MenuItem::Action(Action::DirectConnect),
+    MenuItem::Action(Action::Options),
+    MenuItem::Action(Action::Quit),
+];
+
 fn spawn_main_menu(
     mut commands: Commands,
     mut cursor: ResMut<MenuCursor>,
     mut online: ResMut<Online>,
+    mut transitions: MessageReader<StateTransitionEvent<AppState>>,
 ) {
-    cursor.0 = 0;
+    // Back from the Options screen, the cursor stays on Options.
+    let from_options = transitions
+        .read()
+        .last()
+        .is_some_and(|t| t.exited == Some(AppState::Options));
+    cursor.0 = if from_options {
+        MAIN_MENU
+            .iter()
+            .position(|i| matches!(i, MenuItem::Action(Action::Options)))
+            .unwrap_or(0)
+    } else {
+        0
+    };
     // The last online error, once.
     let message = std::mem::take(&mut online.status);
     screen(
@@ -475,14 +559,7 @@ fn spawn_main_menu(
         } else {
             &message
         },
-        &[
-            MenuItem::Action(Action::Race),
-            MenuItem::Action(Action::QuickMatch),
-            MenuItem::Action(Action::CreateLobby),
-            MenuItem::Action(Action::JoinLobby),
-            MenuItem::Action(Action::DirectConnect),
-            MenuItem::Action(Action::Quit),
-        ],
+        MAIN_MENU,
         DespawnOnExit(AppState::MainMenu),
     );
 }
@@ -495,6 +572,28 @@ fn spawn_loading_screen(mut commands: Commands) {
         &[],
         DespawnOnExit(AppState::Loading),
     );
+}
+
+/// The Options screen: every section of [`settings::SECTIONS`], then Back.
+fn spawn_options(commands: &mut Commands, extra: impl Bundle) -> Entity {
+    let mut rows = Vec::new();
+    for (heading, options) in settings::SECTIONS {
+        rows.push(Row::Heading(heading));
+        rows.extend(options.iter().map(|o| Row::Item(MenuItem::Option(*o))));
+    }
+    rows.push(Row::Item(MenuItem::Action(Action::OptionsDone)));
+    screen_rows(
+        commands,
+        "Options",
+        "Up/Down select, Left/Right change, Esc back. Saved as you go",
+        &rows,
+        extra,
+    )
+}
+
+fn spawn_main_options(mut commands: Commands, mut cursor: ResMut<MenuCursor>) {
+    cursor.0 = 0;
+    spawn_options(&mut commands, DespawnOnExit(AppState::Options));
 }
 
 fn spawn_setup_menu(mut commands: Commands, mut cursor: ResMut<MenuCursor>) {
@@ -528,6 +627,20 @@ fn resume_time(mut paused: ResMut<Paused>, mut time: ResMut<Time<Virtual>>) {
     set_paused(&mut paused, &mut time, false);
 }
 
+/// While the pause menu or the Options screen is open, the player's car
+/// gets no input (it coasts online; offline the race is paused anyway).
+fn release_controls_in_menus(
+    menus: Query<(), With<PauseMenu>>,
+    mut input: ResMut<crate::input::DriverInput>,
+) {
+    if !menus.is_empty() {
+        *input = crate::input::DriverInput {
+            device: input.device,
+            ..default()
+        };
+    }
+}
+
 /// Opens the pause menu on Esc or gamepad Start, and when a gamepad is
 /// unplugged mid-race.
 #[allow(clippy::too_many_arguments)]
@@ -551,34 +664,46 @@ fn toggle_pause(
     }
     cursor.0 = 0;
     // Online, the race goes on behind the menu.
-    if online.is_some() {
-        screen(
-            &mut commands,
-            "Online race",
-            "The race goes on. Esc to resume",
-            &[
-                MenuItem::Action(Action::Resume),
-                MenuItem::Action(Action::Leave),
-            ],
-            (PauseMenu, DespawnOnExit(AppState::Race)),
-        );
-        return;
+    if online.is_none() {
+        set_paused(&mut paused, &mut time, true);
     }
-    set_paused(&mut paused, &mut time, true);
-    screen(
-        &mut commands,
-        "Paused",
-        "Esc to resume",
+    spawn_pause_menu(&mut commands, online.is_some());
+}
+
+/// The pause menu's items, offline or online.
+fn pause_items(online: bool) -> &'static [MenuItem] {
+    if online {
+        &[
+            MenuItem::Action(Action::Resume),
+            MenuItem::Action(Action::Options),
+            MenuItem::Action(Action::Leave),
+        ]
+    } else {
         &[
             MenuItem::Action(Action::Resume),
             MenuItem::Action(Action::Restart),
+            MenuItem::Action(Action::Options),
             MenuItem::Action(Action::Menu),
-        ],
+        ]
+    }
+}
+
+fn spawn_pause_menu(commands: &mut Commands, online: bool) {
+    let (title, subtitle) = if online {
+        ("Online race", "The race goes on. Esc to resume")
+    } else {
+        ("Paused", "Esc to resume")
+    };
+    screen(
+        commands,
+        title,
+        subtitle,
+        pause_items(online),
         (PauseMenu, DespawnOnExit(AppState::Race)),
     );
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::type_complexity)]
 fn menu_input(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
@@ -595,7 +720,13 @@ fn menu_input(
     mut exit: MessageWriter<AppExit>,
     real: Res<Time<Real>>,
     mut entered: Local<f64>,
-    (mut online, mut entry): (ResMut<Online>, ResMut<TextEntry>),
+    (mut online, mut entry, mut settings, remote, options_menus): (
+        ResMut<Online>,
+        ResMut<TextEntry>,
+        ResMut<Settings>,
+        Option<Res<RemoteRace>>,
+        Query<(), With<OptionsMenu>>,
+    ),
 ) {
     if state.is_changed() {
         *entered = real.elapsed_secs_f64();
@@ -662,6 +793,12 @@ fn menu_input(
             }
             None
         }
+        MenuItem::Option(o) => {
+            if dir != 0 || activate {
+                o.change(&mut settings, if dir == 0 { 1 } else { dir });
+            }
+            None
+        }
         MenuItem::Action(a) if activate => Some(a),
         MenuItem::Action(_) => None,
     };
@@ -669,6 +806,7 @@ fn menu_input(
     let action = action.or(back
         .then(|| match state.get() {
             AppState::MainMenu => None,
+            AppState::Race if !options_menus.is_empty() => Some(Action::OptionsDone),
             AppState::Race => Some(Action::Resume),
             AppState::Results => Some(Action::Menu),
             _ => Some(Action::Back),
@@ -730,12 +868,38 @@ fn menu_input(
             online.set_ready(!ready, &setup);
         }
         Action::StartOnline => online.start(),
+        // In a race, the Options screen replaces the pause menu (which
+        // keeps the race paused) until Back brings the pause menu back.
+        Action::Options if *state.get() == AppState::Race => {
+            for e in &pause_menus {
+                commands.entity(e).despawn();
+            }
+            cursor.0 = 0;
+            spawn_options(
+                &mut commands,
+                (PauseMenu, OptionsMenu, DespawnOnExit(AppState::Race)),
+            );
+        }
+        Action::Options => next.set(AppState::Options),
+        Action::OptionsDone if *state.get() == AppState::Race => {
+            for e in &pause_menus {
+                commands.entity(e).despawn();
+            }
+            let online = remote.is_some();
+            spawn_pause_menu(&mut commands, online);
+            cursor.0 = pause_items(online)
+                .iter()
+                .position(|i| matches!(i, MenuItem::Action(Action::Options)))
+                .unwrap_or(0);
+        }
+        Action::OptionsDone => next.set(AppState::MainMenu),
     }
 }
 
 fn draw_menu(
     cursor: Res<MenuCursor>,
     setup: Res<RaceSetup>,
+    settings: Res<Settings>,
     online: Res<Online>,
     mut rows: Query<(&MenuItem, &MenuIndex, &Children, &mut BackgroundColor)>,
     mut texts: Query<&mut Text>,
@@ -745,6 +909,7 @@ fn draw_menu(
         background.0 = if selected { HIGHLIGHT } else { Color::NONE };
         let label = match item {
             MenuItem::Setting(s) => format!("{:<20} <  {}  >", s.label(), s.value(&setup)),
+            MenuItem::Option(o) => format!("{:<20} <  {}  >", o.label(), o.value(&settings)),
             MenuItem::Action(Action::Ready) if online.me().is_some_and(|m| m.ready) => {
                 "Ready: yes (press to cancel)".into()
             }

@@ -6,11 +6,13 @@ pub mod driving;
 pub mod flow;
 pub mod greybox;
 pub mod hud;
+pub mod icon;
 pub mod input;
 pub mod online;
 pub mod race_scene;
 #[cfg(feature = "wheel")]
 mod sdl_wheel;
+pub mod settings;
 pub mod visuals;
 
 use bevy::prelude::*;
@@ -27,6 +29,7 @@ impl Plugin for GamePlugin {
             flow::FlowPlugin,
             race_scene::RaceScenePlugin,
             online::OnlinePlugin,
+            settings::SettingsPlugin,
         ));
     }
 }

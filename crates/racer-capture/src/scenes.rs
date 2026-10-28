@@ -10,6 +10,7 @@ use racer_game::{
     flow::{AppState, OpponentCars, RaceSetup},
     greybox::{GreyboxPlugin, default_camera_transform},
     online::{EntryPurpose, LobbyView, MemberView, Online, SettingsView, TextEntry},
+    settings::{Settings, SpeedUnit},
 };
 use racer_sim::{
     race::{Race, RacePhase, RaceTrack, Racer},
@@ -21,7 +22,7 @@ use crate::harness::{Pose, PoseCamera};
 
 /// Names accepted by [`add_scene`].
 pub const SCENES: &[&str] = &[
-    "greybox", "driving", "race", "menu", "showroom", "lobby", "online",
+    "greybox", "driving", "race", "menu", "showroom", "lobby", "online", "units",
 ];
 
 /// Adds the named scene to `app` and returns its camera poses.
@@ -198,7 +199,44 @@ pub fn add_scene(app: &mut App, name: &str) -> Option<Vec<Pose>> {
                     prepare: Some(|w| w.resource_mut::<NextState<AppState>>().set(AppState::Setup)),
                     ready: Some(|w| in_state(w, AppState::Setup)),
                 },
+                Pose {
+                    name: "options".into(),
+                    camera: PoseCamera::Game,
+                    prepare: Some(|w| {
+                        w.resource_mut::<NextState<AppState>>()
+                            .set(AppState::Options)
+                    }),
+                    ready: Some(|w| in_state(w, AppState::Options)),
+                },
             ])
+        }
+        "units" => {
+            // The HUD with speeds in mph: a solo race, the player's car on
+            // autopilot (manual check, no goldens).
+            let setup = RaceSetup {
+                opponents: 0,
+                laps: 1,
+                autopilot: true,
+                ..default()
+            };
+            let mut settings = Settings::default();
+            settings.interface.speed_units = SpeedUnit::Mph;
+            app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(
+                FAST_FORWARD,
+            )))
+            .insert_resource(settings)
+            .add_plugins(GamePlugin)
+            .insert_resource(setup)
+            .insert_state(AppState::Loading)
+            .add_systems(Startup, |mut t: ResMut<Time<Virtual>>| {
+                t.set_max_delta(Duration::from_secs(2))
+            });
+            Some(vec![Pose {
+                name: "hud-mph".into(),
+                camera: PoseCamera::Game,
+                prepare: None,
+                ready: Some(|w| race_time(w) > 12.0),
+            }])
         }
         "lobby" => {
             app.add_plugins(GamePlugin);
