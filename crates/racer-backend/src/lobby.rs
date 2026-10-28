@@ -245,7 +245,13 @@ mod tests {
 
     #[test]
     fn quick_matches_start_when_full_or_after_the_wait() {
-        let mut l = Lobby::new("Q".into(), &player(1), Settings::default(), Some("open".into()), 100.0);
+        let mut l = Lobby::new(
+            "Q".into(),
+            &player(1),
+            Settings::default(),
+            Some("open".into()),
+            100.0,
+        );
         assert!(!l.quick_match_due(100.0 + QUICK_MATCH_WAIT - 1.0));
         assert!(l.quick_match_due(100.0 + QUICK_MATCH_WAIT));
         for id in 2..=8 {

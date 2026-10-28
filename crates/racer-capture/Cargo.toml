@@ -16,3 +16,4 @@ racer-trackc.workspace = true
 avian3d.workspace = true
 serde_json.workspace = true
 lightyear.workspace = true
+ureq.workspace = true

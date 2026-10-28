@@ -48,7 +48,10 @@ impl Plugin for OnlinePlugin {
             .init_resource::<Online>()
             .init_resource::<TextEntry>()
             .add_systems(OnEnter(AppState::MainMenu), leave)
-            .add_systems(OnEnter(AppState::Race), spawn_ping.run_if(resource_exists::<RemoteRace>))
+            .add_systems(
+                OnEnter(AppState::Race),
+                spawn_ping.run_if(resource_exists::<RemoteRace>),
+            )
             .add_systems(
                 Update,
                 (
@@ -96,7 +99,7 @@ pub struct Online {
     /// Last error or progress message.
     pub status: String,
     backend: Option<BackendClient>,
-    pending: Option<Mutex<Receiver<Result<Option<LobbyView>, String>>>>,
+    pending: Option<Mutex<Receiver<Answer>>>,
     since_poll: f32,
 }
 
@@ -110,6 +113,9 @@ impl Online {
         l.members.iter().find(|m| m.id == l.you)
     }
 }
+
+/// What a backend request came back with: the lobby, if the answer has one.
+type Answer = Result<Option<LobbyView>, String>;
 
 /// A backend lobby, as the backend sends it.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -236,12 +242,14 @@ impl BackendClient {
                 .trim_end_matches('/')
                 .to_string(),
             key: device_key()?,
-            name: std::env::var("RACER_NAME").ok().filter(|n| !n.trim().is_empty()),
+            name: std::env::var("RACER_NAME")
+                .ok()
+                .filter(|n| !n.trim().is_empty()),
         })
     }
 
     /// `method path` with a JSON body; the lobby in the answer, if any.
-    fn call(&self, method: &str, path: &str, body: Option<serde_json::Value>) -> Result<Option<LobbyView>, String> {
+    fn call(&self, method: &str, path: &str, body: Option<serde_json::Value>) -> Answer {
         let agent: ureq::Agent = ureq::Agent::config_builder()
             .timeout_global(Some(Duration::from_secs(10)))
             .http_status_as_error(false)
@@ -420,7 +428,9 @@ fn poll_backend(
     mut next: ResMut<NextState<AppState>>,
 ) {
     if let Some(rx) = &online.pending {
-        let answer = rx.lock().map_or(Err(TryRecvError::Disconnected), |rx| rx.try_recv());
+        let answer = rx
+            .lock()
+            .map_or(Err(TryRecvError::Disconnected), |rx| rx.try_recv());
         match answer {
             Ok(Ok(lobby)) => {
                 online.pending = None;
@@ -507,7 +517,11 @@ fn connect_to_server(
         }
         OnlineMode::Off => return,
     };
-    commands.insert_resource(config);
+    let autopilot = setup.autopilot.then_some(racer_sim::ai::Difficulty::Alien);
+    commands.insert_resource(NetClientConfig {
+        autopilot,
+        ..config
+    });
 }
 
 fn random_id() -> [u8; 8] {
@@ -670,7 +684,10 @@ mod tests {
 
     #[test]
     fn ping_warns_above_250_ms() {
-        assert_eq!(ping_label(Duration::from_millis(80)), ("Ping 80 ms".into(), false));
+        assert_eq!(
+            ping_label(Duration::from_millis(80)),
+            ("Ping 80 ms".into(), false)
+        );
         assert!(ping_label(Duration::from_millis(251)).1);
     }
 

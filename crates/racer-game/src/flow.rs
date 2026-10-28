@@ -64,9 +64,10 @@ impl Plugin for FlowPlugin {
             )
             .add_systems(OnEnter(AppState::Results), spawn_results)
             .add_systems(OnEnter(AppState::Entry), spawn_entry)
-            .add_systems(OnEnter(AppState::Lobby), |mut layout: ResMut<LobbyLayout>| {
-                *layout = LobbyLayout::None
-            })
+            .add_systems(
+                OnEnter(AppState::Lobby),
+                |mut layout: ResMut<LobbyLayout>| *layout = LobbyLayout::None,
+            )
             .init_resource::<LobbyLayout>()
             .add_systems(
                 Update,
@@ -998,6 +999,7 @@ fn spawn_entry(mut commands: Commands, mut cursor: ResMut<MenuCursor>, entry: Re
     });
 }
 
+#[allow(clippy::type_complexity)]
 fn update_entry(
     entry: Res<TextEntry>,
     online: Res<Online>,

@@ -180,11 +180,19 @@ pub fn build_app(config: &ServerConfig) -> App {
     .add_systems(Startup, (load_track, listen))
     .add_systems(
         PreUpdate,
-        (receive_joins, receive_inputs, receive_resets, track_disconnects)
+        (
+            receive_joins,
+            receive_inputs,
+            receive_resets,
+            track_disconnects,
+        )
             .after(MessageSystems::ReceiveMessages),
     )
     .add_systems(Update, (announce_address, lobby, finish))
-    .add_systems(FixedPreUpdate, start_race.run_if(resource_equals(Phase::Starting)))
+    .add_systems(
+        FixedPreUpdate,
+        start_race.run_if(resource_equals(Phase::Starting)),
+    )
     .add_systems(FixedUpdate, count_ticks)
     .add_systems(FixedFirst, tick_started)
     .add_systems(FixedLast, tick_ended)
@@ -583,21 +591,26 @@ fn start_race(
 
 /// The clients hold their cars on the grid until the start tick they were
 /// told; the race clock must agree.
-fn check_start(timeline: Res<LocalTimeline>, race: Res<Race>, log: Res<RaceLog>, mut done: Local<bool>) {
+fn check_start(
+    timeline: Res<LocalTimeline>,
+    race: Res<Race>,
+    log: Res<RaceLog>,
+    mut done: Local<bool>,
+) {
     if !*done && race.phase != RacePhase::Countdown {
         *done = true;
         let tick = timeline.tick().0;
         if tick != log.start {
-            error!("race started at tick {tick}, clients were told {}", log.start);
+            error!(
+                "race started at tick {tick}, clients were told {}",
+                log.start
+            );
         }
     }
 }
 
 /// Each player's input for this tick; a late or lost one repeats the last.
-fn apply_inputs(
-    timeline: Res<LocalTimeline>,
-    mut cars: Query<(&mut NetDriver, &mut CarControls)>,
-) {
+fn apply_inputs(timeline: Res<LocalTimeline>, mut cars: Query<(&mut NetDriver, &mut CarControls)>) {
     let tick = timeline.tick().0;
     for (mut driver, mut controls) in &mut cars {
         let c = match driver.inputs.remove(&tick) {
@@ -762,7 +775,10 @@ fn finish(
     let now = time.elapsed_secs();
     match *phase {
         Phase::Racing if race.is_some_and(|r| r.phase == RacePhase::Finished) => {
-            let racers: Vec<(u8, Racer)> = cars.iter().map(|(r, _)| (r.slot as u8, r.clone())).collect();
+            let racers: Vec<(u8, Racer)> = cars
+                .iter()
+                .map(|(r, _)| (r.slot as u8, r.clone()))
+                .collect();
             for p in players.0.iter().filter(|p| !p.disconnected) {
                 if let Ok(mut s) = senders.get_mut(p.client) {
                     s.send::<ControlChannel>(RaceOver {
@@ -840,4 +856,3 @@ fn report(
         tick_ms_max: log.tick_time.iter().copied().fold(0.0, f32::max),
     }
 }
-

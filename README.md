@@ -7,12 +7,12 @@ the full plan and [`docs/milestones/`](docs/milestones/) for milestone handoff n
 
 | Crate | Purpose |
 |---|---|
-| `racer-game` | Game client: menus, race setup, race scene with HUD and results, greybox driving scene (test track, skidpad), input, cameras. |
-| `racer-sim` | Gameplay shared by client and server (fixed 240 Hz step): Avian vehicle plugin, tracks, race rules, AI drivers, test autopilot. |
+| `racer-game` | Game client: menus, race setup, race scene with HUD and results, online play (quick match, lobbies, direct connect), greybox driving scene (test track, skidpad), input, cameras. |
+| `racer-sim` | Gameplay shared by client and server (fixed 240 Hz step): Avian vehicle plugin, tracks, race rules, AI drivers, test autopilot, the net protocol and the online client (prediction, rollback, remote-car extrapolation). |
 | `racer-dynamics` | Vehicle physics core (tires, suspension, drivetrain, aero, assists), pure Rust, no Bevy. |
 | `racer-render` | Custom materials and rendering (greybox car paint for now). |
-| `racer-server` | Headless dedicated server (Bevy `MinimalPlugins`, no renderer). |
-| `racer-backend` | axum backend service (`GET /health`). |
+| `racer-server` | Headless dedicated race server: lobby, countdown, race, results, exit; authoritative physics and rules at 240 Hz, 60 Hz snapshots, AI fill. |
+| `racer-backend` | axum backend: device-key identity, invite-code lobbies, quick match, server allocation (`Fleet`, local process spawner). |
 | `racer-trackc` | Track compiler (library + CLI): validates `track.toml`, builds road/curb/apron/wall geometry, generates the racing line and per-car speed profiles. |
 | `racer-capture` | Headless screenshot and telemetry harness, image checks and golden diffs. |
 
@@ -61,8 +61,8 @@ cargo run -p racer-game -- drive                     # M1 driving scene (see con
 cargo run -p racer-game -- drive --car 3 --skidpad   # 911 on the skidpad
 cargo run -p racer-game -- greybox                   # M0 scene, free camera
 cargo run -p racer-game --features wheel             # + SDL3 steering wheel/FFB (needs cmake)
-cargo run -p racer-server -- --max-ticks 2400   # headless server for 10 s of simulation
-cargo run -p racer-backend      # http://127.0.0.1:8080/health
+cargo run -p racer-server -- --max-ticks 2400   # headless server, 10 s of an AI-only race
+cargo run -p racer-backend      # http://127.0.0.1:8080/health (see "Online play")
 RACER_BACKEND_ADDR=localhost:9000 cargo run -p racer-backend   # any host:port (names resolved)
 cargo test --workspace
 cargo test -p racer-dynamics    # reference maneuvers and fuzz tests for every car, ~3 s
@@ -81,6 +81,55 @@ K skidpad. Gamepad: left stick, right/left triggers, south button handbrake, bum
 north button reset, select/back button chase/hood camera; unplugging the pad pauses a race.
 Menus: arrows or d-pad to select and change, Enter/Space or south button to confirm, Esc or
 east button to go back (the main menu only quits from its Quit item); mouse clicks work too.
+
+## Online play
+
+Races online run on a dedicated `racer-server` (one process per race). Clients send their
+inputs; the server simulates every car and sends snapshots; each client predicts its own car and
+extrapolates the others (see [`docs/milestones/M3.md`](docs/milestones/M3.md)).
+
+With the backend (lobbies and quick match):
+
+```sh
+cargo build -p racer-server -p racer-backend    # the backend starts racer-server from its own directory
+cargo run -p racer-backend                      # http://127.0.0.1:8080
+RACER_NAME=Ana cargo run -p racer-game          # Quick match, Create lobby, or Join lobby with a code
+```
+
+The host of a lobby picks mode, laps, collisions and AI fill and starts the race once the others
+are ready; a quick match starts by itself after 15 s (or when 8 players are in), with AI cars in
+the empty slots. Backend settings: `RACER_BACKEND_ADDR` (listen address), `RACER_SERVER_BIN`
+(server binary, default: next to the backend), `RACER_FLEET_BIND` / `RACER_FLEET_PUBLIC` (the
+address servers listen on and the one clients are told, default `127.0.0.1`), and
+`RACER_BACKEND_STATE` (a JSON file that keeps the players across restarts). Game settings:
+`RACER_BACKEND` (default `http://127.0.0.1:8080`), `RACER_NAME`, and `RACER_CONFIG_DIR` (where
+the device key is kept; default the platform's config directory, e.g. `~/.config/racer`).
+
+Without the backend (development): start a server and use Direct connect in the menu.
+
+```sh
+cargo run -p racer-server -- --bind 0.0.0.0:7777 --players 2 --laps 3   # waits for 2 players (60 s)
+cargo run -p racer-game                          # Direct connect, type 127.0.0.1:7777
+```
+
+`racer-server --help` lists the options (mode, laps, collisions, grid size, AI fill and difficulty,
+lobby timeout, simulated network conditions, and a JSON report at the end).
+
+## Net check
+
+```sh
+tools/net-check.sh captures/net          # 8 bots, 2 races of 3 laps at 0, 150 and 250 ms RTT (~30 min)
+tools/net-check.sh captures/net 1 1      # quick: 1 race of 1 lap per condition
+```
+
+Starts one `racer-server` and 8 headless bot clients (the AI drives each client's car through its
+controls, as a player would) over UDP on localhost with lightyear's link conditioner, runs whole
+races and checks: the race completes and every client agrees with the server on finishing order,
+laps and times; prediction corrections and desyncs stay under the limits; and every car-to-car
+contact on the server was predicted by both cars' clients. It writes `net.md` per condition. The
+underlying commands are `racer-capture net-race <out> [--bots N] [--races N] [--laps N]
+[--conditions RTT_MS,JITTER_MS,LOSS_PERCENT]` and `racer-capture net-cost` (CPU cost of a
+simulation tick and of a rollback).
 
 ## Tracks
 
@@ -129,6 +178,7 @@ loads, slip angles and ratios, plus a track map or the skidpad balance curve).
 tools/capture.sh greybox captures/greybox
 tools/capture.sh driving captures/driving
 tools/capture.sh menu captures/menu                              # main menu, race setup
+tools/capture.sh lobby captures/lobby                            # join-code entry, lobby (host)
 CAPTURE_PROFILE=release tools/capture.sh race captures/race --timeout 2400
                                                                  # grid, pack, HUD, results
 ```
@@ -147,6 +197,7 @@ Compare against the committed goldens, or check arbitrary PNGs:
 target/debug/racer-capture diff captures/greybox crates/racer-capture/goldens/greybox
 target/debug/racer-capture diff captures/driving crates/racer-capture/goldens/driving
 target/debug/racer-capture diff captures/menu crates/racer-capture/goldens/menu
+target/debug/racer-capture diff captures/lobby crates/racer-capture/goldens/lobby
 target/release/racer-capture diff captures/race crates/racer-capture/goldens/race
 target/debug/racer-capture check captures/greybox/*.png
 ```
@@ -161,5 +212,5 @@ To update goldens after an intended visual change, copy the new captures over
 
 `.github/workflows/ci.yml` runs fmt, clippy (`-D warnings`) and tests on Linux, Windows and
 macOS, plus a Linux job that runs `tools/setup.sh`, validates the tracks, captures the
-greybox, driving, menu and race scenes, diffs them against the goldens, runs the telemetry
-and a short AI check, and uploads everything as the `captures` artifact.
+greybox, driving, menu, lobby and race scenes, diffs them against the goldens, runs the telemetry,
+a short AI check and a short net check, and uploads everything as the `captures` artifact.

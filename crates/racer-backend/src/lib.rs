@@ -243,7 +243,13 @@ impl ApiError {
 
 impl axum::response::IntoResponse for ApiError {
     fn into_response(self) -> axum::response::Response {
-        (self.status, Json(ErrorBody { error: self.message })).into_response()
+        (
+            self.status,
+            Json(ErrorBody {
+                error: self.message,
+            }),
+        )
+            .into_response()
     }
 }
 
@@ -291,11 +297,18 @@ async fn rename(
     let player = b.player(&headers)?;
     let name = body.name.trim();
     if name.is_empty() || name.chars().count() > 24 || name.chars().any(char::is_control) {
-        return Err(ApiError::bad_request("a name is 1 to 24 printable characters"));
+        return Err(ApiError::bad_request(
+            "a name is 1 to 24 printable characters",
+        ));
     }
     let mut inner = b.lock();
     let mut renamed = player.clone();
-    for p in inner.players.by_key.values_mut().filter(|p| p.id == player.id) {
+    for p in inner
+        .players
+        .by_key
+        .values_mut()
+        .filter(|p| p.id == player.id)
+    {
         p.name = name.to_string();
         renamed = p.clone();
     }

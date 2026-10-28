@@ -132,6 +132,7 @@ pub fn wheel_center(geometry: &WheelGeometry, travel: f64) -> Vec3 {
     (geometry.hardpoint - DVec3::Y * travel).as_vec3()
 }
 
+#[allow(clippy::type_complexity)]
 fn drive_cars(
     time: Res<Time>,
     spatial: SpatialQuery,

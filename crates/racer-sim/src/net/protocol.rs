@@ -282,7 +282,9 @@ impl Conditions {
         let jitter = next("jitter")?.unwrap_or(0.0);
         let loss = next("loss")?.unwrap_or(0.0);
         if loss > 100.0 || parts.next().is_some() {
-            return Err(format!("bad conditions {s:?}: RTT_MS[,JITTER_MS[,LOSS_PERCENT]]"));
+            return Err(format!(
+                "bad conditions {s:?}: RTT_MS[,JITTER_MS[,LOSS_PERCENT]]"
+            ));
         }
         Ok(Conditions {
             rtt_ms: rtt as u32,
@@ -339,7 +341,14 @@ mod tests {
         // with is what the server drives with.
         assert_eq!(NetControls::encode(&d), n);
         assert!(!n.held().decode().shift_up);
-        assert_eq!(NetControls::encode(&Controls { steer: f64::NAN, ..c }).steer, 0);
+        assert_eq!(
+            NetControls::encode(&Controls {
+                steer: f64::NAN,
+                ..c
+            })
+            .steer,
+            0
+        );
     }
 
     #[test]

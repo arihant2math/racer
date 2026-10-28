@@ -25,7 +25,10 @@ use racer_sim::{
 };
 
 fn free_port() -> SocketAddr {
-    UdpSocket::bind("127.0.0.1:0").unwrap().local_addr().unwrap()
+    UdpSocket::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
 }
 
 /// Updates `app` in real time on this thread until `stop` or `done`.
@@ -115,14 +118,21 @@ fn two_bots_race_against_an_ai_with_latency_and_loss() {
     assert_eq!(server_cars.len(), 3);
     for (slot, p) in &server_cars {
         let grid = track.geometry.grid[*slot].position;
-        assert!(p.distance(grid) > 50.0, "car {slot} still near the grid at {p}");
+        assert!(
+            p.distance(grid) > 50.0,
+            "car {slot} still near the grid at {p}"
+        );
     }
     for (state, rtt, stats) in clients {
         assert_eq!(state, SessionState::Racing);
         assert!(rtt > Duration::from_millis(60), "{rtt:?}");
         assert!(stats.snapshots > 300, "{} snapshots", stats.snapshots);
         // Outside contacts the prediction matches the server almost always.
-        let big = stats.corrections.iter().filter(|c| c.position > 0.5).count();
+        let big = stats
+            .corrections
+            .iter()
+            .filter(|c| c.position > 0.5)
+            .count();
         assert!(big <= 3, "corrections over 0.5 m: {:?}", stats.corrections);
         let mut errors: Vec<f32> = stats.remote_errors.iter().map(|e| e.0).collect();
         errors.sort_by(f32::total_cmp);

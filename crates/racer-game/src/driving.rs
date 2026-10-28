@@ -48,7 +48,9 @@ impl Plugin for CameraPlugin {
             .add_systems(Update, toggle_camera)
             .add_systems(
                 PostUpdate,
-                follow_camera.before(TransformSystems::Propagate),
+                follow_camera
+                    .before(TransformSystems::Propagate)
+                    .after(racer_sim::net::client::VisualOffsetSystems),
             );
     }
 }

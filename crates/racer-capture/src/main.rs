@@ -7,6 +7,8 @@
 //! racer-capture telemetry <out-dir> [car-id...]
 //! racer-capture ai-laps <out-dir> [--laps N] [--car ID]
 //! racer-capture ai-races <out-dir> [--races N] [--laps N] [--first I]
+//! racer-capture net-cost
+//! racer-capture net-lobby [--laps N] [--backend PATH]
 //! racer-capture net-race <out-dir> [--bots N] [--laps N] [--races N] [--conditions RTT,JITTER,LOSS%] [--server PATH] [--timeout SECS]
 //! ```
 //! `diff` takes two files or two directories; with directories every PNG in the
@@ -33,7 +35,8 @@ const USAGE: &str = "usage:
   racer-capture ai-laps <out-dir> [--laps N] [--car ID]
   racer-capture ai-races <out-dir> [--races N] [--laps N] [--first I]
   racer-capture net-race <out-dir> [--bots N] [--laps N] [--races N] [--conditions RTT,JITTER,LOSS%] [--server PATH] [--timeout SECS]
-  racer-capture net-cost";
+  racer-capture net-cost
+  racer-capture net-lobby [--laps N] [--backend PATH]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -46,6 +49,7 @@ fn main() -> ExitCode {
         Some("ai-races") => ai_races(&args[1..]),
         Some("net-race") => net_race(&args[1..]),
         Some("net-cost") => net_cost(),
+        Some("net-lobby") => net_lobby(&args[1..]),
         _ => Err(USAGE.into()),
     };
     match result {
@@ -435,13 +439,19 @@ fn net_race(args: &[String]) -> Result<ExitCode, String> {
     println!("wall time {} s", started.elapsed().as_secs());
     let path = out_dir.join("net.md");
     std::fs::write(&path, &text).map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(if ok { ExitCode::SUCCESS } else { ExitCode::FAILURE })
+    Ok(if ok {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    })
 }
 
 fn net_cost() -> Result<ExitCode, String> {
     let track = std::sync::Arc::new(racer_trackc::load("downtown-loop")?);
     let (full, local) = net::tick_cost(track)?;
-    println!("one tick of the 8-car race world: {full:.0} us with every car simulated, {local:.0} us with one car simulated and seven kinematic");
+    println!(
+        "one tick of the 8-car race world: {full:.0} us with every car simulated, {local:.0} us with one car simulated and seven kinematic"
+    );
     for rtt in [0.0f64, 150.0, 250.0] {
         // A correction replays from the snapshot tick to now: about one
         // round trip plus the input lead.
@@ -453,4 +463,29 @@ fn net_cost() -> Result<ExitCode, String> {
         );
     }
     Ok(ExitCode::SUCCESS)
+}
+
+fn net_lobby(args: &[String]) -> Result<ExitCode, String> {
+    let (pos, flags) = parse(args, &["laps", "backend"])?;
+    if !pos.is_empty() {
+        return Err(USAGE.into());
+    }
+    let laps: u32 = flag(&flags, "laps", 1)?;
+    let backend = match flags.iter().rev().find(|(f, _)| *f == "backend") {
+        Some((_, path)) => PathBuf::from(path),
+        None => std::env::current_exe()
+            .map_err(|e| e.to_string())?
+            .with_file_name(format!("racer-backend{}", std::env::consts::EXE_SUFFIX)),
+    };
+    let track = std::sync::Arc::new(racer_trackc::load("downtown-loop")?);
+    match net::lobby_check(&backend, laps.max(1), track) {
+        Ok(report) => {
+            println!("{report}ok");
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(e) => {
+            println!("{e}\nFAIL");
+            Ok(ExitCode::FAILURE)
+        }
+    }
 }

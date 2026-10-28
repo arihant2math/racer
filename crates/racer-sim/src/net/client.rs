@@ -113,9 +113,7 @@ impl Plugin for NetClientPlugin {
         .add_systems(
             FixedUpdate,
             (
-                drive_bot
-                    .in_set(ControlSystems)
-                    .run_if(not(resimulating)),
+                drive_bot.in_set(ControlSystems).run_if(not(resimulating)),
                 inputs.in_set(NetSystems::Inputs),
                 place_remote_cars.in_set(NetSystems::Remote),
             )
@@ -133,11 +131,18 @@ impl Plugin for NetClientPlugin {
             PostUpdate,
             (
                 send_inputs.before(MessageSystems::Send),
-                apply_visual_offset.before(TransformSystems::Propagate),
+                apply_visual_offset
+                    .in_set(VisualOffsetSystems)
+                    .before(TransformSystems::Propagate),
             ),
         );
     }
 }
+
+/// Adds the decaying correction offsets to the cars' `Transform`s in
+/// `PostUpdate`: cameras following a car go after it.
+#[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct VisualOffsetSystems;
 
 #[derive(SystemSet, Clone, Debug, PartialEq, Eq, Hash)]
 pub enum NetSystems {
@@ -391,6 +396,7 @@ fn connect(
 
 /// Sends the join message once connected; notices disconnections; reads
 /// the round-trip time.
+#[allow(clippy::type_complexity)]
 fn track_connection(
     config: Option<Res<NetClientConfig>>,
     mut session: ResMut<NetSession>,
@@ -442,7 +448,10 @@ fn receive_control(
     mut racers: Query<(&NetCar, &mut Racer)>,
     mut race: Option<ResMut<Race>>,
 ) {
-    for status in lobby.iter_mut().flat_map(|mut r| r.receive().collect::<Vec<_>>()) {
+    for status in lobby
+        .iter_mut()
+        .flat_map(|mut r| r.receive().collect::<Vec<_>>())
+    {
         if matches!(session.state, SessionState::Lobby(_)) {
             session.state = SessionState::Lobby(status);
         }
@@ -457,7 +466,10 @@ fn receive_control(
         session.you = Some(start.you);
         session.state = SessionState::Racing;
     }
-    for over in overs.iter_mut().flat_map(|mut r| r.receive().collect::<Vec<_>>()) {
+    for over in overs
+        .iter_mut()
+        .flat_map(|mut r| r.receive().collect::<Vec<_>>())
+    {
         for (car, mut racer) in &mut racers {
             if let Some((_, r)) = over.racers.iter().find(|(s, _)| *s == car.slot) {
                 *racer = r.clone();
@@ -711,7 +723,12 @@ fn reconcile(world: &mut World) {
     else {
         return;
     };
-    let Some(server) = snapshot.cars.iter().find(|c| c.slot == slot).map(|c| c.body) else {
+    let Some(server) = snapshot
+        .cars
+        .iter()
+        .find(|c| c.slot == slot)
+        .map(|c| c.body)
+    else {
         return;
     };
     world.resource_mut::<NetStats>().snapshots += 1;
@@ -837,9 +854,7 @@ fn set_ghosting(world: &mut World, ghosted: &[(u8, bool)]) {
         .collect();
     for (child, remote, ghost) in bodies {
         if world.get::<CarBody>(child).is_some() {
-            world
-                .entity_mut(child)
-                .insert(car_layers(remote, ghost));
+            world.entity_mut(child).insert(car_layers(remote, ghost));
         }
     }
     let mut p = world.resource_mut::<Prediction>();
@@ -955,7 +970,7 @@ fn place_remote_cars(
 
 /// Keeps the predicted state of the local car after each tick, the track
 /// position of every car, and the contacts the local car predicts.
-#[allow(clippy::type_complexity)]
+#[allow(clippy::type_complexity, clippy::too_many_arguments)]
 fn record(
     resim: Option<Res<Resimulating>>,
     track: Res<RaceTrack>,
@@ -986,7 +1001,8 @@ fn record(
         if !car.local {
             continue;
         }
-        p.states.insert(tick, (Body::read(pos, rot, vel, ang), state.0));
+        p.states
+            .insert(tick, (Body::read(pos, rot, vel, ang), state.0));
         while p.states.len() > HISTORY as usize {
             p.states.pop_first();
         }
@@ -1096,7 +1112,11 @@ fn drive_bot(
             s: lp.0.distance.rem_euclid(length),
             lateral: lp.0.lateral,
         };
-        let mine: Vec<Other> = others.iter().filter(|o| o.entity != entity).copied().collect();
+        let mine: Vec<Other> = others
+            .iter()
+            .filter(|o| o.entity != entity)
+            .copied()
+            .collect();
         let mut c = ai.control(&view, &t.line, &t.geometry, &mine, time, dt);
         c.assists = Assists::default();
         controls.0 = c;
@@ -1170,7 +1190,6 @@ pub fn headless_world(app: &mut App, track: std::sync::Arc<racer_trackc::Track>)
     crate::track::spawn_track(&mut commands, &crate::track::city_track(&track.geometry));
     world.flush();
 }
-
 
 /// A headless client app (test bots): the simulation, the track's colliders
 /// and the net client, single-threaded so that many run side by side. Drive

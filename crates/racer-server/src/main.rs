@@ -62,10 +62,7 @@ fn parse_key(hex: &str) -> Option<[u8; 32]> {
 fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Option<ServerConfig>, String> {
     let mut config = ServerConfig::default();
     while let Some(arg) = args.next() {
-        let mut value = |what: &str| {
-            args.next()
-                .ok_or_else(|| format!("{arg} needs {what}"))
-        };
+        let mut value = |what: &str| args.next().ok_or_else(|| format!("{arg} needs {what}"));
         fn number<T: std::str::FromStr>(arg: &str, v: String, what: &str) -> Result<T, String> {
             v.parse()
                 .map_err(|_| format!("{arg} takes {what}, got {v:?}"))

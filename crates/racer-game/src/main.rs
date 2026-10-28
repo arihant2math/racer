@@ -8,10 +8,11 @@ use racer_game::{
     flow::{AppState, RaceSetup},
     greybox::{GreyboxPlugin, SceneCamera},
     input::InputPlugin,
+    online::Online,
 };
 use racer_sim::{SimPlugin, vehicle::VehiclePlugin};
 
-const USAGE: &str = "usage: racer-game [race [--car 1|2|3] [--ai N] [--difficulty NAME|mixed] [--laps N] [--autopilot] | drive [--car 1|2|3] [--skidpad] | greybox]";
+const USAGE: &str = "usage: racer-game [race [--car 1|2|3] [--ai N] [--difficulty NAME|mixed] [--laps N] [--autopilot] | connect HOST:PORT [--car 1|2|3] [--autopilot] | drive [--car 1|2|3] [--skidpad] | greybox]";
 
 fn main() -> AppExit {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -64,6 +65,27 @@ fn main() -> AppExit {
                 .insert_resource(setup)
                 .insert_state(AppState::Loading);
         }
+        Some("connect") => {
+            // Straight to a server (development): its lobby, then the race.
+            let Some(address) = args.get(1) else {
+                eprintln!("{USAGE}");
+                return AppExit::from_code(2);
+            };
+            let mut online = Online::default();
+            if let Err(e) = online.connect_direct(address) {
+                eprintln!("racer-game: {e}");
+                return AppExit::from_code(2);
+            }
+            let mut setup = RaceSetup::default();
+            if let Some(car) = value_of(&args, "--car").and_then(|c| c.parse::<usize>().ok()) {
+                setup.car = car.saturating_sub(1) % racer_dynamics::spec::CARS.len();
+            }
+            setup.autopilot = args.iter().any(|a| a == "--autopilot");
+            app.add_plugins(GamePlugin)
+                .insert_resource(online)
+                .insert_resource(setup)
+                .insert_state(AppState::Lobby);
+        }
         Some("drive") => {
             let car = args
                 .iter()
@@ -84,6 +106,10 @@ fn main() -> AppExit {
         }
     }
     app.run()
+}
+
+fn value_of(args: &[String], flag: &str) -> Option<String> {
+    args.iter().skip_while(|a| *a != flag).nth(1).cloned()
 }
 
 fn attach_free_camera(mut commands: Commands, cameras: Query<Entity, With<SceneCamera>>) {

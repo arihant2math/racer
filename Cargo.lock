@@ -6570,6 +6570,7 @@ dependencies = [
  "racer-sim",
  "racer-trackc",
  "serde_json",
+ "ureq",
 ]
 
 [[package]]

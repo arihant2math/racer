@@ -64,7 +64,12 @@ impl Drop for Server {
 }
 
 /// Runs the race; returns the server report and every bot's result.
-pub fn run(check: &NetCheck, race: usize, out_dir: &Path, track: Arc<Track>) -> Result<RaceRun, String> {
+pub fn run(
+    check: &NetCheck,
+    race: usize,
+    out_dir: &Path,
+    track: Arc<Track>,
+) -> Result<RaceRun, String> {
     let addr = free_port()?;
     let report_path = out_dir.join(format!("server-{}.json", race + 1));
     std::fs::remove_file(&report_path).ok();
@@ -283,6 +288,7 @@ pub fn analyse(check: &NetCheck, races: &[RaceRun], out: &mut String) -> bool {
     .ok();
 
     let (mut all_pos, mut all_rot) = (Vec::new(), Vec::new());
+    let (mut near_pos, mut near_shown) = (Vec::new(), Vec::new());
     let (mut desyncs, mut minutes, mut corrections, mut snapshots) = (0, 0.0, 0, 0);
     let (mut contacts, mut agreed, mut one_side, mut false_contacts) = (0, 0, 0, 0);
     let (mut model, mut dead) = (Vec::new(), Vec::new());
@@ -328,9 +334,16 @@ pub fn analyse(check: &NetCheck, races: &[RaceRun], out: &mut String) -> bool {
             fail(out, format!("race {} not completed: {states:?}", race + 1));
         }
         if disagreements > 0 {
-            fail(out, format!("race {}: {disagreements} result rows differ", race + 1));
+            fail(
+                out,
+                format!("race {}: {disagreements} result rows differ", race + 1),
+            );
         }
-        writeln!(out, "| Pos | Car | Laps | Time | Resets |\n|---|---|---|---|---|").ok();
+        writeln!(
+            out,
+            "| Pos | Car | Laps | Time | Resets |\n|---|---|---|---|---|"
+        )
+        .ok();
         for r in &report.results {
             writeln!(
                 out,
@@ -350,9 +363,9 @@ pub fn analyse(check: &NetCheck, races: &[RaceRun], out: &mut String) -> bool {
             .results
             .iter()
             .flat_map(|r| {
-                let seen = bots.iter().find_map(|b| {
-                    b.racers.iter().find(|(s, _)| *s == r.slot).map(|(_, x)| x)
-                });
+                let seen = bots
+                    .iter()
+                    .find_map(|b| b.racers.iter().find(|(s, _)| *s == r.slot).map(|(_, x)| x));
                 seen.into_iter().flat_map(move |x| {
                     x.resets.iter().map(move |reset| {
                         let tick = report.start_tick as f32 + reset.time * 240.0;
@@ -384,6 +397,8 @@ pub fn analyse(check: &NetCheck, races: &[RaceRun], out: &mut String) -> bool {
             for x in &b.stats.corrections {
                 if near_event(slot, x.tick) {
                     near += 1;
+                    near_pos.push(x.position);
+                    near_shown.push(x.displayed);
                     continue;
                 }
                 pos.push(x.position);
@@ -451,7 +466,10 @@ pub fn analyse(check: &NetCheck, races: &[RaceRun], out: &mut String) -> bool {
         }
 
         // Network and cost.
-        let mut rtt: Vec<f32> = bots.iter().flat_map(|b| b.stats.rtt_ms.iter().copied()).collect();
+        let mut rtt: Vec<f32> = bots
+            .iter()
+            .flat_map(|b| b.stats.rtt_ms.iter().copied())
+            .collect();
         let mut lead: Vec<f32> = bots
             .iter()
             .flat_map(|b| b.stats.input_lead.iter().map(|&l| l as f32))
@@ -515,6 +533,18 @@ pub fn analyse(check: &NetCheck, races: &[RaceRun], out: &mut String) -> bool {
     if rate > t.desyncs_per_minute {
         fail(out, format!("{rate:.2} desyncs per car-minute"));
     }
+    writeln!(
+        out,
+        "Corrections within 1 s of a contact or reset (expected: the server resolves contacts, \
+         resets teleport): {}, position p95 {:.2} m, max {:.2} m; displayed jump p95 {:.2} m, \
+         max {:.2} m.\n",
+        near_pos.len(),
+        percentile(&mut near_pos, 0.95),
+        near_pos.last().copied().unwrap_or(0.0),
+        percentile(&mut near_shown, 0.95),
+        near_shown.last().copied().unwrap_or(0.0),
+    )
+    .ok();
     let share = if contacts == 0 {
         1.0
     } else {
@@ -558,7 +588,10 @@ pub fn analyse(check: &NetCheck, races: &[RaceRun], out: &mut String) -> bool {
 /// replays). Single-threaded, like the server and the bots.
 pub fn tick_cost(track: Arc<Track>) -> Result<(f64, f64), String> {
     use avian3d::prelude::{CollisionLayers, RigidBody};
-    use racer_sim::{ai::AiDriver, race::{DriverKind, RaceConfig}};
+    use racer_sim::{
+        ai::AiDriver,
+        race::{DriverKind, RaceConfig},
+    };
 
     let entries: Vec<(&str, DriverKind)> = (0..8)
         .map(|i| (CARS[i % CARS.len()], DriverKind::Ai(Difficulty::ALL[i % 5])))
@@ -585,10 +618,13 @@ pub fn tick_cost(track: Arc<Track>) -> Result<(f64, f64), String> {
     }
     // As on a client: the kinematic cars only collide with cars.
     for &body in &sim.bodies[1..] {
-        sim.app.world_mut().entity_mut(body).insert(CollisionLayers::new(
-            racer_sim::track::Layer::Car,
-            racer_sim::track::Layer::Car,
-        ));
+        sim.app
+            .world_mut()
+            .entity_mut(body)
+            .insert(CollisionLayers::new(
+                racer_sim::track::Layer::Car,
+                racer_sim::track::Layer::Car,
+            ));
     }
     let local = time(&mut sim);
     if std::env::var_os("RACER_COST_DEBUG").is_some() {
@@ -598,4 +634,130 @@ pub fn tick_cost(track: Arc<Track>) -> Result<(f64, f64), String> {
         eprintln!("one car alone: {:.0} us", time(&mut sim));
     }
     Ok((full, local))
+}
+
+/// The whole online path with the backend: a lobby created and joined by
+/// two device keys, both ready, the host starts it, the backend's local
+/// fleet starts a server, and two bots connect with the lobby's key and
+/// race `laps` laps (AI fill on). Returns a short report.
+pub fn lobby_check(backend: &Path, laps: u32, track: Arc<Track>) -> Result<String, String> {
+    use serde_json::{Value, json};
+
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .and_then(|l| l.local_addr())
+        .map_err(|e| e.to_string())?
+        .port();
+    let base = format!("http://127.0.0.1:{port}");
+    let _backend = Server(
+        Command::new(backend)
+            .env("RACER_BACKEND_ADDR", format!("127.0.0.1:{port}"))
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("{}: {e}", backend.display()))?,
+    );
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(30)))
+        .build()
+        .into();
+    let call = |key: &str, method: &str, path: &str, body: Value| -> Result<Value, String> {
+        let url = format!("{base}{path}");
+        let mut response = if method == "GET" {
+            agent.get(&url).header("x-device-key", key).call()
+        } else {
+            agent.post(&url).header("x-device-key", key).send_json(body)
+        }
+        .map_err(|e| format!("{method} {path}: {e}"))?;
+        response
+            .body_mut()
+            .read_json()
+            .map_err(|e| format!("{method} {path}: {e}"))
+    };
+    let (host, guest) = ("a".repeat(64), "b".repeat(64));
+    // The backend takes a moment to listen.
+    let mut lobby = Value::Null;
+    for _ in 0..50 {
+        match call(
+            &host,
+            "POST",
+            "/v1/lobbies",
+            json!({ "laps": laps, "ai_fill": true }),
+        ) {
+            Ok(l) => {
+                lobby = l;
+                break;
+            }
+            Err(_) => std::thread::sleep(Duration::from_millis(100)),
+        }
+    }
+    let code = lobby["code"]
+        .as_str()
+        .ok_or("no lobby from the backend")?
+        .to_string();
+    let joined = call(
+        &guest,
+        "POST",
+        &format!("/v1/lobbies/{code}/join"),
+        json!({}),
+    )?;
+    call(
+        &guest,
+        "POST",
+        &format!("/v1/lobbies/{code}/ready"),
+        json!({ "ready": true }),
+    )?;
+    let started = call(
+        &host,
+        "POST",
+        &format!("/v1/lobbies/{code}/start"),
+        json!({}),
+    )?;
+    let server = &started["server"];
+    let addr: SocketAddr = server["addr"]
+        .as_str()
+        .and_then(|a| a.parse().ok())
+        .ok_or(format!("no server in {started}"))?;
+    let hex = server["key"].as_str().ok_or("no key")?;
+    let mut key = [0u8; 32];
+    for (i, b) in key.iter_mut().enumerate() {
+        *b = u8::from_str_radix(hex.get(2 * i..2 * i + 2).ok_or("short key")?, 16)
+            .map_err(|e| e.to_string())?;
+    }
+    let ids = [started["you"].as_u64(), joined["you"].as_u64()];
+    let deadline = Instant::now() + Duration::from_secs(120 + 150 * u64::from(laps));
+    let bots: Vec<_> = ids
+        .iter()
+        .enumerate()
+        .map(|(i, id)| {
+            let track = track.clone();
+            let join = Join {
+                name: format!("lobby{i}"),
+                car: CARS[i].into(),
+                assists: Assists::default(),
+            };
+            let mut config = NetClientConfig::direct(addr, id.unwrap_or(i as u64), join);
+            config.auth.key = key;
+            config.autopilot = Some(Difficulty::Pro);
+            std::thread::spawn(move || bot(config, track, deadline))
+        })
+        .collect();
+    let results: Vec<BotResult> = bots
+        .into_iter()
+        .map(|b| b.join().map_err(|_| "a bot thread panicked".to_string()))
+        .collect::<Result<_, _>>()?;
+    let mut out = format!("lobby {code}: server {addr}\n");
+    for (i, b) in results.iter().enumerate() {
+        writeln!(
+            out,
+            "bot {i}: slot {:?}, {:?}, {} cars in the results",
+            b.slot,
+            b.state,
+            b.racers.len()
+        )
+        .ok();
+        if b.state != SessionState::Over {
+            return Err(format!("{out}bot {i} did not finish the race"));
+        }
+    }
+    Ok(out)
 }

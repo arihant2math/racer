@@ -26,7 +26,13 @@ fn key(n: u8) -> String {
     hex(&[n; DEVICE_KEY_BYTES])
 }
 
-async fn call(app: &Router, method: &str, uri: &str, who: Option<u8>, body: Value) -> (StatusCode, Value) {
+async fn call(
+    app: &Router,
+    method: &str,
+    uri: &str,
+    who: Option<u8>,
+    body: Value,
+) -> (StatusCode, Value) {
     let mut req = Request::builder().method(method).uri(uri);
     if let Some(n) = who {
         req = req.header("x-device-key", key(n));
@@ -41,7 +47,10 @@ async fn call(app: &Router, method: &str, uri: &str, who: Option<u8>, body: Valu
     let response = app.clone().oneshot(req).await.unwrap();
     let status = response.status();
     let bytes = to_bytes(response.into_body(), 1 << 20).await.unwrap();
-    (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+    (
+        status,
+        serde_json::from_slice(&bytes).unwrap_or(Value::Null),
+    )
 }
 
 fn app() -> (Router, Backend, Arc<FakeFleet>) {
@@ -108,7 +117,14 @@ async fn invite_lobby_from_create_to_server() {
     assert_eq!(lobby["members"].as_array().unwrap().len(), 2);
 
     // Only the host changes settings or starts, and only once all are ready.
-    let (status, _) = call(&app, "POST", &format!("{base}/settings"), Some(2), json!({"laps": 5})).await;
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("{base}/settings"),
+        Some(2),
+        json!({"laps": 5}),
+    )
+    .await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     let (status, lobby) = call(
         &app,
@@ -122,7 +138,14 @@ async fn invite_lobby_from_create_to_server() {
     assert_eq!(lobby["settings"]["collisions"], "ghost-first-lap");
     let (status, _) = call(&app, "POST", &format!("{base}/start"), Some(1), Value::Null).await;
     assert_eq!(status, StatusCode::CONFLICT);
-    call(&app, "POST", &format!("{base}/ready"), Some(2), json!({"ready": true})).await;
+    call(
+        &app,
+        "POST",
+        &format!("{base}/ready"),
+        Some(2),
+        json!({"ready": true}),
+    )
+    .await;
     let (status, _) = call(&app, "POST", &format!("{base}/start"), Some(2), Value::Null).await;
     assert_eq!(status, StatusCode::FORBIDDEN);
     let (status, lobby) = call(&app, "POST", &format!("{base}/start"), Some(1), Value::Null).await;
@@ -144,22 +167,71 @@ async fn leaving_passes_the_host_on() {
     let (app, ..) = app();
     let (_, lobby) = call(&app, "POST", "/v1/lobbies", Some(1), Value::Null).await;
     let code = lobby["code"].as_str().unwrap().to_string();
-    call(&app, "POST", &format!("/v1/lobbies/{code}/join"), Some(2), Value::Null).await;
-    let (status, _) = call(&app, "POST", &format!("/v1/lobbies/{code}/leave"), Some(1), Value::Null).await;
+    call(
+        &app,
+        "POST",
+        &format!("/v1/lobbies/{code}/join"),
+        Some(2),
+        Value::Null,
+    )
+    .await;
+    let (status, _) = call(
+        &app,
+        "POST",
+        &format!("/v1/lobbies/{code}/leave"),
+        Some(1),
+        Value::Null,
+    )
+    .await;
     assert_eq!(status, StatusCode::NO_CONTENT);
-    let (_, lobby) = call(&app, "GET", &format!("/v1/lobbies/{code}"), Some(2), Value::Null).await;
+    let (_, lobby) = call(
+        &app,
+        "GET",
+        &format!("/v1/lobbies/{code}"),
+        Some(2),
+        Value::Null,
+    )
+    .await;
     assert_eq!(lobby["host"], lobby["you"]);
 }
 
 #[tokio::test]
 async fn quick_match_groups_by_mode_and_class_and_starts_by_itself() {
     let (app, backend, fleet) = app();
-    let (_, a) = call(&app, "POST", "/v1/quickmatch", Some(1), json!({"class": "hot-hatch"})).await;
-    let (_, b) = call(&app, "POST", "/v1/quickmatch", Some(2), json!({"class": "hot-hatch"})).await;
-    let (_, c) = call(&app, "POST", "/v1/quickmatch", Some(3), json!({"class": "open", "mode": "sprint"})).await;
+    let (_, a) = call(
+        &app,
+        "POST",
+        "/v1/quickmatch",
+        Some(1),
+        json!({"class": "hot-hatch"}),
+    )
+    .await;
+    let (_, b) = call(
+        &app,
+        "POST",
+        "/v1/quickmatch",
+        Some(2),
+        json!({"class": "hot-hatch"}),
+    )
+    .await;
+    let (_, c) = call(
+        &app,
+        "POST",
+        "/v1/quickmatch",
+        Some(3),
+        json!({"class": "open", "mode": "sprint"}),
+    )
+    .await;
     assert_eq!(a["code"], b["code"]);
     assert_ne!(a["code"], c["code"]);
-    let (status, _) = call(&app, "POST", "/v1/quickmatch", Some(4), json!({"class": "trucks"})).await;
+    let (status, _) = call(
+        &app,
+        "POST",
+        "/v1/quickmatch",
+        Some(4),
+        json!({"class": "trucks"}),
+    )
+    .await;
     assert_eq!(status, StatusCode::BAD_REQUEST);
 
     // Not yet due; then due after the wait.
@@ -168,7 +240,14 @@ async fn quick_match_groups_by_mode_and_class_and_starts_by_itself() {
     backend.tick(now_secs() + QUICK_MATCH_WAIT + 1.0).await;
     assert_eq!(fleet.0.load(Ordering::SeqCst), 3);
     let code = a["code"].as_str().unwrap();
-    let (_, lobby) = call(&app, "GET", &format!("/v1/lobbies/{code}"), Some(1), Value::Null).await;
+    let (_, lobby) = call(
+        &app,
+        "GET",
+        &format!("/v1/lobbies/{code}"),
+        Some(1),
+        Value::Null,
+    )
+    .await;
     assert_eq!(lobby["state"], "racing");
 }
 

@@ -58,7 +58,8 @@ impl LocalFleet {
         };
         let ip = |var: &str, default: &str| -> Result<IpAddr, String> {
             let v = std::env::var(var).unwrap_or_else(|_| default.into());
-            v.parse().map_err(|_| format!("{var}: not an IP address: {v:?}"))
+            v.parse()
+                .map_err(|_| format!("{var}: not an IP address: {v:?}"))
         };
         let public = match std::env::var("RACER_FLEET_PUBLIC") {
             Ok(_) => Some(ip("RACER_FLEET_PUBLIC", "")?),
