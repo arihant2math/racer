@@ -57,6 +57,18 @@ const VELOCITY_TOLERANCE: f32 = 0.05;
 /// for a frame that comes late on either side.
 const INPUT_MARGIN_TICKS: f32 = 10.0;
 
+/// Ticks of margin added when the server reports late inputs, at most, and
+/// how long (s) without late inputs before one is taken back.
+const ADAPTIVE_MARGIN_MAX: f32 = 24.0;
+const ADAPTIVE_MARGIN_HOLD: f32 = 10.0;
+
+fn input_margin(extra: f32) -> InputTimelineConfig {
+    InputTimelineConfig::default().with_sync_config(SyncConfig {
+        jitter_margin: INPUT_MARGIN_TICKS + extra,
+        ..default()
+    })
+}
+
 /// Displayed jumps larger than this (m) snap: a reset, not a correction.
 const SNAP_DISTANCE: f32 = 5.0;
 
@@ -78,10 +90,7 @@ impl Plugin for NetClientPlugin {
         // when either side's frame comes late: the clock runs ahead of the
         // server by half the round trip, four times the jitter and this many
         // ticks (lightyear's default is one).
-        .insert_resource(InputTimelineConfig::default().with_sync_config(SyncConfig {
-            jitter_margin: INPUT_MARGIN_TICKS,
-            ..default()
-        }))
+        .insert_resource(input_margin(0.0))
         .init_resource::<NetSession>()
         .init_resource::<NetStats>()
         .configure_sets(
@@ -299,6 +308,11 @@ pub struct Prediction {
     states: BTreeMap<u32, (Body, racer_dynamics::VehicleState)>,
     sent: u32,
     last_snapshot: u32,
+    /// Margin added to the clock lead while inputs come late (ticks), and
+    /// the snapshot tick it last changed at.
+    extra_margin: f32,
+    margin_changed: u32,
+    late_seen: u32,
     ghosted: Vec<bool>,
     /// Remote cars this car touches, as of the last tick.
     touching: Vec<u8>,
@@ -336,6 +350,8 @@ pub struct NetStats {
     /// the server's snapshot of that tick, extrapolated with their inputs
     /// and by dead reckoning (before the display smoothing).
     pub remote_errors: Vec<(f32, f32)>,
+    /// Changes of the adaptive input margin.
+    pub margin_changes: u32,
 }
 
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
@@ -592,6 +608,9 @@ fn start_race(
         states: BTreeMap::new(),
         sent: start.created,
         last_snapshot: start.created,
+        extra_margin: 0.0,
+        margin_changed: start.created,
+        late_seen: start.created,
         ghosted: vec![false; start.grid.len()],
         touching: Vec::new(),
         standings: Vec::new(),
@@ -695,6 +714,7 @@ fn reconcile(world: &mut World) {
         return;
     };
     world.resource_mut::<Prediction>().last_snapshot = snapshot.tick;
+    adapt_margin(world, &snapshot);
     world
         .resource_mut::<NetStats>()
         .input_lead
@@ -800,6 +820,33 @@ fn reconcile(world: &mut World) {
         displayed: before.position.distance(after.position),
         depth,
     });
+}
+
+/// Inputs that came late make the clock run further ahead, a tick a second
+/// at most; ten seconds without a late one take a tick back.
+fn adapt_margin(world: &mut World, snapshot: &Snapshot) {
+    let second = (1.0 / crate::tick_duration().as_secs_f32()) as u32;
+    let mut p = world.resource_mut::<Prediction>();
+    if snapshot.late > 0 {
+        p.late_seen = snapshot.tick;
+    }
+    let calm = snapshot
+        .tick
+        .saturating_sub(p.late_seen.max(p.margin_changed));
+    let extra = if snapshot.late > 0
+        && snapshot.tick >= p.margin_changed + second
+        && p.extra_margin < ADAPTIVE_MARGIN_MAX
+    {
+        p.extra_margin + 1.0
+    } else if p.extra_margin > 0.0 && calm as f32 > ADAPTIVE_MARGIN_HOLD * second as f32 {
+        p.extra_margin - 1.0
+    } else {
+        return;
+    };
+    p.extra_margin = extra;
+    p.margin_changed = snapshot.tick;
+    world.insert_resource(input_margin(extra));
+    world.resource_mut::<NetStats>().margin_changes += 1;
 }
 
 fn body_of(world: &World, entity: Entity) -> Body {

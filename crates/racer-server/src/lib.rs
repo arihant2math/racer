@@ -139,6 +139,8 @@ struct NetDriver {
     missed: BTreeSet<u32>,
     late: Vec<u32>,
     applied: u32,
+    /// Ticks without an input since the last snapshot.
+    missed_since_snapshot: u16,
 }
 
 /// What every car was driven with this tick (sent with the snapshots).
@@ -152,6 +154,7 @@ struct RaceLog {
     touching: Vec<(u8, u8)>,
     tick_time: Vec<f32>,
     long_ticks: Vec<(u32, f32)>,
+    last_frame: Option<Instant>,
     tick_started: Option<Instant>,
 }
 
@@ -198,6 +201,7 @@ pub fn build_app(config: &ServerConfig) -> App {
     )
     .add_systems(FixedUpdate, count_ticks)
     .add_systems(FixedFirst, tick_started)
+    .add_systems(First, frame_gap)
     .add_systems(FixedLast, tick_ended)
     .add_systems(FixedUpdate, apply_inputs.in_set(ControlSystems))
     .add_systems(
@@ -229,6 +233,18 @@ fn count_ticks(mut ticks: ResMut<TickCount>) {
 
 fn tick_started(mut log: ResMut<RaceLog>) {
     log.tick_started = Some(Instant::now());
+}
+
+/// Frames that came long after the one before (the process did not run):
+/// reported with the long steps.
+fn frame_gap(timeline: Res<LocalTimeline>, phase: Res<Phase>, mut log: ResMut<RaceLog>) {
+    let now = Instant::now();
+    if let (Phase::Racing, Some(last)) = (*phase, log.last_frame.replace(now)) {
+        let ms = (now - last).as_secs_f32() * 1000.0;
+        if ms > LONG_TICK_MS {
+            log.long_ticks.push((timeline.tick().0, ms));
+        }
+    }
 }
 
 /// Wall time of each fixed step while racing (simulation cost), and the
@@ -519,6 +535,7 @@ fn start_race(
             missed: BTreeSet::new(),
             late: Vec::new(),
             applied: 0,
+            missed_since_snapshot: 0,
         };
         let name = p.join.name.clone();
         match spawn_racer(
@@ -634,6 +651,11 @@ fn apply_inputs(timeline: Res<LocalTimeline>, mut cars: Query<(&mut NetDriver, &
             None => {
                 driver.missing += 1;
                 driver.missed.insert(tick);
+                // Before the client's first input (the grid was just sent)
+                // nothing could have come.
+                if driver.newest > 0 {
+                    driver.missed_since_snapshot = driver.missed_since_snapshot.saturating_add(1);
+                }
                 driver.last.held()
             }
         };
@@ -709,7 +731,7 @@ fn send_snapshots(
         &CarState,
         &Applied,
     )>,
-    drivers: Query<&NetDriver>,
+    mut drivers: Query<&mut NetDriver>,
     players: Res<Players>,
     mut senders: Query<&mut MessageSender<Snapshot>>,
 ) {
@@ -732,12 +754,15 @@ fn send_snapshots(
             continue;
         };
         let own = cars.get(car).ok().map(|c| c.6.0);
-        let input_ack = drivers.get(car).map_or(0, |d| d.newest);
+        let (input_ack, late) = drivers.get_mut(car).map_or((0, 0), |mut d| {
+            (d.newest, std::mem::take(&mut d.missed_since_snapshot))
+        });
         sender.send::<StateChannel>(Snapshot {
             tick,
             cars: all.clone(),
             own,
             input_ack,
+            late,
         });
     }
 }

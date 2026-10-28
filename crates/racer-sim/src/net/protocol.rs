@@ -199,6 +199,9 @@ pub struct Snapshot {
     pub own: Option<VehicleState>,
     /// Newest input tick the server has from the receiver.
     pub input_ack: u32,
+    /// Ticks since the last snapshot the server drove the receiver's car
+    /// without its input (it came late or not at all).
+    pub late: u16,
 }
 
 /// Server to client: one racer's race state (progress, timing, status).
