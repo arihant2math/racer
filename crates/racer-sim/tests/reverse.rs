@@ -275,7 +275,10 @@ fn a_longer_reverse_warns_then_clears_without_a_reset() {
         racer(a, car).progress.distance < start - 8.0
     });
     assert!(racer(&app, car).progress.distance < start - 8.0);
-    assert!(seen.wrong_way, "8 m of reversing should set off the warning");
+    assert!(
+        seen.wrong_way,
+        "8 m of reversing should set off the warning"
+    );
     drive(&mut app, car, THROTTLE, 8.0, &mut seen, |a| {
         racer(a, car).progress.distance > start + 15.0
     });
@@ -289,7 +292,9 @@ fn a_longer_reverse_warns_then_clears_without_a_reset() {
 }
 
 /// Reversing 12 m back over the line with real physics, then over it again:
-/// the lap is taken back and counted once.
+/// the lap is taken back and counted once, and the no-progress backstop (10 m
+/// in 7 s) does not reset the car for it (it did, at 7.4 s, before the reset
+/// monitor knew about the brake-engaged reverse).
 #[test]
 fn a_longer_reverse_over_the_line_counts_the_lap_once() {
     let (mut app, car) = race_app();

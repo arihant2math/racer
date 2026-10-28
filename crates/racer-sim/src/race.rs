@@ -318,13 +318,20 @@ fn clock(time: Res<Time>, mut race: ResMut<Race>, racers: Query<&Racer>) {
 
 type Body<'a> = (&'a Position, &'a Rotation, &'a LinearVelocity);
 
+#[allow(clippy::type_complexity)]
 fn track_racers(
     time: Res<Time>,
     track: Res<RaceTrack>,
     config: Res<RaceConfig>,
     mut race: ResMut<Race>,
     mut commands: Commands,
-    mut racers: Query<(Entity, &mut Racer, Body, Option<&ResetRequest>)>,
+    mut racers: Query<(
+        Entity,
+        &mut Racer,
+        Body,
+        Option<&CarState>,
+        Option<&ResetRequest>,
+    )>,
 ) {
     let dt = time.delta_secs();
     let g = &track.0.geometry;
@@ -334,7 +341,7 @@ fn track_racers(
     // Per racing car: its laps before this step, when (within the step) it
     // crossed the line or the goal, and whether it reached the goal.
     let mut crossings = Vec::new();
-    for (entity, mut racer, (pos, rot, vel), request) in &mut racers {
+    for (entity, mut racer, (pos, rot, vel), state, request) in &mut racers {
         let forward = rot.0 * Vec3::NEG_Z;
         let (from, laps) = (racer.progress.distance, racer.progress.laps);
         let events = racer.progress.update(g, pos.0, vel.0, forward, dt);
@@ -371,6 +378,9 @@ fn track_racers(
         let racing = running && racer.status == Status::Racing;
         let progress = racer.progress;
         let up = (rot.0 * Vec3::Y).y;
+        if state.is_some_and(|s| s.0.drive.gear < 0 && s.0.drive.brake_reverse) {
+            racer.monitor.backing_up();
+        }
         let reason = racer
             .monitor
             .update(&progress, up, vel.0.length(), racing, dt);

@@ -181,3 +181,59 @@ warnings`, cross-target clippy for `x86_64-pc-windows-msvc` and `aarch64-apple-d
   back", to keep the driving goldens unchanged; the README's controls line does.
 - The no-progress backstop (10 m per 7 s) still applies: a driver who spends 7 s reversing and
   dithering is reset, as before.
+
+## Review
+
+Independent review of this branch, adversarial, against the brief (gearbox and pedals, netcode,
+AI and race rules, camera/HUD/lights, gate).
+
+### Checked, found sound
+
+| Area | What I checked |
+|---|---|
+| Hard stops, slow corners | `auto_reverse` needs the car below 0.3 m/s *and* 0.6 s of brake ≥ 20 % with throttle ≤ 5 %; any motion above 0.3 m/s restarts the hold. A corner at walking pace never stands still long enough. |
+| Shunt from behind, walls | A push above 0.3 m/s while waiting on the brake restarts the hold (new test). Nose in a wall with the brake held is the reverse gesture, as intended. |
+| Slopes | Rolling back down a 12 % grade in a forward gear, the brake first stops the car and reverse only comes after a full 0.6 s standing; off the pedals in R the car rolls back and stays in R; the throttle brakes it to a stop, selects 1st and climbs (new test). Side note, not this branch: the automatic upshifts on wheel speed while rolling backwards. |
+| R/1st oscillation | Each change needs the other pedal (R → 1st on the throttle, 1st → R on the brake with the throttle off), so there is no flicker at the 0.3 m/s threshold. Both pedals in a brake reverse: 1st, and no gear change over 3 s (new test). A brake hovering at 18–22 % only restarts the hold (new test). |
+| Handbrake | Not an input to `auto_reverse`; the brake with the handbrake engages reverse as the brake alone does. |
+| Reset, restart, pause, finish | A reset puts `initial_state()` back (1st, timer 0, no swap); a restart spawns a new car; pause stops the fixed steps, so the timer stops too; after the finish nothing takes over the player's car (autopilot is only inserted at the start). |
+| Automatic → manual mid-reverse | The swap needs `automatic`, so in the manual the brake brakes and the throttle drives back; a lever shift clears `brake_reverse` (new test). |
+| Countdown `hold` | The server's `race::hold` runs after `apply_inputs` in the same tick and only while `RacePhase::Countdown`; the client's `inputs` sets it for `tick < start`. That is the same boundary the existing `brake = 1.0` hold already used, and `check_start` logs if the server's start tick ever differs. Every controls writer (keyboard/pad/wheel, AI, net decode, autopilot) replaces the whole `Controls`, so `hold` never lingers past the start. |
+| Snapshots | `DriveState` is serde-derived inside `VehicleState`; the snapshot's `own` carries it whole and rollback restores it. There is no separate hash. |
+| Bindings | B and the right stick button are bound nowhere else (keyboard: WASD/arrows, Space, C, E/Q, R, V, T, K, 1–3; pad: South, North, Select, Start, bumpers, triggers, D-pad, East). |
+| HUD | Both HUDs show `R` for any `gear < 0`, which covers both gearbox modes. |
+| Camera | The chase camera follows the heading, so it stays behind the nose while reversing at the 30 km/h cap (about 0.8 m of lag). A fast spin still snaps through the heading lerp as before; nothing new. |
+
+### Found and fixed
+
+1. **Rollback missed reverse-state mispredictions.** The client compared only the gear and the
+   wheel speeds with the server's `own` state, so a `reverse_hold` timer a tick out, or a
+   different `brake_reverse`, went uncorrected until reverse engaged a tick apart (a jolt later).
+   `state_off` in `net/client.rs` now compares both fields too.
+2. **A longer reverse got the car reset.** The no-progress backstop (10 m of progress in 7 s)
+   counted from the last 10 m mark, so backing up more than a few metres and driving on was reset
+   as Stuck: 12 m back over the line and forward again was reset at 7.4 s (8 m too). While the car
+   is in the automatic's brake-engaged reverse, `ResetMonitor::backing_up` now holds the clock
+   and moves the anchor back with the car, so the 10 m count starts from the furthest point back.
+   Rocking in place is still caught (the clock runs whenever the car is not reversing; caught at
+   15 s instead of 7 s with half the time spent reversing). The AI drives the manual and never
+   sets `brake_reverse`, so AI resets are unchanged. A lever reverse in the manual does not
+   get this. Tests: `a_longer_reverse_over_the_line_counts_the_lap_once` (12 m with real physics,
+   no reset, lap counted once), `a_longer_reverse_warns_then_clears_without_a_reset`, and
+   `backing_up_holds_the_no_progress_clock_but_rocking_is_still_stuck` in `rules.rs`.
+3. **A resting right trigger blocked reverse on a gamepad.** Triggers shared one 5 % deadzone
+   that only gated *whether* the pad was read: with the left trigger down, the right trigger's
+   raw value went straight through, so a trigger that rests at 6–8 % read as throttle above
+   `PEDAL_OFF` and the automatic never engaged reverse (or dropped straight back to 1st). Each
+   trigger now has its own rescaled deadzone, `(v − 0.05) / 0.95`. Test:
+   `a_right_trigger_resting_above_zero_does_not_block_reverse`.
+4. **No reverse lights on built car models.** Models now get the same two lights just behind
+   the tail (`len / 2 + 1 cm`, the greybox's height), hidden until reverse. Built models are not
+   in the repo (`/assets` is ignored), so I could not view them; the placement comes from the spec
+   dimensions and may want a tweak against the real meshes.
+
+### Gate
+
+`cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, cross-target
+clippy for `x86_64-pc-windows-msvc` and `aarch64-apple-darwin` with `CARGO_FEATURE_PURE=1`, and
+`cargo test --workspace`: see the commit; results below.

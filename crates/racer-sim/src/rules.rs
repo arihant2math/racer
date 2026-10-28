@@ -244,6 +244,9 @@ pub struct ResetMonitor {
     /// that progress (none until the next update after a start or reset).
     no_progress: f32,
     anchor: Option<f32>,
+    /// Set for one update by [`ResetMonitor::backing_up`].
+    #[serde(default)]
+    backing_up: bool,
     /// Last valid progress distance and lateral offset.
     pub last_valid: (f32, f32),
 }
@@ -256,8 +259,18 @@ impl ResetMonitor {
             off_track: 0.0,
             no_progress: 0.0,
             anchor: None,
+            backing_up: false,
             last_valid: (progress.distance, progress.lateral),
         }
+    }
+
+    /// The driver is backing up on purpose this step (the automatic's
+    /// brake-engaged reverse, which the AI never uses): the no-progress clock
+    /// waits, and the progress it wants is counted from the furthest point
+    /// back, so reversing out of a run-off is not a stuck car. Rocking in
+    /// place still is (the clock runs whenever the car is not reversing).
+    pub fn backing_up(&mut self) {
+        self.backing_up = true;
     }
 
     /// `up_y` is the car's up vector's vertical component, `speed` its speed.
@@ -279,9 +292,12 @@ impl ResetMonitor {
         if !racing || progress.distance > anchor + STUCK_PROGRESS {
             self.anchor = Some(progress.distance);
             self.no_progress = 0.0;
+        } else if self.backing_up {
+            self.anchor = Some(anchor.min(progress.distance));
         } else {
             self.no_progress += dt;
         }
+        self.backing_up = false;
         if progress.on_track && up_y > 0.8 && !progress.wrong_way && speed > STUCK_SPEED {
             self.last_valid = (progress.distance, progress.lateral);
         }
@@ -837,6 +853,44 @@ mod tests {
         let (r, at) = reset.unwrap();
         assert_eq!(r, ResetReason::Stuck);
         assert!((at - NO_PROGRESS_AFTER).abs() < 0.01, "{at}");
+    }
+
+    #[test]
+    fn backing_up_holds_the_no_progress_clock_but_rocking_is_still_stuck() {
+        let t = track();
+        let p = Progress::new(&t, t.grid[0].position);
+        let dt = 1.0 / 240.0;
+        // 4 s stopped, 4 s reversing 3 m/s (12 m), then forwards at 6 m/s:
+        // no reset, since it counts from the furthest point back.
+        let mut m = ResetMonitor::new(&p);
+        let mut q = p;
+        for k in 0..240 * 14 {
+            let (speed, reversing) = match k / 240 {
+                0..4 => (0.0, false),
+                4..8 => (3.0, true),
+                _ => (6.0, false),
+            };
+            q.distance += if reversing { -speed } else { speed } * dt;
+            if reversing {
+                m.backing_up();
+            }
+            assert_eq!(m.update(&q, 1.0, speed.max(1.5), true, dt), None, "{k}");
+        }
+        // Rocking: 1 s back, 1 s forward, in place. Reversing pauses the
+        // clock, so it takes twice as long, but it is still stuck.
+        let mut m = ResetMonitor::new(&p);
+        let mut q = p;
+        let reset = (0..240 * 20).find_map(|k| {
+            let back = (k / 240) % 2 == 0;
+            q.distance += if back { -2.0 } else { 2.0 } * dt;
+            if back {
+                m.backing_up();
+            }
+            m.update(&q, 1.0, 2.0, true, dt).map(|r| (r, k as f32 * dt))
+        });
+        let (r, at) = reset.unwrap();
+        assert_eq!(r, ResetReason::Stuck);
+        assert!(at <= 2.0 * NO_PROGRESS_AFTER + 2.0, "{at}");
     }
 
     #[test]
