@@ -15,6 +15,14 @@ Files changed: `crates/racer-dynamics/src/{spec,tire,vehicle,drivetrain}.rs`,
 `crates/racer-sim/src/{vehicle,track}.rs` and the QA test files of those two crates. No car data
 changed: the three shipped cars pass the new validation as they are.
 
+Two sets of derived files outside the group's scope were regenerated because the physics changed
+(see [Regression checks](#regression-checks)):
+
+- `data/tracks/downtown-loop/generated/` (summary and speed profiles), with
+  `cargo run --release -p racer-trackc -- compile data/tracks/downtown-loop` (commit `64c478b`).
+- `crates/racer-capture/goldens/race/*.png`, with
+  `CAPTURE_PROFILE=release tools/capture.sh race <dir>`.
+
 ## QA-PHYS-1 (+ QA-EDGE-4): no validation of car parameters
 
 **Root cause.** `Vehicle::from_spec` and `CarSpec::parse` checked nothing. TOML accepts
@@ -211,7 +219,87 @@ unaffected.
 
 ## Regression checks
 
-<!-- filled in below -->
+Run on `fix/dynamics` at `64c478b`, after all the fixes. The race-golden regeneration (last item)
+was committed after that.
+
+**Lints.**
+
+- `cargo fmt --all --check`: clean.
+- `cargo clippy --workspace --all-targets --locked -- -D warnings`: clean.
+- `cargo clippy -p racer-game --all-targets --features wheel --locked -- -D warnings`: clean.
+- `CARGO_FEATURE_PURE=1 cargo clippy --workspace --all-targets --locked --target <t> -- -D warnings`
+  for `x86_64-pc-windows-msvc` and `aarch64-apple-darwin`: both clean.
+
+**`cargo test --workspace --locked`.** All pass. The other groups' QA repro tests are still
+ignored, as they should be.
+
+The first run had one failure: `racer-trackc`'s `generated_data_matches_the_track` reported
+`bmw-m3-competition-g80: car model changed`. The track's car models are fitted from the vehicle
+dynamics. The PHYS-3 slip change acts during launch wheelspin, so only the low-speed bins of the
+fitted `drive` tables moved (M3 first bin 6.50 → 6.73). Lap times moved by at most 0.001 s (GTI
+88.413 → 88.414, M3 81.296 → 81.295, 911 unchanged).
+
+I regenerated with exactly `cargo run --release -p racer-trackc -- compile data/tracks/downtown-loop`
+(commit `64c478b`, generated files only). **Note for fix/ai and fix/tooling:** this data is
+derived. If either branch regenerates it too, the merge conflict resolves by re-running that
+command on the merged tree, not by picking a side.
+
+**M1 reference maneuvers** (`cargo test -p racer-dynamics --release --test maneuvers`). All
+three cars stay within the M1 tolerances, and the figures are identical to before the fixes
+except the M3 0-100 (4.06 → 4.05 s):
+
+| Car | 0-100 s (±8 %) | 100-0 m (±8 %) | Skidpad g (±0.08) | Top km/h (±4 %) |
+|---|---|---|---|---|
+| Golf GTI | 6.00 / 6.30 | 36.66 / 36.40 | 0.96 / 0.97 | 250.0 / 250 |
+| M3 Competition | 4.05 / 3.90 | 34.89 / 36.00 | 1.04 / 1.03 | 250.0 / 250 |
+| 911 Carrera S | 3.57 / 3.70 | 31.26 / 31.40 | 1.05 / 1.06 | 313.1 / 308 |
+
+(sim / real.) The step-steer stability tests pass unchanged. The Avian side doesn't feed these
+figures: they come from the testbed.
+
+**`tools/telemetry.sh`.** All 9 runs (3 cars × lap, skidpad, launch-brake) and the plots were
+written. In the GTI launch-brake plot, the car stops at 12.2 s with a short damped settle and no
+creep afterwards; slip ratios stay within ±0.25 except on the stop itself. The M3 lap looks as in
+M1. The single ~50 kN load spike is the crest landing, a known M1 artefact (QA measured 48 kN).
+
+**Capture goldens** (`tools/capture.sh <scene>`, then `racer-capture diff`):
+
+| Scene | Result |
+|---|---|
+| greybox | 0.000 mean error on all 3 poses |
+| menu | 0.000 on both poses |
+| driving | all 6 pass (≤ 0.159 mean error) |
+| race | **changed**, goldens regenerated (below) |
+
+At the branch base, the race goldens match bit for bit; with the fixes, `hud`, `pack` and
+`results` differ. I bisected the cause. With only the old `racer-sim` contact code restored,
+`pack` drops from 10.3 to 1.9 mean error, and restoring the old `track.rs` alone brings back the
+old behaviour. So almost all of it is **QA-PHYS-4**, and it was bigger than the report thought.
+
+A GTI launched from the back of the city grid on the old code had 3090 wheel-travel jumps over
+1 cm in 8.5 s, with loads to 6.5 kN, while driving on the road trimesh. Wheel casts gather
+candidates from every ground collider, and the GJK failure against the ~2 km city ground box
+under the road produced bogus hits as well as misses. With the half-space ground there are 0
+jumps, the peak load is static (4.6 kN), and the GTI reaches 100 km/h in 6.0 s from the grid, as
+in the testbed, instead of about 6.5 s.
+
+The new race captures are the correct physics, so I regenerated `crates/racer-capture/goldens/race/`
+from `CAPTURE_PROFILE=release tools/capture.sh race`. A fresh capture matches them bit for bit.
+
+**AI races** (`racer-capture ai-races --races 12 --laps 3`, the M2 review's run). This is for the
+AI fixer's before/after baseline, since the contact fixes change the races:
+
+| | Contacts | Resets in traffic | Resets alone | Rows |
+|---|---|---|---|---|
+| branch base | 458 | 15 (6.1 % of 246 laps) | 0 | all ok |
+| fix/dynamics | 345 | 8 | 3 | Pro and Expert **FAIL** |
+
+I replayed all three "alone" resets (race 5 Pro 911 twice at ~1450 m, race 11 Expert 911 at
+1875 m). In each, the AI brakes to a standstill 3.5-8 m behind a stopped car, with all wheels in
+contact, normal loads and no wall contact. It waits and is reset as Stuck. That is QA-AI-1 (AI
+waits behind a stopped car instead of driving round it) showing up in a reshuffled race, not a
+vehicle-physics problem, so I left it to fix/ai. Their exit check should compare against the
+fix/dynamics numbers above (or merge this branch first).
 
 ## Left open
 
