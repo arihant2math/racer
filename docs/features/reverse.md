@@ -225,7 +225,8 @@ AI and race rules, camera/HUD/lights, gate).
    that only gated *whether* the pad was read: with the left trigger down, the right trigger's
    raw value went straight through, so a trigger that rests at 6–8 % read as throttle above
    `PEDAL_OFF` and the automatic never engaged reverse (or dropped straight back to 1st). Each
-   trigger now has its own rescaled deadzone, `(v − 0.05) / 0.95`. Test:
+   trigger now has its own 10 % deadzone (values above it pass through unchanged, as
+   QA-UI-4's test expects). Test:
    `a_right_trigger_resting_above_zero_does_not_block_reverse`.
 4. **No reverse lights on built car models.** Models now get the same two lights just behind
    the tail (`len / 2 + 1 cm`, the greybox's height), hidden until reverse. Built models are not

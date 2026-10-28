@@ -131,10 +131,13 @@ fn read_devices(
         // `Gamepad` holds raw values (Bevy's axis settings only filter its
         // change events), so this is the one deadzone.
         let stick = pad.left_stick().x;
-        // Each trigger gets its own deadzone, rescaled: a worn trigger resting
-        // just above it must not read as a touch of throttle while the other
-        // is pressed (the automatic's reverse needs the throttle released).
-        let trigger = |b| ((pad.get(b).unwrap_or(0.0) - 0.05) / 0.95).max(0.0);
+        // Each trigger gets its own deadzone: a worn trigger resting just
+        // above zero must not read as a touch of throttle while the other is
+        // pressed (the automatic's reverse needs the throttle released).
+        let trigger = |b| {
+            let v = pad.get(b).unwrap_or(0.0);
+            if v > 0.1 { v } else { 0.0 }
+        };
         let (rt, lt) = (
             trigger(GamepadButton::RightTrigger2),
             trigger(GamepadButton::LeftTrigger2),
