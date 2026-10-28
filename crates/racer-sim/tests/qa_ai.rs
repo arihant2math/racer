@@ -19,7 +19,7 @@ use racer_dynamics::load_car;
 use racer_sim::{
     ai::{AiDriver, Difficulty},
     race::{DriverKind, Race, RaceConfig, RacePlugin, RaceTrack, Racer, spawn_racer},
-    rules::Status,
+    rules::{ResetReason, Status},
     track::{PieceKind, TrackPiece, city_track, spawn_track},
     vehicle::{CarBody, CarControls},
 };
@@ -276,44 +276,37 @@ fn qa_ai_3_a_car_turning_solid_ahead_is_not_rammed() {
     assert!(hit < 3.0, "standing car knocked to {hit:.1} m/s");
 }
 
-/// QA-AI-4: race 7, first lap. The Alien GTI hits the inner wall at ~946 m
-/// and the Expert GTI runs into it. Both are left pushing against the wall
-/// and each other at 0-3 m/s; the speed keeps crossing 1 m/s, so neither
-/// the rules' stuck timer (3 s below 1 m/s) nor the AI's own stuck check
-/// (0.8 s below 0.8 m/s with the throttle open) runs out. The Alien makes
-/// no 10 m of progress for 12.4 s and the Expert for ~11 s before the
-/// AI's 12 s progress timeout or a `Stuck` reset ends it; two cars queued
-/// behind are reset as well.
+/// QA-AI-4: a car pushing against an obstacle (found in race 7, first lap:
+/// two GTIs against the inner wall and each other at ~946 m) rocks at
+/// 0-3 m/s. Its speed keeps crossing 1 m/s, so the rules' stuck timer (3 s
+/// below 1 m/s) never runs out, and it made no 10 m of progress for 12.4 s
+/// before the AI's 12 s progress timeout ended it. Built directly here (a
+/// car held in place, its speed rocking between 0.5 and 2.5 m/s every half
+/// second), so it does not depend on a race replaying the same way.
 #[test]
 fn qa_ai_4_a_car_pushing_against_an_obstacle_is_reset_within_a_few_seconds() {
-    let entries = mixed_entries(7);
-    let (mut app, cars) = race_app(RaceConfig::default(), &entries);
-    // Per car: distance and time of the last 10 m of progress, resets seen.
-    let mut last: Vec<(f32, f32, usize)> = vec![(f32::MIN, 0.0, 0); cars.len()];
-    let mut worst = (0.0f32, 0usize, 0.0f32);
-    while time(&app) < 56.0 {
+    let (mut app, cars) = race_app(short(), &[(GTI, DriverKind::Human)]);
+    start(&mut app);
+    let car = cars[0];
+    place(&mut app, car, 946.0, 0.0, 0.0, 0.0);
+    let pose = *app.world().get::<Transform>(car).unwrap();
+    let (t0, mut step) = (time(&app), 0usize);
+    while racer(&app, car).resets.is_empty() && time(&app) - t0 < 12.0 {
+        let speed = if step % 240 < 120 { 0.5 } else { 2.5 };
+        step += 1;
+        let world = app.world_mut();
+        world.get_mut::<Position>(car).unwrap().0 = pose.translation;
+        world.get_mut::<Rotation>(car).unwrap().0 = pose.rotation;
+        world.get_mut::<LinearVelocity>(car).unwrap().0 = pose.rotation * Vec3::NEG_Z * speed;
+        world.get_mut::<AngularVelocity>(car).unwrap().0 = Vec3::ZERO;
+        *world.get_mut::<Transform>(car).unwrap() = pose;
         app.update();
-        let now = time(&app);
-        if now < 0.0 {
-            continue;
-        }
-        for (i, &c) in cars.iter().enumerate() {
-            let r = racer(&app, c);
-            if r.progress.distance > last[i].0 + 10.0 || r.resets.len() != last[i].2 {
-                last[i] = (r.progress.distance, now, r.resets.len());
-            }
-            if now - last[i].1 > worst.0 {
-                worst = (now - last[i].1, i, r.progress.distance);
-            }
-        }
     }
+    let r = racer(&app, car);
+    let reset = r.resets.first().map(|x| (x.reason, x.time - t0));
     assert!(
-        worst.0 < 8.0,
-        "car {} ({:?}) made no 10 m of progress for {:.1} s at {:.0} m without a reset",
-        worst.1,
-        entries[worst.1].1,
-        worst.0,
-        worst.2
+        matches!(reset, Some((ResetReason::Stuck, t)) if (5.0..8.0).contains(&t)),
+        "car rocking in place without progress: reset {reset:?}"
     );
 }
 

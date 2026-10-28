@@ -285,3 +285,32 @@ Minor points I checked and left as they are:
 
 **Approve.** The group's bugs are fixed with a coherent progress and timing model. The checks
 are green on the merged head, and I found no new rules holes.
+
+### Addendum: QA-AI-4 test rebuilt, re-verified on main + fix/dynamics
+
+The fix/dynamics review found that the QA-AI-4 repro replayed race 7 lap 1. fix/dynamics' contact
+fixes reshuffle that race, so the pile-up no longer happens and the test passed whether or not
+stuck detection was fixed. The test now builds the scenario directly. One human car on the open
+road at 946 m is held in place, with its speed rocking along its nose between 0.5 and 2.5 m/s
+every half second, so it crosses 1 m/s each second. The test asserts a `Stuck` reset 5-8 s
+after it starts. It doesn't depend on any race replay or on the dynamics.
+
+- With `NO_PROGRESS_AFTER` disabled (1e9), it fails: no reset in 12 s ("reset None").
+- With the fix, it passes: `Stuck` at ~7 s.
+- The QA-AI-4 entry above ("worst stall ... 7.0 s, under the test's 8 s limit") describes the
+  old replay test.
+
+I merged `origin/main` at `dc60932`, which contains fix/dynamics. The merge had no conflicts.
+I then re-ran everything on the merged tree:
+
+| Check | Result |
+|---|---|
+| fmt, clippy (native, `--features wheel`, Windows and macOS targets) | all clean |
+| `cargo test --workspace --locked`, twice | 119 passed, 0 failed, 42 ignored, both runs |
+| `#[ignore]` vs `origin/main` | only this group's markers removed |
+| `-- --ignored --no-fail-fast` | 5 slow checks pass, and the 37 failures are all other groups' repros. None is this group's |
+| `QA_EDGE_CASES=4000` rule properties | 9/9 pass |
+| `ai-races --races 4 --laps 3` | every race completes. 3 resets (all `Stuck`, race 3 at 949-966 m, the QA-AI-2 corner), longest stall 8.5 s. Every difficulty row passes |
+| menu / race captures vs goldens | menu identical; race grid/hud/pack identical, results 0.149 / 0.15 % |
+
+The verdict stands: **approve**.
