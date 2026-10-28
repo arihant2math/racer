@@ -1,9 +1,10 @@
 //! Greybox driving scene: the test track and skidpad, a drivable car with
 //! car selection, chase and hood cameras and a debug HUD.
 
-use bevy::{light::atmosphere::ScatteringMedium, prelude::*};
+use bevy::{input::gamepad::Gamepad, light::atmosphere::ScatteringMedium, prelude::*};
 use racer_dynamics::{CarSpec, load_car, spec::CARS};
 use racer_sim::{
+    race::Racer,
     track::{Track, skidpad_start, spawn_track, test_track},
     vehicle::{Car, CarTelemetry, spawn_car},
 };
@@ -82,6 +83,9 @@ pub enum CameraMode {
 pub struct ChaseCamera {
     position: Option<Vec3>,
     heading: Vec3,
+    /// The car followed and its reset count: the camera snaps behind a new
+    /// car (a restart or respawn) or a reset car instead of flying there.
+    followed: Option<(Entity, usize)>,
 }
 
 #[derive(Component)]
@@ -134,7 +138,11 @@ pub fn spawn_player_car(
         .expect("car.toml is validated by tests")
 }
 
-fn select(keys: Res<ButtonInput<KeyCode>>, mut selection: ResMut<Selection>) {
+fn select(
+    keys: Res<ButtonInput<KeyCode>>,
+    pads: Query<&Gamepad>,
+    mut selection: ResMut<Selection>,
+) {
     for (i, key) in [KeyCode::Digit1, KeyCode::Digit2, KeyCode::Digit3]
         .into_iter()
         .enumerate()
@@ -150,7 +158,7 @@ fn select(keys: Res<ButtonInput<KeyCode>>, mut selection: ResMut<Selection>) {
         selection.location = Location::Skidpad;
     }
     // Reset: re-trigger change detection to respawn at the start.
-    if keys.just_pressed(KeyCode::KeyR) {
+    if keys.just_pressed(KeyCode::KeyR) || pads.iter().any(|p| p.just_pressed(RESET_BUTTON)) {
         selection.set_changed();
     }
 }
@@ -177,8 +185,17 @@ fn respawn_car(
     }
 }
 
-fn toggle_camera(keys: Res<ButtonInput<KeyCode>>, mut mode: ResMut<CameraMode>) {
-    if keys.just_pressed(KeyCode::KeyV) {
+/// Gamepad button that resets the car (R on the keyboard).
+pub const RESET_BUTTON: GamepadButton = GamepadButton::North;
+/// Gamepad button that switches chase/hood camera (V on the keyboard).
+pub const CAMERA_BUTTON: GamepadButton = GamepadButton::Select;
+
+fn toggle_camera(
+    keys: Res<ButtonInput<KeyCode>>,
+    pads: Query<&Gamepad>,
+    mut mode: ResMut<CameraMode>,
+) {
+    if keys.just_pressed(KeyCode::KeyV) || pads.iter().any(|p| p.just_pressed(CAMERA_BUTTON)) {
         *mode = match *mode {
             CameraMode::Chase => CameraMode::Hood,
             CameraMode::Hood => CameraMode::Chase,
@@ -195,15 +212,20 @@ type PlayerNotCamera = (With<Player>, Without<SceneCamera>);
 fn follow_camera(
     time: Res<Time>,
     mode: Res<CameraMode>,
-    cars: Query<(&Transform, &CarTelemetry), PlayerNotCamera>,
+    cars: Query<(Entity, &Transform, &CarTelemetry, Option<&Racer>), PlayerNotCamera>,
     mut cameras: Query<(&mut Transform, &mut Projection, &mut ChaseCamera), With<SceneCamera>>,
 ) {
-    let Some((car, telemetry)) = cars.iter().next() else {
+    let Some((entity, car, telemetry, racer)) = cars.iter().next() else {
         return;
     };
+    let followed = (entity, racer.map_or(0, |r| r.resets.len()));
     let speed = telemetry.telemetry.speed as f32;
     let dt = time.delta_secs();
     for (mut transform, mut projection, mut chase) in &mut cameras {
+        if chase.followed.replace(followed) != Some(followed) {
+            chase.position = None;
+            chase.heading = Vec3::ZERO;
+        }
         let fov = match *mode {
             CameraMode::Chase => {
                 let forward = car.forward().as_vec3();

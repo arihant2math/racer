@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use bevy::{light::atmosphere::ScatteringMedium, prelude::*};
+use bevy::{input::gamepad::Gamepad, light::atmosphere::ScatteringMedium, prelude::*};
 use racer_dynamics::{Assists, load_car, spec::CARS};
 use racer_sim::{
     ai::{AiDriver, Difficulty},
@@ -18,7 +18,7 @@ use racer_sim::{
 use racer_trackc::Track;
 
 use crate::{
-    driving::{CameraPlugin, ChaseCamera},
+    driving::{CameraPlugin, ChaseCamera, RESET_BUTTON},
     flow::{AppState, RaceSetup},
     greybox::{SceneCamera, spawn_environment},
     hud::HudPlugin,
@@ -50,6 +50,15 @@ impl Plugin for RaceScenePlugin {
                 ),
             );
     }
+}
+
+/// A human driver's aids beyond the car's ABS/TCS/ESC, shown in the results
+/// so times stay comparable.
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DriverAids {
+    pub steering_assist: bool,
+    pub racing_line: bool,
+    pub automatic: bool,
 }
 
 /// Everything that belongs to one race and goes when it is cleared.
@@ -165,6 +174,11 @@ fn start_race(
         let paint = CarPaint(PAINT[slot % PAINT.len()]);
         let player = name == "You";
         let result = if player {
+            let aids = DriverAids {
+                steering_assist: setup.steering_assist,
+                racing_line: setup.racing_line,
+                automatic: setup.automatic,
+            };
             spawn_racer(
                 &mut commands,
                 t,
@@ -172,7 +186,7 @@ fn start_race(
                 slot,
                 name.clone(),
                 driver,
-                (paint, Player),
+                (paint, Player, aids),
             )
         } else {
             spawn_racer(&mut commands, t, &spec, slot, name.clone(), driver, paint)
@@ -242,13 +256,19 @@ fn spawn_racing_line(
     }
 }
 
+/// R (or the gamepad's reset button) puts the car back on the track. Not
+/// while paused: the request would wait and reset the car on resume.
 fn reset_key(
     mut commands: Commands,
+    time: Res<Time<Virtual>>,
     keys: Res<ButtonInput<KeyCode>>,
+    pads: Query<&Gamepad>,
     players: Query<Entity, (With<Player>, Without<AiDriver>)>,
     race: Res<Race>,
 ) {
-    if keys.just_pressed(KeyCode::KeyR) && race.phase == RacePhase::Running {
+    let pressed =
+        keys.just_pressed(KeyCode::KeyR) || pads.iter().any(|p| p.just_pressed(RESET_BUTTON));
+    if pressed && !time.is_paused() && race.phase == RacePhase::Running {
         for e in &players {
             commands.entity(e).insert(ResetRequest);
         }
