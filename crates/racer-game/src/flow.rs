@@ -448,6 +448,7 @@ fn resume_time(mut paused: ResMut<Paused>, mut time: ResMut<Time<Virtual>>) {
 
 /// Opens the pause menu on Esc or gamepad Start, and when a gamepad is
 /// unplugged mid-race.
+#[allow(clippy::too_many_arguments)]
 fn toggle_pause(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
