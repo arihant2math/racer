@@ -5,6 +5,7 @@ use std::time::Duration;
 use bevy::{prelude::*, time::TimeUpdateStrategy};
 use racer_game::{
     GamePlugin,
+    car_model::ModelWheel,
     driving::{CameraMode, DrivingPlugin, Location, hood_camera},
     flow::{AppState, OpponentCars, RaceSetup},
     greybox::{GreyboxPlugin, default_camera_transform},
@@ -18,7 +19,7 @@ use racer_sim::{
 use crate::harness::{Pose, PoseCamera};
 
 /// Names accepted by [`add_scene`].
-pub const SCENES: &[&str] = &["greybox", "driving", "race", "menu"];
+pub const SCENES: &[&str] = &["greybox", "driving", "race", "menu", "showroom"];
 
 /// Adds the named scene to `app` and returns its camera poses.
 pub fn add_scene(app: &mut App, name: &str) -> Option<Vec<Pose>> {
@@ -133,6 +134,45 @@ pub fn add_scene(app: &mut App, name: &str) -> Option<Vec<Pose>> {
                                 .is_some_and(|r| r.phase == RacePhase::Finished)
                     }),
                 },
+            ])
+        }
+        "showroom" => {
+            // The 911 (pipeline model) at rest on the start line, close up.
+            app.insert_resource(CameraMode::Fixed).add_plugins((
+                VehiclePlugin,
+                DrivingPlugin {
+                    car: 2,
+                    location: Location::Track,
+                },
+            ));
+            let start = test_track().start.translation;
+            let car = start + Vec3::Y * 0.45;
+            let look =
+                |from: Vec3, at: Vec3| Transform::from_translation(from).looking_at(at, Vec3::Y);
+            let loaded = |w: &World| w.iter_entities().any(|e| e.contains::<ModelWheel>());
+            let shot = |name: &str, t: Transform| Pose {
+                name: name.into(),
+                camera: PoseCamera::Fixed(t),
+                prepare: None,
+                ready: Some(loaded),
+            };
+            Some(vec![
+                shot(
+                    "front-three-quarter",
+                    look(car + Vec3::new(-4.0, 0.6, -4.6), car),
+                ),
+                shot(
+                    "rear-three-quarter",
+                    look(car + Vec3::new(4.2, 1.0, 4.6), car),
+                ),
+                shot("side", look(car + Vec3::new(-7.5, 0.4, 0.0), car)),
+                shot(
+                    "chase",
+                    look(
+                        car + Vec3::new(0.0, 1.7, 6.5),
+                        car + Vec3::new(0.0, 0.4, -2.0),
+                    ),
+                ),
             ])
         }
         "menu" => {

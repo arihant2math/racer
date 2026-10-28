@@ -15,7 +15,8 @@ pub struct VisualsPlugin;
 
 impl Plugin for VisualsPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, (mesh_track_pieces, mesh_cars))
+        app.add_plugins(crate::car_model::CarModelPlugin)
+            .add_systems(Update, (mesh_track_pieces, mesh_cars))
             .add_systems(
                 PostUpdate,
                 animate_wheels.before(TransformSystems::Propagate),
@@ -102,14 +103,21 @@ fn mesh_track_pieces(
     }
 }
 
-/// Gives new painted cars a greybox body (lower body, glasshouse) and wheels.
+/// Gives new painted cars their pipeline model if built, else a greybox body
+/// (lower body, glasshouse) and wheels.
 fn mesh_cars(
     mut commands: Commands,
     cars: Query<(Entity, &Car, &CarPaint), Added<CarPaint>>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
+    asset_server: Res<AssetServer>,
 ) {
     for (entity, car, paint) in &cars {
+        if let Some(path) = crate::car_model::model_path(&car.id) {
+            let cg = car.vehicle.ride_height() as f32;
+            crate::car_model::spawn_model(&mut commands, &asset_server, entity, path, cg);
+            continue;
+        }
         let Ok(spec) = racer_dynamics::load_car(&car.id) else {
             continue;
         };
