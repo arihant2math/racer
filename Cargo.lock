@@ -4784,6 +4784,7 @@ version = "0.1.0"
 dependencies = [
  "bevy",
  "proptest",
+ "racer-data",
  "racer-dynamics",
  "racer-render",
  "racer-sim",

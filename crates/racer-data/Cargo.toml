@@ -1,6 +1,6 @@
 [package]
 name = "racer-data"
-description = "Locates the game data directory (cars, tracks) at run time."
+description = "Locates the game data (cars, tracks) and assets (car models) at run time."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
