@@ -77,9 +77,10 @@ windowing or audio), which is compiled separately the first time.
 Driving controls: WASD or arrows, Space handbrake, Q/E shift down/up (automatic by default),
 C clutch, V chase/hood camera, R reset (in a race: back to the last valid track position).
 In a race, Esc (gamepad Start) pauses. Driving scene only: 1/2/3 Golf GTI/M3/911, T track,
-K skidpad. Gamepad: left stick, right/left triggers, south button handbrake, bumpers shift.
+K skidpad. Gamepad: left stick, right/left triggers, south button handbrake, bumpers shift,
+north button reset, select/back button chase/hood camera; unplugging the pad pauses a race.
 Menus: arrows or d-pad to select and change, Enter/Space or south button to confirm, Esc or
-east button to go back; mouse clicks work too.
+east button to go back (the main menu only quits from its Quit item); mouse clicks work too.
 
 ## Tracks
 

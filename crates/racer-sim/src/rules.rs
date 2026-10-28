@@ -8,10 +8,12 @@
 //! car is inside the walled corridor and is found by searching a short
 //! window around the previous value, so it moves continuously: a car that
 //! leaves the corridor (over a wall, through a gap) freezes its progress and
-//! is reset after [`RESET_AFTER`] instead of gaining ground. Checkpoint gates
-//! must be crossed in order and inside the corridor; crossing one backwards
-//! takes its credit back, so a lap counts only when the car has driven all
-//! of it forwards.
+//! is reset after [`RESET_AFTER`] instead of gaining ground, and so does one
+//! that comes back further on than the window reaches. The gates credited
+//! (checkpoints, then the line) are always those at or before the car's
+//! progress: crossing one backwards takes its credit back, so a lap counts
+//! only when the car has driven all of it forwards, and a step or a reset
+//! that passes several gates credits each in order.
 
 use bevy::math::Vec3;
 use racer_trackc::{Geometry, Pose, geometry::interpolate};
@@ -22,12 +24,21 @@ pub const RESET_AFTER: f32 = 3.0;
 pub const GHOST_AFTER_RESET: f32 = 3.0;
 /// Below this speed (m/s) a racing car counts as stuck.
 const STUCK_SPEED: f32 = 1.0;
+/// A racing car that gains less than [`STUCK_PROGRESS`] metres of progress
+/// in this many seconds is stuck too, however much it rocks back and forth
+/// (pushing against a wall or a car, short reverse manoeuvres). Longer than
+/// the speed rule, so a car that is sorting itself out gets the chance.
+const NO_PROGRESS_AFTER: f32 = 7.0;
+const STUCK_PROGRESS: f32 = 10.0;
 /// Samples searched either side of the previous position.
 const WINDOW: usize = 24;
 /// Distance beyond the wall face that still counts as on the track (m).
 const CORRIDOR_SLACK: f32 = 0.8;
 /// Seconds of driving against the track direction before the warning.
 const WRONG_WAY_AFTER: f32 = 1.0;
+/// Cap on the wrong-way timer over [`WRONG_WAY_AFTER`] (s): it decays at 2x,
+/// so the warning clears at most half of this after turning round.
+const WRONG_WAY_CLEAR: f32 = 1.0;
 
 /// What happened while updating progress.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,22 +95,54 @@ impl Progress {
         p
     }
 
-    /// Distance of gate `g` in the current lap.
-    fn gate(&self, track: &Geometry, g: usize) -> f32 {
-        let s = track.checkpoints.get(g).copied().unwrap_or(track.length);
-        self.laps as f32 * track.length + s
+    /// Gates (checkpoints and the line, the line at the start excluded)
+    /// credited to a car at unwrapped `distance`: every gate at or before it.
+    fn credit_at(track: &Geometry, distance: f32) -> usize {
+        if distance < 0.0 {
+            return 0;
+        }
+        let gates = track.checkpoints.len() + 1;
+        let mut lap = (distance / track.length).floor();
+        let mut s = distance - lap * track.length;
+        // Keep `s` in [0, length) whatever the rounding.
+        if s >= track.length {
+            (lap, s) = (lap + 1.0, s - track.length);
+        }
+        let passed = track.checkpoints.iter().filter(|&&c| c <= s).count();
+        lap as usize * gates + passed
     }
 
-    /// Distance of the gate credited last (the line of the previous lap at the start).
-    fn previous_gate(&self, track: &Geometry) -> f32 {
-        if self.next_gate == 0 {
-            self.laps as f32 * track.length
-        } else {
-            self.gate(track, self.next_gate - 1)
+    /// Moves to unwrapped `distance`, crediting every gate crossed forwards
+    /// and taking back every gate crossed backwards, in order.
+    fn advance(&mut self, track: &Geometry, distance: f32) -> Vec<ProgressEvent> {
+        self.distance = distance;
+        let gates = track.checkpoints.len() + 1;
+        let target = Self::credit_at(track, distance);
+        let mut credit = self.laps as usize * gates + self.next_gate;
+        let mut events = Vec::new();
+        while credit < target {
+            events.push(if self.next_gate == gates - 1 {
+                ProgressEvent::Lap
+            } else {
+                ProgressEvent::Checkpoint(self.next_gate)
+            });
+            credit += 1;
+            (self.laps, self.next_gate) = ((credit / gates) as u32, credit % gates);
         }
+        while credit > target {
+            credit -= 1;
+            (self.laps, self.next_gate) = ((credit / gates) as u32, credit % gates);
+            events.push(if self.next_gate == gates - 1 {
+                ProgressEvent::LapUndone
+            } else {
+                ProgressEvent::CheckpointUndone(self.next_gate)
+            });
+        }
+        events
     }
 
     /// Updates from the car's position, velocity and forward direction.
+    /// Returns the gates credited or taken back, in order.
     pub fn update(
         &mut self,
         track: &Geometry,
@@ -107,7 +150,7 @@ impl Progress {
         velocity: Vec3,
         forward: Vec3,
         dt: f32,
-    ) -> Option<ProgressEvent> {
+    ) -> Vec<ProgressEvent> {
         let n = track.samples.len();
         let sample = nearest(track, position, self.sample, WINDOW);
         // Refine between the nearest sample and its neighbours.
@@ -119,75 +162,39 @@ impl Progress {
         self.lateral = rel.dot(here.right);
         let height = rel.dot(here.up);
         let side = usize::from(self.lateral > 0.0);
-        self.on_track =
-            self.lateral.abs() < here.wall(side) + CORRIDOR_SLACK && (-1.5..4.0).contains(&height);
+        let l = track.length;
+        let unwrapped = s_local + l * ((self.distance - s_local) / l).round();
+        // Back in the corridor, but further than the window can move in one
+        // step (the car left it and came back further on): that is off the
+        // track too, and progress waits where it left (or the car is reset)
+        // instead of jumping ahead.
+        let reachable = (unwrapped - self.distance).abs() <= (WINDOW as f32 + 2.0) * l / n as f32;
+        self.on_track = reachable
+            && self.lateral.abs() < here.wall(side) + CORRIDOR_SLACK
+            && (-1.5..4.0).contains(&height);
         // Wrong way: moving or pointing against the track direction.
         let backwards = velocity.dot(here.tangent) < -1.0
             || (forward.dot(here.tangent) < -0.5 && velocity.length() > 1.0);
+        // Capped, so the warning clears soon after turning round.
         self.wrong_way_time = if self.on_track && backwards {
-            self.wrong_way_time + dt
+            (self.wrong_way_time + dt).min(WRONG_WAY_AFTER + WRONG_WAY_CLEAR)
         } else {
             (self.wrong_way_time - 2.0 * dt).max(0.0)
         };
         self.wrong_way = self.wrong_way_time > WRONG_WAY_AFTER;
         if !self.on_track {
-            return None;
+            return Vec::new();
         }
         self.sample = sample;
-        let l = track.length;
-        let unwrapped = s_local + l * ((self.distance - s_local) / l).round();
-        let (old, new) = (self.distance, unwrapped);
-        if (new - old).abs() > (WINDOW as f32 + 2.0) * l / n as f32 {
-            // A jump the window cannot produce; ignore it.
-            return None;
-        }
-        self.distance = new;
-        let gates = track.checkpoints.len();
-        let next = self.gate(track, self.next_gate);
-        if old < next && new >= next {
-            if self.next_gate == gates {
-                self.laps += 1;
-                self.next_gate = 0;
-                return Some(ProgressEvent::Lap);
-            }
-            self.next_gate += 1;
-            return Some(ProgressEvent::Checkpoint(self.next_gate - 1));
-        }
-        let prev = self.previous_gate(track);
-        let credited = self.laps > 0 || self.next_gate > 0;
-        if credited && old >= prev && new < prev {
-            if self.next_gate == 0 {
-                self.laps -= 1;
-                self.next_gate = gates;
-                return Some(ProgressEvent::LapUndone);
-            }
-            self.next_gate -= 1;
-            return Some(ProgressEvent::CheckpointUndone(self.next_gate));
-        }
-        None
+        self.advance(track, unwrapped)
     }
 
-    /// Moves the car back to `distance` (a reset), taking back the credit
-    /// of every gate it is now behind. Returns those undo events.
-    pub fn move_back_to(
-        &mut self,
-        track: &Geometry,
-        distance: f32,
-        lateral: f32,
-    ) -> Vec<ProgressEvent> {
-        let mut events = Vec::new();
-        while (self.laps > 0 || self.next_gate > 0) && distance < self.previous_gate(track) {
-            if self.next_gate == 0 {
-                self.laps -= 1;
-                self.next_gate = track.checkpoints.len();
-                events.push(ProgressEvent::LapUndone);
-            } else {
-                self.next_gate -= 1;
-                events.push(ProgressEvent::CheckpointUndone(self.next_gate));
-            }
-        }
+    /// Moves the car to `distance` (a reset), taking back the credit of
+    /// every gate it is now behind and crediting every gate it is now past
+    /// (it reached them before). Returns those events.
+    pub fn move_to(&mut self, track: &Geometry, distance: f32, lateral: f32) -> Vec<ProgressEvent> {
+        let events = self.advance(track, distance);
         let n = track.samples.len();
-        self.distance = distance;
         self.sample =
             ((distance.rem_euclid(track.length) / track.length * n as f32) as usize).min(n - 1);
         self.lateral = lateral;
@@ -233,6 +240,10 @@ pub struct ResetMonitor {
     flipped: f32,
     stuck: f32,
     off_track: f32,
+    /// Seconds since progress last passed `anchor` + [`STUCK_PROGRESS`], and
+    /// that progress (none until the next update after a start or reset).
+    no_progress: f32,
+    anchor: Option<f32>,
     /// Last valid progress distance and lateral offset.
     pub last_valid: (f32, f32),
 }
@@ -243,6 +254,8 @@ impl ResetMonitor {
             flipped: 0.0,
             stuck: 0.0,
             off_track: 0.0,
+            no_progress: 0.0,
+            anchor: None,
             last_valid: (progress.distance, progress.lateral),
         }
     }
@@ -262,6 +275,13 @@ impl ResetMonitor {
         tick(&mut self.flipped, up_y < 0.3);
         tick(&mut self.stuck, racing && speed < STUCK_SPEED);
         tick(&mut self.off_track, !progress.on_track);
+        let anchor = *self.anchor.get_or_insert(progress.distance);
+        if !racing || progress.distance > anchor + STUCK_PROGRESS {
+            self.anchor = Some(progress.distance);
+            self.no_progress = 0.0;
+        } else {
+            self.no_progress += dt;
+        }
         if progress.on_track && up_y > 0.8 && !progress.wrong_way && speed > STUCK_SPEED {
             self.last_valid = (progress.distance, progress.lateral);
         }
@@ -269,7 +289,7 @@ impl ResetMonitor {
             Some(ResetReason::Flipped)
         } else if self.off_track > RESET_AFTER {
             Some(ResetReason::OffTrack)
-        } else if self.stuck > RESET_AFTER {
+        } else if self.stuck > RESET_AFTER || self.no_progress > NO_PROGRESS_AFTER {
             Some(ResetReason::Stuck)
         } else {
             None
@@ -289,6 +309,8 @@ impl ResetMonitor {
         self.flipped = 0.0;
         self.stuck = 0.0;
         self.off_track = 0.0;
+        self.no_progress = 0.0;
+        self.anchor = None;
     }
 }
 
@@ -323,26 +345,34 @@ pub fn reset_pose(track: &Geometry, last_valid: (f32, f32), others: &[Vec3]) -> 
 pub struct Timing {
     /// Race time the current lap started.
     pub lap_start: f32,
-    previous_lap_start: f32,
     pub laps: Vec<f32>,
     pub best_lap: Option<f32>,
     /// Sector times of the current lap so far, and of the last full lap.
     pub sectors: Vec<f32>,
     pub last_sectors: Vec<f32>,
+    /// Best time of each sector over the laps that stand.
     pub best_sectors: Vec<f32>,
-    /// Lap time at each checkpoint, current lap and best lap.
+    /// Lap time at each checkpoint of the current lap.
     checkpoint_times: Vec<f32>,
-    last_checkpoint_times: Vec<f32>,
-    best_checkpoint_times: Vec<f32>,
+    /// Every completed lap that stands, so laps taken back (as many as the
+    /// car reverses over) restore the lap before exactly.
+    history: Vec<LapRecord>,
     /// Current lap against the best lap at the last checkpoint (s, negative is faster).
     pub delta: Option<f32>,
+}
+
+/// A completed lap as [`Timing`] keeps it.
+#[derive(Clone, Debug)]
+struct LapRecord {
+    start: f32,
+    sectors: Vec<f32>,
+    checkpoint_times: Vec<f32>,
 }
 
 impl Timing {
     pub fn start(now: f32) -> Self {
         Timing {
             lap_start: now,
-            previous_lap_start: now,
             ..Default::default()
         }
     }
@@ -355,13 +385,41 @@ impl Timing {
         now - self.lap_start
     }
 
+    /// The best standing lap's record (the reference for the delta).
+    fn best_record(&self) -> Option<&LapRecord> {
+        let best = self.best_lap?;
+        let i = self.laps.iter().position(|&t| t == best)?;
+        self.history.get(i)
+    }
+
+    /// The current lap against the best lap at checkpoint `i`.
+    fn delta_at(&self, i: usize) -> Option<f32> {
+        let now = self.checkpoint_times.get(i)?;
+        let best = self.best_record()?.checkpoint_times.get(i)?;
+        Some(now - best)
+    }
+
+    /// Recomputes the bests from the laps that stand.
+    fn update_bests(&mut self) {
+        self.best_lap = self.laps.iter().copied().reduce(f32::min);
+        self.best_sectors.clear();
+        for lap in &self.history {
+            if self.best_sectors.len() < lap.sectors.len() {
+                self.best_sectors.resize(lap.sectors.len(), f32::MAX);
+            }
+            for (best, t) in self.best_sectors.iter_mut().zip(&lap.sectors) {
+                *best = best.min(*t);
+            }
+        }
+    }
+
     pub fn on_event(&mut self, event: ProgressEvent, now: f32, track: &Geometry) {
         let elapsed = now - self.lap_start;
         match event {
             ProgressEvent::Checkpoint(i) => {
                 self.checkpoint_times.truncate(i);
                 self.checkpoint_times.push(elapsed);
-                self.delta = self.best_checkpoint_times.get(i).map(|best| elapsed - best);
+                self.delta = self.delta_at(i);
                 if track.sector_ends.contains(&i) {
                     let t = elapsed - self.sector_start();
                     self.sectors.push(t);
@@ -377,33 +435,36 @@ impl Timing {
                 let t = elapsed - self.sector_start();
                 self.sectors.push(t);
                 self.laps.push(elapsed);
-                self.last_checkpoint_times = std::mem::take(&mut self.checkpoint_times);
-                if self.best_lap.is_none_or(|b| elapsed < b) {
-                    self.best_lap = Some(elapsed);
-                    self.best_checkpoint_times = self.last_checkpoint_times.clone();
-                }
-                let sectors = std::mem::take(&mut self.sectors);
-                if self.best_sectors.len() < sectors.len() {
-                    self.best_sectors.resize(sectors.len(), f32::MAX);
-                }
-                for (best, t) in self.best_sectors.iter_mut().zip(&sectors) {
-                    *best = best.min(*t);
-                }
-                self.last_sectors = sectors;
-                self.previous_lap_start = self.lap_start;
+                self.last_sectors = std::mem::take(&mut self.sectors);
+                self.history.push(LapRecord {
+                    start: self.lap_start,
+                    sectors: self.last_sectors.clone(),
+                    checkpoint_times: std::mem::take(&mut self.checkpoint_times),
+                });
+                self.update_bests();
                 self.lap_start = now;
             }
             ProgressEvent::LapUndone => {
-                // Back over the line: the lap did not happen.
-                if let Some(t) = self.laps.pop() {
-                    self.lap_start = self.previous_lap_start;
-                    if self.best_lap == Some(t) {
-                        self.best_lap = self.laps.iter().copied().reduce(f32::min);
-                    }
+                // Back over the line: the lap did not happen, and the car is
+                // at the end of it again.
+                self.laps.pop();
+                if let Some(mut lap) = self.history.pop() {
+                    self.lap_start = lap.start;
+                    lap.sectors.pop();
+                    self.sectors = lap.sectors;
+                    self.checkpoint_times = lap.checkpoint_times;
+                    self.last_sectors = self
+                        .history
+                        .last()
+                        .map(|l| l.sectors.clone())
+                        .unwrap_or_default();
+                    self.update_bests();
+                    self.delta = self
+                        .checkpoint_times
+                        .len()
+                        .checked_sub(1)
+                        .and_then(|i| self.delta_at(i));
                 }
-                self.sectors = std::mem::take(&mut self.last_sectors);
-                self.sectors.pop();
-                self.checkpoint_times = std::mem::take(&mut self.last_checkpoint_times);
             }
         }
     }
@@ -446,8 +507,9 @@ pub fn dnf_due(winner_time: Option<f32>, now: f32, timeout: f32) -> bool {
 }
 
 /// Standings order (indices into `cars`): finishers by laps then finish
-/// time (a lapped car that finishes early stays behind the lead lap), then
-/// racing cars by progress, then DNFs by progress.
+/// time (a lapped car that finishes early stays behind the lead lap; a dead
+/// heat goes to the car further on), then racing cars by progress, then
+/// DNFs by progress.
 pub fn standings(cars: &[(Status, Progress)]) -> Vec<usize> {
     let mut order: Vec<usize> = (0..cars.len()).collect();
     let rank = |s: &Status| match s {
@@ -458,9 +520,11 @@ pub fn standings(cars: &[(Status, Progress)]) -> Vec<usize> {
     order.sort_by(|&a, &b| {
         let ((sa, pa), (sb, pb)) = (&cars[a], &cars[b]);
         rank(sa).cmp(&rank(sb)).then_with(|| match (sa, sb) {
-            (Status::Finished(ta), Status::Finished(tb)) => {
-                pb.laps.cmp(&pa.laps).then(ta.total_cmp(tb))
-            }
+            (Status::Finished(ta), Status::Finished(tb)) => pb
+                .laps
+                .cmp(&pa.laps)
+                .then(ta.total_cmp(tb))
+                .then(pb.distance.total_cmp(&pa.distance)),
             _ => {
                 let (ka, kb) = (pa.key(), pb.key());
                 kb.0.cmp(&ka.0)
@@ -679,7 +743,7 @@ mod tests {
                 now += 0.01;
                 let s = interpolate(&t.samples, t.length, d);
                 let v = s.tangent * 25.0 * step.signum();
-                if let Some(e) = p.update(&t, s.at(0.0, 0.5), v, v.normalize(), 0.01) {
+                for e in p.update(&t, s.at(0.0, 0.5), v, v.normalize(), 0.01) {
                     timing.on_event(e, now, &t);
                 }
             }
@@ -725,7 +789,7 @@ mod tests {
         let mut q = Progress::new(&t, t.grid[0].position);
         drive(&t, &mut q, t.checkpoints[0] + 3.0, 0.0);
         assert_eq!(q.next_gate, 1);
-        let undone = q.move_back_to(&t, t.checkpoints[0] - 5.0, 0.0);
+        let undone = q.move_to(&t, t.checkpoints[0] - 5.0, 0.0);
         assert_eq!(undone, [ProgressEvent::CheckpointUndone(0)]);
         assert_eq!(
             drive(&t, &mut q, t.checkpoints[0] + 1.0, 0.0),
@@ -738,24 +802,38 @@ mod tests {
         let t = track();
         let p = Progress::new(&t, t.grid[0].position);
         let dt = 1.0 / 240.0;
-        let run = |up, speed, racing, seconds: f32| {
+        // The car's progress moves at `pace` m/s along the track.
+        let run = |up, speed, pace: f32, racing, seconds: f32| {
             let mut m = ResetMonitor::new(&p);
+            let mut q = p;
             (0..(seconds * 240.0) as usize).find_map(|k| {
-                m.update(&p, up, speed, racing, dt)
+                q.distance += pace * dt;
+                m.update(&q, up, speed, racing, dt)
                     .map(|r| (r, k as f32 * dt))
             })
         };
-        let (r, at) = run(-0.9, 0.0, false, 4.0).unwrap();
+        let (r, at) = run(-0.9, 0.0, 0.0, false, 4.0).unwrap();
         assert_eq!(r, ResetReason::Flipped);
         assert!((at - RESET_AFTER).abs() < 0.01);
         assert_eq!(
-            run(1.0, 0.2, true, 4.0).map(|x| x.0),
+            run(1.0, 0.2, 0.2, true, 4.0).map(|x| x.0),
             Some(ResetReason::Stuck)
         );
         // Standing on the grid before the start is not stuck.
-        assert_eq!(run(1.0, 0.0, false, 10.0), None);
+        assert_eq!(run(1.0, 0.0, 0.0, false, 10.0), None);
         // Driving slowly but steadily is fine.
-        assert_eq!(run(1.0, 3.0, true, 10.0), None);
+        assert_eq!(run(1.0, 3.0, 3.0, true, 10.0), None);
+        // Rocking against a wall at 0-3 m/s (never 3 s below 1 m/s) without
+        // getting anywhere is stuck, after the no-progress time.
+        let mut m = ResetMonitor::new(&p);
+        let reset = (0..2400).find_map(|k| {
+            let speed = if k % 240 < 120 { 0.5 } else { 2.5 };
+            m.update(&p, 1.0, speed, true, dt)
+                .map(|r| (r, k as f32 * dt))
+        });
+        let (r, at) = reset.unwrap();
+        assert_eq!(r, ResetReason::Stuck);
+        assert!((at - NO_PROGRESS_AFTER).abs() < 0.01, "{at}");
     }
 
     #[test]

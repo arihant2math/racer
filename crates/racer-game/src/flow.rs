@@ -1,7 +1,11 @@
 //! Game flow: main menu, race setup, race, pause and results, as app
 //! states with greybox bevy_ui menus driven by keyboard, gamepad or mouse.
 
-use bevy::{input::gamepad::Gamepad, prelude::*};
+use bevy::{
+    input::gamepad::{Gamepad, GamepadConnectionEvent},
+    prelude::*,
+};
+use racer_dynamics::Assists;
 use racer_sim::{
     ai::Difficulty,
     race::{Collisions, Gap, RaceMode, Racer},
@@ -9,7 +13,7 @@ use racer_sim::{
     vehicle::Car,
 };
 
-use crate::race_scene::{self, RaceEntity};
+use crate::race_scene::{self, DriverAids, RaceEntity};
 
 #[derive(States, Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum AppState {
@@ -51,6 +55,8 @@ impl Plugin for FlowPlugin {
                     .run_if(crate::car_model::models_ready),
             )
             .add_systems(OnEnter(AppState::Results), spawn_results)
+            // Nothing outside a race is ever paused, however the race was left.
+            .add_systems(OnExit(AppState::Race), resume_time)
             .add_systems(
                 Update,
                 (
@@ -58,6 +64,7 @@ impl Plugin for FlowPlugin {
                     menu_input,
                     draw_menu,
                     update_results.run_if(in_state(AppState::Results)),
+                    fit_to_window,
                 )
                     .chain(),
             );
@@ -309,23 +316,15 @@ fn screen(
     extra: impl Bundle,
 ) -> Entity {
     commands
-        .spawn((
-            MenuRoot,
-            extra,
-            Node {
-                width: percent(100),
-                height: percent(100),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Center,
-                ..default()
-            },
-        ))
+        .spawn((MenuRoot, extra, menu_root()))
         .with_children(|root| {
             root.spawn((
+                FitToWindow,
                 Node {
                     flex_direction: FlexDirection::Column,
-                    padding: UiRect::all(px(24)),
-                    row_gap: px(4),
+                    flex_shrink: 0.0,
+                    padding: UiRect::all(px(20)),
+                    row_gap: px(2),
                     min_width: px(460),
                     ..default()
                 },
@@ -334,7 +333,7 @@ fn screen(
             .with_children(|panel| {
                 panel.spawn((
                     Text::new(title),
-                    TextFont::from_font_size(40.0),
+                    TextFont::from_font_size(36.0),
                     TextColor(Color::WHITE),
                 ));
                 panel.spawn((
@@ -353,7 +352,7 @@ fn screen(
                             MenuIndex(i),
                             Button,
                             Node {
-                                padding: UiRect::axes(px(10), px(4)),
+                                padding: UiRect::axes(px(10), px(2)),
                                 ..default()
                             },
                             BackgroundColor(Color::NONE),
@@ -367,6 +366,46 @@ fn screen(
             });
         })
         .id()
+}
+
+/// A full-window node that centres one menu panel, with a margin the panel
+/// is fitted into.
+fn menu_root() -> Node {
+    Node {
+        width: percent(100),
+        height: percent(100),
+        justify_content: JustifyContent::Center,
+        align_items: AlignItems::Center,
+        padding: UiRect::all(px(16)),
+        ..default()
+    }
+}
+
+/// A menu panel that is scaled down, as a whole, when it is larger than the
+/// window (less its parent's margin), so every row stays on screen at any
+/// window size. It is never scaled up.
+#[derive(Component)]
+#[require(UiTransform)]
+pub struct FitToWindow;
+
+fn fit_to_window(
+    mut panels: Query<(&mut UiTransform, &ComputedNode, &ChildOf), With<FitToWindow>>,
+    parents: Query<&ComputedNode>,
+) {
+    for (mut transform, panel, child_of) in &mut panels {
+        let Ok(parent) = parents.get(child_of.parent()) else {
+            continue;
+        };
+        // Layout sizes ignore the transform, so this does not feed back.
+        let room = parent.content_box().size();
+        if panel.size.min_element() <= 0.0 || room.min_element() <= 0.0 {
+            continue;
+        }
+        let scale = (room / panel.size).min_element().min(1.0);
+        if (transform.scale.x - scale).abs() > 1e-3 {
+            transform.scale = Vec2::splat(scale);
+        }
+    }
 }
 
 fn spawn_main_menu(mut commands: Commands, mut cursor: ResMut<MenuCursor>) {
@@ -420,17 +459,27 @@ fn set_paused(paused: &mut Paused, time: &mut Time<Virtual>, on: bool) {
     }
 }
 
+fn resume_time(mut paused: ResMut<Paused>, mut time: ResMut<Time<Virtual>>) {
+    set_paused(&mut paused, &mut time, false);
+}
+
+/// Opens the pause menu on Esc or gamepad Start, and when a gamepad is
+/// unplugged mid-race.
+#[allow(clippy::too_many_arguments)]
 fn toggle_pause(
     mut commands: Commands,
     keys: Res<ButtonInput<KeyCode>>,
     pads: Query<&Gamepad>,
+    mut connections: MessageReader<GamepadConnectionEvent>,
     mut paused: ResMut<Paused>,
     mut time: ResMut<Time<Virtual>>,
     mut cursor: ResMut<MenuCursor>,
     menus: Query<Entity, With<PauseMenu>>,
 ) {
+    let unplugged = connections.read().any(|c| c.disconnected());
     let pressed = keys.just_pressed(KeyCode::Escape)
-        || pads.iter().any(|p| p.just_pressed(GamepadButton::Start));
+        || pads.iter().any(|p| p.just_pressed(GamepadButton::Start))
+        || unplugged;
     if !pressed || paused.0 {
         return;
     }
@@ -524,12 +573,15 @@ fn menu_input(
         MenuItem::Action(a) if activate => Some(a),
         MenuItem::Action(_) => None,
     };
-    let action = action.or(back.then(|| match state.get() {
-        AppState::MainMenu => Action::Quit,
-        AppState::Race => Action::Resume,
-        AppState::Results => Action::Menu,
-        _ => Action::Back,
-    }));
+    // "Back" on the main menu does nothing: only the Quit item quits.
+    let action = action.or(back
+        .then(|| match state.get() {
+            AppState::MainMenu => None,
+            AppState::Race => Some(Action::Resume),
+            AppState::Results => Some(Action::Menu),
+            _ => Some(Action::Back),
+        })
+        .flatten());
     let Some(action) = action else { return };
     let unpause = |commands: &mut Commands, paused: &mut Paused, time: &mut Time<Virtual>| {
         set_paused(paused, time, false);
@@ -590,7 +642,7 @@ const RESULT_COLUMNS: [(&str, f32); 8] = [
     ("Gap", 100.0),
     ("Best lap", 100.0),
     ("Resets", 70.0),
-    ("Assists", 130.0),
+    ("Assists", 250.0),
 ];
 
 fn spawn_results(mut commands: Commands, mut cursor: ResMut<MenuCursor>, racers: Query<&Racer>) {
@@ -601,19 +653,14 @@ fn spawn_results(mut commands: Commands, mut cursor: ResMut<MenuCursor>, racers:
             MenuRoot,
             RaceEntity,
             DespawnOnExit(AppState::Results),
-            Node {
-                width: percent(100),
-                height: percent(100),
-                justify_content: JustifyContent::Center,
-                align_items: AlignItems::Start,
-                padding: UiRect::top(px(40)),
-                ..default()
-            },
+            menu_root(),
         ))
         .with_children(|root| {
             root.spawn((
+                FitToWindow,
                 Node {
                     flex_direction: FlexDirection::Column,
+                    flex_shrink: 0.0,
                     padding: UiRect::all(px(20)),
                     row_gap: px(3),
                     ..default()
@@ -678,12 +725,51 @@ fn spawn_results(mut commands: Commands, mut cursor: ResMut<MenuCursor>, racers:
 
 /// Formats seconds as m:ss.000.
 pub fn lap_time(t: f32) -> String {
-    format!("{}:{:06.3}", (t / 60.0) as u32, t % 60.0)
+    // Round once, to whole milliseconds, so 59.9996 s carries into 1:00.000.
+    let ms = (f64::from(t) * 1000.0).round().max(0.0) as u64;
+    format!("{}:{:02}.{:03}", ms / 60_000, ms / 1000 % 60, ms % 1000)
 }
 
-fn update_results(racers: Query<(&Racer, &Car)>, mut cells: Query<(&ResultCell, &mut Text)>) {
-    let list: Vec<(&Racer, &Car)> = racers.iter().collect();
+/// The assists column: the car's ABS/TCS/ESC and, for the player, the
+/// game's own aids (steering assist, racing line, automatic gearbox).
+pub fn assists_label(assists: Assists, aids: Option<&DriverAids>) -> String {
+    let aids = aids.copied().unwrap_or(DriverAids {
+        steering_assist: false,
+        racing_line: false,
+        automatic: false,
+    });
+    let on: Vec<&str> = [
+        (assists.abs, "ABS"),
+        (assists.tcs, "TCS"),
+        (assists.esc, "ESC"),
+        (aids.steering_assist, "Steer"),
+        (aids.racing_line, "Line"),
+        (aids.automatic, "Auto"),
+    ]
+    .iter()
+    .filter(|x| x.0)
+    .map(|x| x.1)
+    .collect();
+    if on.is_empty() {
+        "none".into()
+    } else {
+        on.join(" ")
+    }
+}
+
+fn update_results(
+    racers: Query<(&Racer, &Car, Option<&DriverAids>)>,
+    mut cells: Query<(&ResultCell, &mut Text)>,
+) {
+    let list: Vec<(&Racer, &Car)> = racers.iter().map(|(r, c, _)| (r, c)).collect();
     let rows = racer_sim::race::results(&list);
+    // Result rows carry the racer's name (unique on the grid), not its entity.
+    let aids = |name: &str| {
+        racers
+            .iter()
+            .find(|(r, _, _)| r.name == name)
+            .and_then(|(_, _, a)| a)
+    };
     for (cell, mut text) in &mut cells {
         if cell.0 == 0 {
             continue;
@@ -707,19 +793,7 @@ fn update_results(racers: Query<(&Racer, &Car)>, mut cells: Query<(&ResultCell, 
             },
             5 => r.best_lap.map(lap_time).unwrap_or_else(|| "-".into()),
             6 => r.resets.to_string(),
-            _ => {
-                let a = r.assists;
-                let on: Vec<&str> = [(a.abs, "ABS"), (a.tcs, "TCS"), (a.esc, "ESC")]
-                    .iter()
-                    .filter(|x| x.0)
-                    .map(|x| x.1)
-                    .collect();
-                if on.is_empty() {
-                    "none".into()
-                } else {
-                    on.join(" ")
-                }
-            }
+            _ => assists_label(r.assists, aids(&r.name)),
         };
         if text.0 != value {
             text.0 = value;

@@ -1,7 +1,5 @@
-//! QA repros for the race rules (`docs/qa/race-rules.md`). Every test here
-//! fails on the current code and is ignored with its bug id so the suite
-//! stays green; run them with `cargo test -p racer-sim --test qa_race_rules
-//! -- --ignored`.
+//! QA repros for the race rules (`docs/qa/race-rules.md`), now regression
+//! tests: every one failed before the fixes in `docs/qa/fixes-race-rules.md`.
 
 use std::sync::Arc;
 
@@ -58,7 +56,6 @@ fn drive(
 /// just lost, with that gate still owed: it can never be crossed forwards
 /// again, so the car never completes another lap.
 #[test]
-#[ignore = "QA-RULES-1"]
 fn reset_after_reversing_over_a_gate_must_not_strand_the_car() {
     let t = track();
     let mut p = Progress::new(&t, t.grid[0].position);
@@ -71,7 +68,7 @@ fn reset_after_reversing_over_a_gate_must_not_strand_the_car() {
     let events = drive(&t, &mut p, Some(&mut m), g - 3.0, 3.0, 1.0);
     assert_eq!(events, [ProgressEvent::CheckpointUndone(2)]);
     let (_, d, x) = reset_pose(&t, m.last_valid, &[]);
-    p.move_back_to(&t, d, x);
+    p.move_to(&t, d, x);
     assert!(
         p.distance > g,
         "reset at {d}, behind gate {g}: not this bug"
@@ -91,7 +88,6 @@ fn reset_after_reversing_over_a_gate_must_not_strand_the_car() {
 /// way for 20 s the warning stays on for ~9 s of correct driving (it decays
 /// at 2x), and `last_valid` is frozen all that time.
 #[test]
-#[ignore = "QA-RULES-2"]
 fn wrong_way_warning_clears_soon_after_turning_round() {
     let t = track();
     let mut p = Progress::new(&t, t.grid[0].position);
@@ -116,7 +112,6 @@ fn wrong_way_warning_clears_soon_after_turning_round() {
 /// as a jump. Progress freezes for good, and since the car is on track and
 /// moving, no reset ever comes.
 #[test]
-#[ignore = "QA-RULES-3"]
 fn rejoining_further_on_is_reset_or_counted_never_frozen() {
     let t = track();
     let mut p = Progress::new(&t, t.grid[0].position);
@@ -152,7 +147,6 @@ fn rejoining_further_on_is_reset_or_counted_never_frozen() {
 /// undo restores the wrong lap start and no sectors, so the re-driven lap is
 /// timed from the end of lap 1 and has a single "sector".
 #[test]
-#[ignore = "QA-RULES-4"]
 fn timing_survives_a_full_lap_driven_backwards() {
     let t = track();
     let mut p = Progress::new(&t, t.grid[0].position);
@@ -166,7 +160,7 @@ fn timing_survives_a_full_lap_driven_backwards() {
             now += 0.01;
             let s = interpolate(&t.samples, t.length, d);
             let v = s.tangent * 25.0 * dir;
-            if let Some(e) = p.update(&t, s.at(0.0, 0.5), v, s.tangent * facing, 0.01) {
+            for e in p.update(&t, s.at(0.0, 0.5), v, s.tangent * facing, 0.01) {
                 timing.on_event(e, now, &t);
             }
         }
@@ -181,9 +175,10 @@ fn timing_survives_a_full_lap_driven_backwards() {
     // be measured from the race start, not from the end of lap 1.
     let end = go(&mut p, &mut timing, t.length + 5.0, 1.0);
     assert_eq!(p.laps, 1);
+    // The line is 5 m (20 steps of 0.01 s) before `end`.
     let lap = timing.laps[0];
     assert!(
-        (lap - end).abs() < 0.05,
+        (lap - (end - 0.2)).abs() < 0.05,
         "lap 1 re-credited as {lap} s, race time {end} s"
     );
     assert_eq!(
@@ -198,7 +193,6 @@ fn timing_survives_a_full_lap_driven_backwards() {
 /// finish time and are ordered by entity order, not by who is further
 /// over the line.
 #[test]
-#[ignore = "QA-RULES-5"]
 fn same_step_finish_is_ordered_by_who_crossed_first() {
     let t = track();
     let base = Progress::new(&t, t.grid[0].position);
@@ -294,7 +288,6 @@ fn set_velocity(app: &mut App, car: Entity, v: f32) {
 /// skips the other car as "itself" (`*p != pos.0`), so both turn solid
 /// inside each other after 3 s.
 #[test]
-#[ignore = "QA-RULES-6"]
 fn cars_reset_in_the_same_step_land_apart() {
     let config = RaceConfig {
         countdown: 0.1,
@@ -325,7 +318,6 @@ fn cars_reset_in_the_same_step_land_apart() {
 /// flag. A car that crossed the line just before the winner finished can
 /// back over it and drive over again to take the flag a lap early.
 #[test]
-#[ignore = "QA-RULES-7"]
 fn rocking_over_the_line_after_the_flag_does_not_finish_early() {
     let config = RaceConfig {
         countdown: 0.1,
@@ -365,7 +357,6 @@ fn rocking_over_the_line_after_the_flag_does_not_finish_early() {
 /// future lobby or server config; the menu and CLI clamp to 1..=10) ends the
 /// race for everybody on the first running step.
 #[test]
-#[ignore = "QA-RULES-8"]
 fn zero_laps_does_not_finish_everyone_at_the_start() {
     let config = RaceConfig {
         countdown: 0.1,
@@ -403,4 +394,69 @@ fn harness_reset_request_moves_the_car() {
     assert_eq!(r.resets.len(), 1);
     assert_eq!(r.resets[0].reason, ResetReason::Requested);
     assert!((r.progress.distance - 292.0).abs() < 1.0);
+}
+
+/// QA-RULES-5 in the race loop: two cars crossing the line in the same
+/// step get finish times interpolated inside the step, so the one that
+/// crossed first wins (whatever the query order) and the gap is not 0.
+#[test]
+fn same_step_finishers_get_distinct_times_in_crossing_order() {
+    let config = RaceConfig {
+        countdown: 0.1,
+        laps: 1,
+        collisions: Collisions::Off,
+        ..default()
+    };
+    let (mut app, cars) = race_app(config, &[DriverKind::Human, DriverKind::Human]);
+    run_for(&mut app, 0.5);
+    let g = geometry(&app);
+    let n = g.checkpoints.len();
+    // Car 1 is 1 cm closer to the line: both cross in the next step.
+    place(&mut app, cars[0], g.length - 0.02, 0, n, 8.0);
+    place(&mut app, cars[1], g.length - 0.01, 0, n, 8.0);
+    run_for(&mut app, 0.1);
+    let (a, b) = (racer(&app, cars[0]), racer(&app, cars[1]));
+    let (Status::Finished(ta), Status::Finished(tb)) = (a.status, b.status) else {
+        panic!("not finished: {:?} {:?}", a.status, b.status);
+    };
+    assert!(tb < ta, "car 1 crossed first: {tb} vs {ta}");
+    assert!(ta - tb < 1.0 / 240.0);
+    assert_eq!((b.position, a.position), (1, 2));
+    assert_eq!(app.world().resource::<Race>().winner, Some(tb));
+    // The lap time is timed at the same crossing as the finish.
+    assert_eq!(b.timing.laps, [tb]);
+}
+
+/// QA-RULES-7, second case: a lapped car crossing the line in the same step
+/// as the winner finishes if it crossed after the winner, even though it
+/// comes first in the query (the winner was not known yet when it was
+/// processed), and does not if it crossed before.
+#[test]
+fn lapped_car_in_the_winners_step_finishes_only_after_the_winner() {
+    for (behind, finishes) in [(0.03, true), (0.005, false)] {
+        let config = RaceConfig {
+            countdown: 0.1,
+            laps: 2,
+            collisions: Collisions::Off,
+            ..default()
+        };
+        let (mut app, cars) = race_app(config, &[DriverKind::Human, DriverKind::Human]);
+        run_for(&mut app, 0.5);
+        let g = geometry(&app);
+        let n = g.checkpoints.len();
+        // Car 0 is a lap down; car 1 is 1 cm from its final line.
+        place(&mut app, cars[0], g.length - behind, 0, n, 8.0);
+        place(&mut app, cars[1], 2.0 * g.length - 0.01, 1, n, 8.0);
+        run_for(&mut app, 0.1);
+        let (a, b) = (racer(&app, cars[0]), racer(&app, cars[1]));
+        assert!(matches!(b.status, Status::Finished(_)), "{:?}", b.status);
+        assert_eq!(a.progress.laps, 1);
+        assert_eq!(
+            matches!(a.status, Status::Finished(_)),
+            finishes,
+            "lapped car {behind} m behind the line: {:?}, winner {:?}",
+            a.status,
+            b.status
+        );
+    }
 }

@@ -30,11 +30,6 @@ fn parse(s: &str) -> Result<f32, String> {
     Ok(m * 60.0 + sec)
 }
 
-/// Times a hair under a whole minute: QA-EDGE-15, own regression test.
-fn rounds_up_to_a_minute(t: f32) -> bool {
-    t % 60.0 >= 59.9995
-}
-
 proptest! {
     #![proptest_config(config(2000))]
 
@@ -42,7 +37,6 @@ proptest! {
     /// 60 and reads back within half a millisecond (plus f32 rounding).
     #[test]
     fn lap_time_round_trips(t in 0.0..7200.0f32) {
-        prop_assume!(!rounds_up_to_a_minute(t));
         let s = lap_time(t);
         let back = parse(&s);
         prop_assert!(back.is_ok(), "{t} -> {s:?}: {back:?}");
@@ -50,12 +44,10 @@ proptest! {
     }
 }
 
-/// QA-EDGE-15: `lap_time` formats the minutes and the seconds separately and
-/// rounds only the seconds, so a time a hair under a full minute shows as
+/// QA-EDGE-15 (= QA-UI-6): a time a hair under a full minute used to show as
 /// "0:60.000" (and 119.9996 s as "1:60.000") instead of "1:00.000" and
-/// "2:00.000".
+/// "2:00.000", because only the seconds were rounded.
 #[test]
-#[ignore = "QA-EDGE-15"]
 fn qa_edge_15_time_just_under_a_minute_shows_60_seconds() {
     for t in [59.9996f32, 119.9997] {
         let s = lap_time(t);
