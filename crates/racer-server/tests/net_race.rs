@@ -192,3 +192,32 @@ fn a_player_who_leaves_is_replaced_by_the_ai() {
     drop(app);
     assert!(server.join().unwrap(), "the AI did not take the car over");
 }
+
+/// No server at the address: the client gives up and says so.
+#[test]
+fn a_client_without_a_server_fails_cleanly() {
+    let addr = free_port();
+    let track = Arc::new(racer_trackc::load("downtown-loop").unwrap());
+    let join = Join {
+        name: "alone".into(),
+        car: racer_dynamics::spec::CARS[0].into(),
+        assists: Assists::default(),
+    };
+    let mut app = headless_client(NetClientConfig::direct(addr, 9, join), track);
+    let stop = AtomicBool::new(false);
+    let started = Instant::now();
+    run_until(&mut app, &stop, |app| {
+        matches!(
+            app.world().resource::<NetSession>().state,
+            SessionState::Failed(_)
+        ) || started.elapsed() > Duration::from_secs(20)
+    });
+    assert!(
+        matches!(
+            app.world().resource::<NetSession>().state,
+            SessionState::Failed(_)
+        ),
+        "{:?}",
+        app.world().resource::<NetSession>().state
+    );
+}

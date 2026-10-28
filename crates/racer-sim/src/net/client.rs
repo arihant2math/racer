@@ -213,6 +213,7 @@ pub struct NetSession {
     /// The local car's grid slot.
     pub you: Option<u8>,
     client: Option<Entity>,
+    connecting_since: Option<Instant>,
     connected_at: Option<Instant>,
 }
 
@@ -391,6 +392,7 @@ fn connect(
     session.client = Some(client);
     session.state = SessionState::Connecting;
     session.connected_at = None;
+    session.connecting_since = Some(Instant::now());
     session.you = None;
 }
 
@@ -428,11 +430,16 @@ fn track_connection(
     if session.state == SessionState::Racing && ping.rtt() > Duration::ZERO {
         stats.rtt_ms.push(ping.rtt().as_secs_f32() * 1000.0);
     }
-    if disconnected
-        && session.connected_at.is_some()
-        && !matches!(session.state, SessionState::Over | SessionState::Failed(_))
-    {
-        session.state = SessionState::Failed("disconnected from the server".into());
+    let gave_up = session.connected_at.is_none()
+        && session
+            .connecting_since
+            .is_some_and(|t| t.elapsed() > Duration::from_secs(2));
+    if disconnected && !matches!(session.state, SessionState::Over | SessionState::Failed(_)) {
+        if session.connected_at.is_some() {
+            session.state = SessionState::Failed("disconnected from the server".into());
+        } else if gave_up {
+            session.state = SessionState::Failed("the server did not answer".into());
+        }
     }
 }
 
@@ -1174,11 +1181,6 @@ fn remove_visual_offset(mut cars: Query<(&mut Transform, &mut VisualOffset)>) {
             transform.rotation = r.inverse() * transform.rotation;
         }
     }
-}
-
-/// Whether the client's simulation tick has synced with the server.
-pub fn synced(sync: Option<Res<LocalTimelineSync>>) -> bool {
-    sync.is_some_and(|s| s.is_synced())
 }
 
 /// Default resources of a headless client: the track's colliders and the

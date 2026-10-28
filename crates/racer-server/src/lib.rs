@@ -144,7 +144,6 @@ struct Applied(NetControls);
 
 #[derive(Resource, Default)]
 struct RaceLog {
-    created: u32,
     start: u32,
     contacts: Vec<Contact>,
     touching: Vec<(u8, u8)>,
@@ -571,7 +570,6 @@ fn start_race(
     let start = created + race.steps_to_start(racer_sim::tick_duration().as_secs_f64()) - 1;
     commands.insert_resource(race);
     commands.insert_resource(c.race.clone());
-    log.created = created;
     log.start = start;
     for p in &players.0 {
         let Some(you) = p.slot else { continue };
