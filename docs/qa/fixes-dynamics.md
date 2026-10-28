@@ -34,14 +34,14 @@ names the field, e.g. `estimated.tires.front.shape_lat = 0.9: must be in (1, 2]`
 (and with it `load`/`load_car`) and `Vehicle::from_spec` both run it, so a bad file fails at load
 time, and so does a spec built in code. The checks:
 
-- Masses, inertias, lengths, rates, slips and relaxation lengths must be positive and finite
-  (payload, damping ratios, brake torques and drags may be zero). Total mass must be positive.
+- Masses, inertias, lengths, tire widths, rates, slips and relaxation lengths must be positive
+  and finite (payload, damping ratios, brake torques and drags may be zero).
 - `0 < front_weight_fraction < 1`, and `idle < launch < limiter`.
 - `0 < efficiency <= 1`, and the road-wheel lock must be between 0 and 90°.
 - Peak slip angle in (0, 90)°. Magic Formula `1 < C <= 2` (it has no peak at C ≤ 1 and goes
   negative past the peak above 2), and `E < 1` (the curve stops being monotonic).
 - An LSD must have some preload or ramp: QA's "loads silently as a zero-capacity LSD". The centre
-  `front_split` must be in [0, 1].
+  `front_split` must be in (0, 1] (it defaults to 0 when omitted, so 0 is rejected).
 
 The bisection in `tire::Curve::new` assumed B < 100. For C just above 1 the peak lies beyond that,
 and the fit came out silently wrong. It now brackets the root first.
