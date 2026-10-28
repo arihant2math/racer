@@ -55,7 +55,9 @@ window's `name` is `racer`: the X11 `WM_CLASS` and the Wayland app id, which the
 `StartupWMClass=racer` / `Icon=racer` match. winit 0.30 sets the icon on Windows and X11 only;
 Wayland and macOS ignore it (see gaps).
 
-## Adding a Graphics section (for `feat/render`)
+## Adding an option or a section
+
+The example is a Graphics section (planned for `feat/render`, which was cancelled); any other section works the same way.
 
 1. In `settings.rs`, a section struct with `#[derive(Serialize, Deserialize, Clone, Debug,
    Default, PartialEq)]` and `#[serde(default)]` (write `impl Default` by hand if a default is not
