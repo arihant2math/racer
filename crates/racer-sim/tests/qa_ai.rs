@@ -379,48 +379,49 @@ fn qa_ai_6_a_car_close_behind_does_not_squeeze_the_leader() {
     );
 }
 
-/// QA-AI-7: a car reversing out of trouble on the racing line, towards an
-/// AI following it at low speed. Read as "moving forward at 3 m/s" it was
-/// planned as pulling away (and not as an obstacle), and the AI ran into
-/// it. Read along the track it is closing: the AI stops short, backs off
-/// and drives round it once it has stopped.
+/// QA-AI-7: a car reversing out of trouble on the racing line (3 m/s for
+/// 1.6 s, as the AI's own reverse manoeuvre does, then stopped), towards an
+/// AI following it. Read as "moving forward at 3 m/s" it was planned as
+/// pulling away, not as an obstacle: from 18 m at 8 m/s the AI stopped
+/// behind it and was reset as `Stuck`; from 14 m at 5 m/s it ran into it
+/// and was reset twice. Read along the track it is closing: the AI stops
+/// short, backs off if it has to, and drives round it.
 #[test]
 fn qa_ai_7_a_car_reversing_towards_the_ai_is_avoided() {
-    let (mut app, cars) = race_app(
-        short(),
-        &[(GTI, DriverKind::Human), (GTI, ai(Difficulty::Pro))],
-    );
-    start(&mut app);
-    place(&mut app, cars[0], 200.0, -5.24, 0.0, 0.0);
-    place(&mut app, cars[1], 182.0, -5.24, 0.0, 8.0);
-    let bodies = bodies(&app, &cars);
-    let t0 = time(&app);
-    let mut touched = false;
-    run(&mut app, 12.0, |a| {
-        // Backs away at 3 m/s for 1.6 s (as the AI's own reverse manoeuvre
-        // does), then stops.
-        if time(a) < t0 + 1.6 {
-            let world = a.world_mut();
-            let rotation = world.get::<Rotation>(cars[0]).unwrap().0;
-            world.get_mut::<LinearVelocity>(cars[0]).unwrap().0 = rotation * Vec3::Z * 3.0;
-        } else {
-            park(a, cars[0]);
-        }
-        a.world_mut()
-            .get_mut::<Racer>(cars[0])
-            .unwrap()
-            .monitor
-            .clear();
-        touched |= a
-            .world()
-            .get::<CollidingEntities>(bodies[1])
-            .is_some_and(|c| c.contains(&bodies[0]));
-    });
-    assert!(!touched, "AI ran into the reversing car");
-    assert!(
-        racer(&app, cars[1]).progress.distance > 205.0,
-        "AI did not get past"
-    );
+    for (from, v) in [(182.0, 8.0), (186.0, 5.0)] {
+        let (mut app, cars) = race_app(
+            short(),
+            &[(GTI, DriverKind::Human), (GTI, ai(Difficulty::Pro))],
+        );
+        start(&mut app);
+        place(&mut app, cars[0], 200.0, -5.24, 0.0, 0.0);
+        place(&mut app, cars[1], from, -5.24, 0.0, v);
+        let bodies = bodies(&app, &cars);
+        let t0 = time(&app);
+        let mut touched = false;
+        run(&mut app, 12.0, |a| {
+            if time(a) < t0 + 1.6 {
+                let world = a.world_mut();
+                let rotation = world.get::<Rotation>(cars[0]).unwrap().0;
+                world.get_mut::<LinearVelocity>(cars[0]).unwrap().0 = rotation * Vec3::Z * 3.0;
+            } else {
+                park(a, cars[0]);
+            }
+            a.world_mut()
+                .get_mut::<Racer>(cars[0])
+                .unwrap()
+                .monitor
+                .clear();
+            touched |= a
+                .world()
+                .get::<CollidingEntities>(bodies[1])
+                .is_some_and(|c| c.contains(&bodies[0]));
+        });
+        let r = racer(&app, cars[1]);
+        assert!(!touched, "from {from} m: AI ran into the reversing car");
+        assert!(r.resets.is_empty(), "from {from} m: {:?}", r.resets);
+        assert!(r.progress.distance > 205.0, "from {from} m: not past");
+    }
 }
 
 // --------------------------------------------------- checked and fine --
