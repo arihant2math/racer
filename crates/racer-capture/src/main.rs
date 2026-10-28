@@ -7,7 +7,7 @@
 //! racer-capture telemetry <out-dir> [car-id...]
 //! racer-capture ai-laps <out-dir> [--laps N] [--car ID]
 //! racer-capture ai-races <out-dir> [--races N] [--laps N] [--first I]
-//! racer-capture net-race <out-dir> [--bots N] [--laps N] [--conditions RTT,JITTER,LOSS%] [--server PATH] [--timeout SECS]
+//! racer-capture net-race <out-dir> [--bots N] [--laps N] [--races N] [--conditions RTT,JITTER,LOSS%] [--server PATH] [--timeout SECS]
 //! ```
 //! `diff` takes two files or two directories; with directories every PNG in the
 //! golden directory must have a matching file in the actual directory.
@@ -32,7 +32,7 @@ const USAGE: &str = "usage:
   racer-capture telemetry <out-dir> [car-id...]
   racer-capture ai-laps <out-dir> [--laps N] [--car ID]
   racer-capture ai-races <out-dir> [--races N] [--laps N] [--first I]
-  racer-capture net-race <out-dir> [--bots N] [--laps N] [--conditions RTT,JITTER,LOSS%] [--server PATH] [--timeout SECS]
+  racer-capture net-race <out-dir> [--bots N] [--laps N] [--races N] [--conditions RTT,JITTER,LOSS%] [--server PATH] [--timeout SECS]
   racer-capture net-cost";
 
 fn main() -> ExitCode {
@@ -383,14 +383,18 @@ fn ai_races(args: &[String]) -> Result<ExitCode, String> {
 }
 
 fn net_race(args: &[String]) -> Result<ExitCode, String> {
-    let (pos, flags) = parse(args, &["bots", "laps", "conditions", "server", "timeout"])?;
+    let (pos, flags) = parse(
+        args,
+        &["bots", "laps", "races", "conditions", "server", "timeout"],
+    )?;
     let [out_dir] = pos[..] else {
         return Err(USAGE.into());
     };
     let bots: usize = flag(&flags, "bots", 8)?;
     let laps: u32 = flag(&flags, "laps", 3)?;
-    if !(1..=8).contains(&bots) || laps == 0 {
-        return Err("--bots takes 1 to 8 and --laps at least 1".into());
+    let races: usize = flag(&flags, "races", 1)?;
+    if !(1..=8).contains(&bots) || laps == 0 || races == 0 {
+        return Err("--bots takes 1 to 8, --laps and --races at least 1".into());
     }
     let conditions = racer_sim::net::protocol::Conditions::parse(&flag(
         &flags,
@@ -422,9 +426,11 @@ fn net_race(args: &[String]) -> Result<ExitCode, String> {
         timeout,
     };
     let started = std::time::Instant::now();
-    let (report, results) = net::run(&check, out_dir, track)?;
+    let runs = (0..races)
+        .map(|race| net::run(&check, race, out_dir, track.clone()))
+        .collect::<Result<Vec<_>, _>>()?;
     let mut text = String::new();
-    let ok = net::analyse(&check, &report, &results, &mut text);
+    let ok = net::analyse(&check, &runs, &mut text);
     println!("{text}");
     println!("wall time {} s", started.elapsed().as_secs());
     let path = out_dir.join("net.md");

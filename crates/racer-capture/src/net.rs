@@ -64,16 +64,13 @@ impl Drop for Server {
 }
 
 /// Runs the race; returns the server report and every bot's result.
-pub fn run(
-    check: &NetCheck,
-    out_dir: &Path,
-    track: Arc<Track>,
-) -> Result<(ServerReport, Vec<BotResult>), String> {
+pub fn run(check: &NetCheck, race: usize, out_dir: &Path, track: Arc<Track>) -> Result<RaceRun, String> {
     let addr = free_port()?;
-    let report_path = out_dir.join("server.json");
+    let report_path = out_dir.join(format!("server-{}.json", race + 1));
     std::fs::remove_file(&report_path).ok();
     let c = &check.conditions;
-    let log = std::fs::File::create(out_dir.join("server.log")).map_err(|e| e.to_string())?;
+    let log_path = out_dir.join(format!("server-{}.log", race + 1));
+    let log = std::fs::File::create(&log_path).map_err(|e| e.to_string())?;
     let mut server = Server(
         Command::new(&check.server)
             .args([
@@ -113,7 +110,9 @@ pub fn run(
             config.conditions = check.conditions;
             // Slowest first on the grid (bots join in order), so that the
             // faster ones have to pass: traffic and contacts.
-            config.autopilot = Some(Difficulty::ALL[i * Difficulty::ALL.len() / check.bots.max(1)]);
+            // Later races shift everyone up a difficulty.
+            let d = i * Difficulty::ALL.len() / check.bots.max(1) + race;
+            config.autopilot = Some(Difficulty::ALL[d % Difficulty::ALL.len()]);
             let start = Duration::from_millis(150 * i as u64);
             std::thread::spawn(move || {
                 std::thread::sleep(start);
@@ -133,7 +132,7 @@ pub fn run(
         std::thread::sleep(Duration::from_millis(100));
     }
     let json = std::fs::read_to_string(&report_path)
-        .map_err(|e| format!("no server report ({e}); see {}", out_dir.join("server.log").display()))?;
+        .map_err(|e| format!("no server report ({e}); see {}", log_path.display()))?;
     let report: ServerReport = serde_json::from_str(&json).map_err(|e| e.to_string())?;
     Ok((report, results))
 }
@@ -258,13 +257,12 @@ fn percentile(values: &mut [f32], p: f32) -> f32 {
     values[i]
 }
 
-/// Writes the analysis to `out`; returns whether every check passed.
-pub fn analyse(
-    check: &NetCheck,
-    report: &ServerReport,
-    bots: &[BotResult],
-    out: &mut String,
-) -> bool {
+/// One race of the check: the server's report and the bots' results.
+pub type RaceRun = (ServerReport, Vec<BotResult>);
+
+/// Writes the analysis of `races` to `out`; returns whether every check
+/// passed.
+pub fn analyse(check: &NetCheck, races: &[RaceRun], out: &mut String) -> bool {
     let t = thresholds(&check.conditions);
     let c = &check.conditions;
     let mut ok = true;
@@ -274,7 +272,8 @@ pub fn analyse(
     };
     writeln!(
         out,
-        "# Net check: {} bots, {} laps, {} ms RTT, {} ms jitter, {:.1} % loss\n",
+        "# Net check: {} race(s), {} bots, {} laps, {} ms RTT, {} ms jitter, {:.1} % loss\n",
+        races.len(),
         check.bots,
         check.laps,
         c.rtt_ms,
@@ -283,158 +282,225 @@ pub fn analyse(
     )
     .ok();
 
-    // Race completion and agreement on the results.
-    let completed = bots.iter().all(|b| b.state == SessionState::Over);
-    writeln!(
-        out,
-        "Race completed on the server ({} ticks) and every client: {}",
-        report.ticks,
-        if completed { "yes" } else { "NO" }
-    )
-    .ok();
-    if !completed {
-        let states: Vec<String> = bots.iter().map(|b| format!("{:?}", b.state)).collect();
-        fail(out, format!("race not completed: {states:?}"));
-    }
-    let mut disagreements = 0;
-    for b in bots {
-        for r in &report.results {
-            let Some((_, seen)) = b.racers.iter().find(|(s, _)| *s == r.slot) else {
-                disagreements += 1;
-                continue;
-            };
-            let finish = match seen.status {
-                Status::Finished(t) => Some(t),
-                _ => None,
-            };
-            if seen.position != r.position
-                || seen.timing.laps.len() as u32 != r.laps
-                || finish != r.finish
-            {
-                disagreements += 1;
-            }
-        }
-    }
-    writeln!(
-        out,
-        "Finishing order, lap counts and times on every client equal to the server's: {}\n",
-        if disagreements == 0 {
-            "yes".to_string()
-        } else {
-            format!("NO ({disagreements} rows differ)")
-        }
-    )
-    .ok();
-    if disagreements > 0 {
-        fail(out, format!("{disagreements} result rows differ"));
-    }
-    writeln!(out, "| Pos | Car | Laps | Time | Resets |\n|---|---|---|---|---|").ok();
-    for r in &report.results {
-        writeln!(
-            out,
-            "| {} | {} | {} | {} | {} |",
-            r.position,
-            r.name,
-            r.laps,
-            r.finish.map_or("DNF".into(), |t| format!("{t:.3}")),
-            r.resets
-        )
-        .ok();
-    }
-
-    // Events that explain corrections: contacts and resets, by slot.
-    let resets: Vec<(u8, u32)> = bots
-        .iter()
-        .flat_map(|b| &b.racers)
-        .filter(|(s, _)| report.results.iter().any(|r| r.slot == *s))
-        .flat_map(|(s, r)| {
-            r.resets.iter().map(move |x| {
-                let tick = report.start_tick as f32 + x.time * 240.0;
-                (*s, tick.max(0.0) as u32)
-            })
-        })
-        .collect();
-    let near_event = |slot: u8, tick: u32| {
-        report
-            .contacts
-            .iter()
-            .any(|c| (c.a == slot || c.b == slot) && c.tick.abs_diff(tick) < EVENT_WINDOW)
-            || resets
-                .iter()
-                .any(|&(s, t)| s == slot && t.abs_diff(tick) < EVENT_WINDOW)
-    };
-
-    // Corrections.
-    writeln!(
-        out,
-        "\n## Prediction corrections (local car, error at the corrected tick)\n\n\
-         | Bot | Snapshots | Corrections | of which near contacts/resets | Position p50 / p95 / max (m) | \
-         Rotation p95 / max (deg) | Displayed max (m) | Desyncs > {DESYNC} m | Unmatched |\n\
-         |---|---|---|---|---|---|---|---|---|"
-    )
-    .ok();
-    let minutes = report.ticks as f32 / 240.0 / 60.0;
     let (mut all_pos, mut all_rot) = (Vec::new(), Vec::new());
-    let mut desyncs = 0;
-    for (i, b) in bots.iter().enumerate() {
-        let slot = b.slot.unwrap_or(u8::MAX);
-        let (mut pos, mut rot) = (Vec::new(), Vec::new());
-        let mut near = 0;
-        let mut bot_desyncs = 0;
-        for x in &b.stats.corrections {
-            if near_event(slot, x.tick) {
-                near += 1;
-                continue;
-            }
-            pos.push(x.position);
-            rot.push(x.rotation.to_degrees());
-            if x.position > DESYNC {
-                bot_desyncs += 1;
+    let (mut desyncs, mut minutes, mut corrections, mut snapshots) = (0, 0.0, 0, 0);
+    let (mut contacts, mut agreed, mut one_side, mut false_contacts) = (0, 0, 0, 0);
+    let (mut model, mut dead) = (Vec::new(), Vec::new());
+    let mut cost = String::new();
+    for (race, (report, bots)) in races.iter().enumerate() {
+        // Race completion and agreement on the results.
+        let completed = bots.iter().all(|b| b.state == SessionState::Over);
+        let mut disagreements = 0;
+        for b in bots {
+            for r in &report.results {
+                let Some((_, seen)) = b.racers.iter().find(|(s, _)| *s == r.slot) else {
+                    disagreements += 1;
+                    continue;
+                };
+                let finish = match seen.status {
+                    Status::Finished(t) => Some(t),
+                    _ => None,
+                };
+                if seen.position != r.position
+                    || seen.timing.laps.len() as u32 != r.laps
+                    || finish != r.finish
+                {
+                    disagreements += 1;
+                }
             }
         }
-        desyncs += bot_desyncs;
-        let displayed = b
-            .stats
-            .corrections
-            .iter()
-            .map(|x| x.displayed)
-            .fold(0.0, f32::max);
-        all_pos.extend(pos.iter().copied());
-        all_rot.extend(rot.iter().copied());
-        let max = pos.iter().copied().fold(0.0, f32::max);
-        let rmax = rot.iter().copied().fold(0.0, f32::max);
         writeln!(
             out,
-            "| {i} | {} | {} | {near} | {:.3} / {:.3} / {:.3} | {:.2} / {:.2} | {:.2} | {bot_desyncs} | {} |",
-            b.stats.snapshots,
-            b.stats.corrections.len(),
-            percentile(&mut pos.clone(), 0.5),
-            percentile(&mut pos.clone(), 0.95),
-            max,
-            percentile(&mut rot.clone(), 0.95),
-            rmax,
-            displayed,
-            b.stats.unmatched,
+            "## Race {}\n\nCompleted on the server ({:.0} s) and every client: {}. Finishing order, \
+             lap counts and times on every client equal to the server's: {}\n",
+            race + 1,
+            report.ticks as f32 / 240.0,
+            if completed { "yes" } else { "NO" },
+            if disagreements == 0 {
+                "yes".to_string()
+            } else {
+                format!("NO ({disagreements} rows differ)")
+            }
         )
         .ok();
+        if !completed {
+            let states: Vec<String> = bots.iter().map(|b| format!("{:?}", b.state)).collect();
+            fail(out, format!("race {} not completed: {states:?}", race + 1));
+        }
+        if disagreements > 0 {
+            fail(out, format!("race {}: {disagreements} result rows differ", race + 1));
+        }
+        writeln!(out, "| Pos | Car | Laps | Time | Resets |\n|---|---|---|---|---|").ok();
+        for r in &report.results {
+            writeln!(
+                out,
+                "| {} | {} | {} | {} | {} |",
+                r.position,
+                r.name,
+                r.laps,
+                r.finish.map_or("DNF".into(), |t| format!("{t:.3}")),
+                r.resets
+            )
+            .ok();
+        }
+
+        // Corrections close to contacts and resets are expected; the rest
+        // measure the prediction.
+        let resets: Vec<(u8, u32)> = report
+            .results
+            .iter()
+            .flat_map(|r| {
+                let seen = bots.iter().find_map(|b| {
+                    b.racers.iter().find(|(s, _)| *s == r.slot).map(|(_, x)| x)
+                });
+                seen.into_iter().flat_map(move |x| {
+                    x.resets.iter().map(move |reset| {
+                        let tick = report.start_tick as f32 + reset.time * 240.0;
+                        (r.slot, tick.max(0.0) as u32)
+                    })
+                })
+            })
+            .collect();
+        let near_event = |slot: u8, tick: u32| {
+            report
+                .contacts
+                .iter()
+                .any(|c| (c.a == slot || c.b == slot) && c.tick.abs_diff(tick) < EVENT_WINDOW)
+                || resets
+                    .iter()
+                    .any(|&(s, t)| s == slot && t.abs_diff(tick) < EVENT_WINDOW)
+        };
+        writeln!(
+            out,
+            "\n| Bot | Snapshots | Corrections | near contacts/resets | Position p50 / p95 / max (m) | \
+             Rotation p95 / max (deg) | Displayed max (m) | Desyncs > {DESYNC} m |\n\
+             |---|---|---|---|---|---|---|---|"
+        )
+        .ok();
+        for (i, b) in bots.iter().enumerate() {
+            let slot = b.slot.unwrap_or(u8::MAX);
+            let (mut pos, mut rot) = (Vec::new(), Vec::new());
+            let (mut near, mut bot_desyncs, mut displayed) = (0, 0, 0.0f32);
+            for x in &b.stats.corrections {
+                if near_event(slot, x.tick) {
+                    near += 1;
+                    continue;
+                }
+                pos.push(x.position);
+                rot.push(x.rotation.to_degrees());
+                displayed = displayed.max(x.displayed);
+                if x.position > DESYNC {
+                    bot_desyncs += 1;
+                }
+            }
+            desyncs += bot_desyncs;
+            corrections += b.stats.corrections.len();
+            snapshots += b.stats.snapshots as usize;
+            all_pos.extend(pos.iter().copied());
+            all_rot.extend(rot.iter().copied());
+            writeln!(
+                out,
+                "| {i} | {} | {} | {near} | {:.3} / {:.3} / {:.3} | {:.2} / {:.2} | {displayed:.2} | {bot_desyncs} |",
+                b.stats.snapshots,
+                b.stats.corrections.len(),
+                percentile(&mut pos, 0.5),
+                percentile(&mut pos, 0.95),
+                pos.last().copied().unwrap_or(0.0),
+                percentile(&mut rot, 0.95),
+                rot.last().copied().unwrap_or(0.0),
+            )
+            .ok();
+        }
+        minutes += bots.len() as f32 * report.ticks as f32 / 240.0 / 60.0;
+
+        // Contacts: each one the server had, predicted by both clients?
+        let predicted = |slot: u8, other: u8, tick: u32, at: Vec3| {
+            bots.iter().find(|b| b.slot == Some(slot)).is_some_and(|b| {
+                b.stats.contacts.iter().any(|&(t, s, p)| {
+                    s == other
+                        && t.abs_diff(tick) <= CONTACT_TICKS
+                        && p.distance(at) < CONTACT_DISTANCE
+                })
+            })
+        };
+        for x in &report.contacts {
+            let a = predicted(x.a, x.b, x.tick, x.position);
+            let b = predicted(x.b, x.a, x.tick, x.position);
+            contacts += 1;
+            if a && b {
+                agreed += 1;
+            } else if a || b {
+                one_side += 1;
+            }
+        }
+        for b in bots {
+            let slot = b.slot.unwrap_or(u8::MAX);
+            false_contacts += b
+                .stats
+                .contacts
+                .iter()
+                .filter(|&&(t, other, _)| {
+                    !report.contacts.iter().any(|x| {
+                        ((x.a == slot && x.b == other) || (x.b == slot && x.a == other))
+                            && x.tick.abs_diff(t) <= CONTACT_TICKS
+                    })
+                })
+                .count();
+            model.extend(b.stats.remote_errors.iter().map(|e| e.0));
+            dead.extend(b.stats.remote_errors.iter().map(|e| e.1));
+        }
+
+        // Network and cost.
+        let mut rtt: Vec<f32> = bots.iter().flat_map(|b| b.stats.rtt_ms.iter().copied()).collect();
+        let mut lead: Vec<f32> = bots
+            .iter()
+            .flat_map(|b| b.stats.input_lead.iter().map(|&l| l as f32))
+            .collect();
+        let resim_ticks: u64 = bots.iter().map(|b| b.stats.resim_ticks).sum();
+        let resim: f64 = bots.iter().map(|b| b.stats.resim_time.as_secs_f64()).sum();
+        let wall: f64 = bots.iter().map(|b| b.wall.as_secs_f64()).sum();
+        let fps: f64 = bots
+            .iter()
+            .map(|b| b.frames as f64 / b.wall.as_secs_f64().max(1e-9))
+            .fold(f64::MAX, f64::min);
+        let missing: u32 = report.players.iter().map(|p| p.missing_inputs).sum();
+        let late: u32 = report.players.iter().map(|p| p.late_inputs).sum();
+        let ticks: u32 = report.players.iter().map(|p| p.ticks).sum();
+        writeln!(
+            cost,
+            "- race {}: RTT median {:.0} ms; input lead median {:.0} ticks; {} ticks resimulated \
+             (all bots) at {:.0} us each, {:.2} % of the bots' wall time; slowest bot {fps:.1} fps; \
+             {missing} of {ticks} player ticks driven with a repeated input ({late} of those inputs \
+             came late); server tick {:.2} ms mean, {:.1} ms max",
+            race + 1,
+            percentile(&mut rtt, 0.5),
+            percentile(&mut lead, 0.5),
+            resim_ticks,
+            resim * 1e6 / (resim_ticks.max(1) as f64),
+            100.0 * resim / wall.max(1e-9),
+            report.tick_ms_mean,
+            report.tick_ms_max,
+        )
+        .ok();
+        writeln!(out).ok();
     }
-    let p95 = percentile(&mut all_pos.clone(), 0.95);
-    let max = all_pos.iter().copied().fold(0.0, f32::max);
-    let r95 = percentile(&mut all_rot.clone(), 0.95);
-    let rate = desyncs as f32 / bots.len().max(1) as f32 / minutes.max(1e-3);
+
+    writeln!(out, "## Summary\n").ok();
+    let p95 = percentile(&mut all_pos, 0.95);
+    let max = all_pos.last().copied().unwrap_or(0.0);
+    let r95 = percentile(&mut all_rot, 0.95);
+    let rate = desyncs as f32 / minutes.max(1e-3);
     writeln!(
         out,
-        "\nAll bots outside contacts and resets: position p95 {p95:.3} m (limit {}), max {max:.3} m \
-         (limit {}), rotation p95 {r95:.2} deg (limit {}), desyncs {rate:.2} per car-minute (limit {})",
-        t.position_p95, t.position_max, t.rotation_p95, t.desyncs_per_minute
-    )
-    .ok();
-    let total: usize = bots.iter().map(|b| b.stats.corrections.len()).sum();
-    let snaps: u32 = bots.iter().map(|b| b.stats.snapshots).sum();
-    writeln!(
-        out,
-        "Snapshots needing a correction: {total} of {snaps} ({:.1} %)",
-        100.0 * total as f32 / snaps.max(1) as f32
+        "Prediction corrections outside contacts and resets: position p95 {p95:.3} m (limit {}), \
+         max {max:.3} m (limit {}); rotation p95 {r95:.2} deg (limit {}); desyncs (> {DESYNC} m) \
+         {rate:.2} per car-minute (limit {}). Snapshots needing a correction: {corrections} of \
+         {snapshots} ({:.2} %).\n",
+        t.position_p95,
+        t.position_max,
+        t.rotation_p95,
+        t.desyncs_per_minute,
+        100.0 * corrections as f32 / snapshots.max(1) as f32
     )
     .ok();
     if p95 > t.position_p95 {
@@ -449,51 +515,16 @@ pub fn analyse(
     if rate > t.desyncs_per_minute {
         fail(out, format!("{rate:.2} desyncs per car-minute"));
     }
-
-    // Contacts.
-    let predicted = |slot: u8, other: u8, tick: u32, at: Vec3| {
-        bots.iter()
-            .find(|b| b.slot == Some(slot))
-            .is_some_and(|b| {
-                b.stats.contacts.iter().any(|&(t, s, p)| {
-                    s == other && t.abs_diff(tick) <= CONTACT_TICKS && p.distance(at) < CONTACT_DISTANCE
-                })
-            })
+    let share = if contacts == 0 {
+        1.0
+    } else {
+        agreed as f32 / contacts as f32
     };
-    let mut agreed = 0;
-    let mut one_side = 0;
-    for x in &report.contacts {
-        let a = predicted(x.a, x.b, x.tick, x.position);
-        let b = predicted(x.b, x.a, x.tick, x.position);
-        if a && b {
-            agreed += 1;
-        } else if a || b {
-            one_side += 1;
-        }
-    }
-    let n = report.contacts.len();
-    let share = if n == 0 { 1.0 } else { agreed as f32 / n as f32 };
-    let false_contacts: usize = bots
-        .iter()
-        .map(|b| {
-            let slot = b.slot.unwrap_or(u8::MAX);
-            b.stats
-                .contacts
-                .iter()
-                .filter(|&&(t, other, _)| {
-                    !report.contacts.iter().any(|x| {
-                        ((x.a == slot && x.b == other) || (x.b == slot && x.a == other))
-                            && x.tick.abs_diff(t) <= CONTACT_TICKS
-                    })
-                })
-                .count()
-        })
-        .sum();
     writeln!(
         out,
-        "\n## Contacts\n\nServer car-car contacts: {n}; predicted by both cars' clients within \
-         {} ms and {CONTACT_DISTANCE} m: {agreed} ({:.0} %, limit {:.0} %); by one of them: {one_side}; \
-         predicted contacts the server did not have: {false_contacts}",
+        "Contacts: the server had {contacts}; both cars' clients predicted {agreed} within {} ms \
+         and {CONTACT_DISTANCE} m ({:.0} %, limit {:.0} %), one of them {one_side}; contacts \
+         predicted that the server did not have: {false_contacts}.\n",
         CONTACT_TICKS * 1000 / 240,
         share * 100.0,
         t.contact_agreement * 100.0
@@ -502,15 +533,11 @@ pub fn analyse(
     if share < t.contact_agreement {
         fail(out, format!("contact agreement {:.0} %", share * 100.0));
     }
-
-    // Remote cars.
-    let mut model: Vec<f32> = bots.iter().flat_map(|b| b.stats.remote_errors.iter().map(|e| e.0)).collect();
-    let mut dead: Vec<f32> = bots.iter().flat_map(|b| b.stats.remote_errors.iter().map(|e| e.1)).collect();
     writeln!(
         out,
-        "\n## Remote cars\n\nShown position against the server's at the same tick, before smoothing \
+        "Remote cars, shown position against the server's at the same tick before smoothing \
          ({} samples): extrapolated with their inputs p50 {:.2} m, p95 {:.2} m, max {:.2} m; \
-         dead reckoning would give p50 {:.2} m, p95 {:.2} m, max {:.2} m",
+         dead reckoning would give p50 {:.2} m, p95 {:.2} m, max {:.2} m.\n",
         model.len(),
         percentile(&mut model, 0.5),
         percentile(&mut model, 0.95),
@@ -520,45 +547,8 @@ pub fn analyse(
         dead.last().copied().unwrap_or(0.0),
     )
     .ok();
-
-    // Network and cost.
-    writeln!(out, "\n## Network and cost\n").ok();
-    for (i, b) in bots.iter().enumerate() {
-        let mut rtt = b.stats.rtt_ms.clone();
-        let mut lead: Vec<f32> = b.stats.input_lead.iter().map(|&l| l as f32).collect();
-        let per_tick = if b.stats.resim_ticks > 0 {
-            b.stats.resim_time.as_secs_f64() * 1e6 / b.stats.resim_ticks as f64
-        } else {
-            0.0
-        };
-        writeln!(
-            out,
-            "- bot {i}: RTT median {:.0} ms, input lead median {:.0} ticks (min {:.0}), \
-             {} ticks resimulated at {per_tick:.0} us each ({:.2} % of wall time), {:.1} fps",
-            percentile(&mut rtt, 0.5),
-            percentile(&mut lead, 0.5),
-            lead.first().copied().unwrap_or(0.0),
-            b.stats.resim_ticks,
-            100.0 * b.stats.resim_time.as_secs_f64() / b.wall.as_secs_f64().max(1e-9),
-            b.frames as f64 / b.wall.as_secs_f64().max(1e-9),
-        )
-        .ok();
-    }
-    for p in &report.players {
-        writeln!(
-            out,
-            "- server, {}: {} of {} ticks driven with a repeated input ({} came late, by {:.1} ticks on average)",
-            p.name, p.missing_inputs, p.ticks, p.late_inputs, p.mean_lateness
-        )
-        .ok();
-    }
-    writeln!(
-        out,
-        "- server tick: {:.2} ms mean, {:.2} ms max",
-        report.tick_ms_mean, report.tick_ms_max
-    )
-    .ok();
-    writeln!(out, "\nResult: {}", if ok { "PASS" } else { "FAIL" }).ok();
+    writeln!(out, "Network and cost:\n\n{cost}").ok();
+    writeln!(out, "Result: {}", if ok { "PASS" } else { "FAIL" }).ok();
     ok
 }
 
