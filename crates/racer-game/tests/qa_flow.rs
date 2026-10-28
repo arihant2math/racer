@@ -287,8 +287,17 @@ fn force_feedback_is_released_while_paused() {
         .set(AppState::Loading);
     frames(&mut app, 3);
     to_green(&mut app);
-    frames(&mut app, 120);
-    let before = *forces.lock().unwrap().last().unwrap();
+    // Pause while the race force is pulling the rim: the aligning torque
+    // fades whenever the front tyres slide, so no fixed frame is safe.
+    frames(&mut app, 30);
+    let last = || *forces.lock().unwrap().last().unwrap();
+    for _ in 0..300 {
+        if last().abs() > 0.05 {
+            break;
+        }
+        app.update();
+    }
+    let before = last();
     assert!(before.abs() > 0.05, "no force while cornering: {before}");
     tap(&mut app, KeyCode::Escape);
     assert!(paused(&app));
