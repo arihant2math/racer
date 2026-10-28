@@ -271,8 +271,9 @@ fn ai_laps(args: &[String]) -> Result<ExitCode, String> {
     };
     let laps: u32 = flag(&flags, "laps", 100)?;
     let only: String = flag(&flags, "car", String::new())?;
-    if laps == 0 {
-        return Err("--laps must be at least 1".into());
+    // The first lap is from a standing start; the report needs a flying lap.
+    if laps < 2 {
+        return Err("--laps must be at least 2".into());
     }
     if !only.is_empty() && !racer_dynamics::spec::CARS.contains(&only.as_str()) {
         return Err(format!(

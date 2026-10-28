@@ -18,12 +18,24 @@ fn out_dir(name: &str) -> String {
 #[test]
 fn ai_laps_rejects_an_unknown_car() {
     let dir = out_dir("laps");
-    let out = capture(&["ai-laps", &dir, "--car", "no-such-car", "--laps", "1"]);
+    let out = capture(&["ai-laps", &dir, "--car", "no-such-car", "--laps", "2"]);
     std::fs::remove_dir_all(&dir).ok();
     assert!(
         !out.status.success(),
         "ai-laps --car no-such-car passed without running a lap"
     );
+}
+
+#[test]
+fn ai_laps_rejects_too_few_laps_for_a_flying_lap() {
+    let dir = out_dir("laps1");
+    for laps in ["0", "1"] {
+        let out = capture(&["ai-laps", &dir, "--laps", laps]);
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(2), "--laps {laps}: {err}");
+        assert!(err.contains("--laps must be at least 2"), "{err}");
+    }
+    assert!(!std::path::Path::new(&dir).exists());
 }
 
 #[test]
