@@ -33,6 +33,10 @@ cp -r target/release/racer-game data /opt/racer/        # /opt/racer/racer-game 
 RACER_DATA_DIR=/path/to/racer/data /somewhere/racer-trackc compile /path/to/my-track
 ```
 
+Built car models (`assets/`, from `tools/build_car_992.sh`; not committed) are found the same
+way: `RACER_ASSETS_DIR`, then `assets/` next to the executable, then the checkout. Without
+them `racer-game` and `racer-capture` draw the greybox car bodies.
+
 ## Setup
 
 On Ubuntu 24.04 (a fresh container or a GitHub Actions runner), one non-interactive,

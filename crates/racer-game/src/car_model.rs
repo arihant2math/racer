@@ -31,9 +31,12 @@ const WHEELS: [&str; 4] = ["FL", "FR", "RL", "RR"];
 const LOD_DISTANCES: [f32; 3] = [18.0, 45.0, 110.0];
 
 /// The `assets/` directory (see `racer_data::assets_dir` for where it is
-/// found); Bevy's asset root is set to it in the game binary.
+/// found); Bevy's asset root is set to it in the game binary. Absolute,
+/// because Bevy resolves a relative root against the executable's directory,
+/// not the working directory.
 pub fn assets_dir() -> PathBuf {
-    racer_data::assets_dir()
+    let dir = racer_data::assets_dir();
+    std::path::absolute(&dir).unwrap_or(dir)
 }
 
 /// Asset path of the car's model, if the pipeline has built it.
