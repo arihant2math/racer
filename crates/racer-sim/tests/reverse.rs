@@ -260,3 +260,57 @@ fn progress_reversing_over_the_line_facing_forwards() {
     assert!(events.is_empty(), "{events:?}");
     assert_eq!(p.laps, 1);
 }
+
+/// A longer reverse with real physics: 8 m back at full pedal (out of a
+/// run-off, say), then on. The wrong-way warning comes on while reversing
+/// and clears once the car drives on; no reset, no gate lost.
+#[test]
+fn a_longer_reverse_warns_then_clears_without_a_reset() {
+    let (mut app, car) = race_app();
+    let start = 300.0;
+    place(&mut app, car, start, 0, 0.0);
+    let gates = racer(&app, car).progress.next_gate;
+    let mut seen = Seen::default();
+    drive(&mut app, car, BRAKE, 8.0, &mut seen, |a| {
+        racer(a, car).progress.distance < start - 8.0
+    });
+    assert!(racer(&app, car).progress.distance < start - 8.0);
+    assert!(seen.wrong_way, "8 m of reversing should set off the warning");
+    drive(&mut app, car, THROTTLE, 8.0, &mut seen, |a| {
+        racer(a, car).progress.distance > start + 15.0
+    });
+    let mut after = Seen::default();
+    drive(&mut app, car, THROTTLE, 1.5, &mut after, |_| false);
+    let r = racer(&app, car);
+    assert!(!r.progress.wrong_way, "warning still on after driving on");
+    assert!(r.resets.is_empty(), "{:?}", r.resets);
+    assert_eq!((r.progress.laps, r.progress.next_gate), (0, gates));
+    assert_eq!(r.status, Status::Racing);
+}
+
+/// Reversing 12 m back over the line with real physics, then over it again:
+/// the lap is taken back and counted once.
+#[test]
+fn a_longer_reverse_over_the_line_counts_the_lap_once() {
+    let (mut app, car) = race_app();
+    let l = geometry(&app).length;
+    place(&mut app, car, l - 3.0, 0, 6.0);
+    let mut seen = Seen::default();
+    drive(&mut app, car, THROTTLE, 3.0, &mut seen, |a| {
+        racer(a, car).progress.distance > l + 1.0
+    });
+    assert_eq!(racer(&app, car).progress.laps, 1);
+    drive(&mut app, car, BRAKE, 10.0, &mut seen, |a| {
+        racer(a, car).progress.distance < l - 11.0
+    });
+    let r = racer(&app, car);
+    assert_eq!(r.progress.laps, 0, "lap not taken back");
+    drive(&mut app, car, THROTTLE, 10.0, &mut seen, |a| {
+        racer(a, car).progress.distance > l + 5.0
+    });
+    let r = racer(&app, car);
+    assert_eq!(r.progress.laps, 1);
+    assert_eq!(seen.most_laps, 1, "a lap credited twice");
+    assert_eq!(r.timing.laps.len(), 1);
+    assert!(r.resets.is_empty(), "{:?}", r.resets);
+}

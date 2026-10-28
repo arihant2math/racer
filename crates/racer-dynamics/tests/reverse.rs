@@ -298,3 +298,139 @@ fn manual_reverse_needs_a_standstill_and_the_throttle_drives_it() {
         assert_eq!(gear(&sim), -1, "manual stays in reverse");
     }
 }
+
+/// A constant grade: uphill towards -Z, the way [`Sim::new`] faces the car.
+struct Grade(f64);
+
+impl racer_dynamics::testbed::Ground for Grade {
+    fn height(&self, _x: f64, z: f64) -> f64 {
+        -self.0 * z
+    }
+}
+
+#[test]
+fn on_a_hill_reverse_waits_for_the_brake_to_stop_the_car() {
+    let hill = Grade(0.12);
+    for v in &vehicles() {
+        let mut sim = Sim::new(v, &hill);
+        let base = auto_controls();
+        // Rolling back down the hill in 1st with no pedals.
+        sim.run(2.0, |_| base);
+        assert!(sim.speed() < -1.0, "{}: {}", v.name, sim.speed());
+        assert_eq!(gear(&sim), 1, "{}", v.name);
+        // The brake stops the rolling car; reverse only once it has stood
+        // for the whole hold.
+        let brake = Controls { brake: 1.0, ..base };
+        let mut stood = 0.0;
+        while gear(&sim) > 0 && sim.time < 10.0 {
+            sim.step(&brake);
+            stood = if sim.speed().abs() < STANDSTILL {
+                stood + racer_dynamics::chassis_dt()
+            } else {
+                0.0
+            };
+        }
+        assert_eq!(gear(&sim), -1, "{}", v.name);
+        assert!(stood >= REVERSE_HOLD - 0.01, "{}: {stood}", v.name);
+        // Off the pedals in reverse the car rolls back and stays in R; the
+        // throttle then brakes it and pulls away up the hill in 1st.
+        sim.run(1.0, |_| base);
+        assert!(sim.speed() < -STANDSTILL, "{}", v.name);
+        assert_eq!(gear(&sim), -1, "{}", v.name);
+        run(&mut sim, 4.0, Controls { throttle: 1.0, ..base });
+        assert_eq!(gear(&sim), 1, "{}", v.name);
+        assert!(sim.speed() > 3.0, "{}: {}", v.name, sim.speed());
+    }
+}
+
+#[test]
+fn a_shunt_while_waiting_on_the_brake_restarts_the_hold() {
+    for v in &vehicles() {
+        let mut sim = Sim::new(v, &Flat);
+        let brake = Controls {
+            brake: 1.0,
+            ..auto_controls()
+        };
+        sim.run(0.8 * REVERSE_HOLD, |_| brake);
+        assert!(sim.state.drive.reverse_hold > 0.7 * REVERSE_HOLD);
+        // A car behind pushes this one forwards at walking pace.
+        let push = sim.forward() * 1.5;
+        sim.body.linear_velocity += push;
+        sim.step(&brake);
+        assert_eq!(sim.state.drive.reverse_hold, 0.0, "{}", v.name);
+        assert_eq!(
+            lowest_gear(&mut sim, 0.5 * REVERSE_HOLD, brake),
+            1,
+            "{}",
+            v.name
+        );
+    }
+}
+
+#[test]
+fn both_pedals_or_a_brake_hovering_at_the_threshold_never_flip_gears() {
+    for v in &vehicles() {
+        let base = auto_controls();
+        // A noisy analog brake around the 20 % threshold: the hold restarts
+        // each time the pedal dips under it, never a stray reverse.
+        let mut sim = Sim::new(v, &Flat);
+        let mut lowest = gear(&sim);
+        for i in 0..240 * 3 {
+            let brake = if (i / 60) % 2 == 0 { 0.22 } else { 0.18 };
+            sim.step(&Controls { brake, ..base });
+            lowest = lowest.min(gear(&sim));
+        }
+        assert_eq!(lowest, 1, "{}", v.name);
+        // In a brake-engaged reverse at a standstill, both pedals: 1st, and
+        // it stays there (no R, 1st, R flicker).
+        let mut sim = Sim::new(v, &Flat);
+        sim.run(REVERSE_HOLD + 0.05, |_| Controls { brake: 1.0, ..base });
+        assert_eq!(gear(&sim), -1, "{}", v.name);
+        let both = Controls {
+            throttle: 0.5,
+            brake: 1.0,
+            ..base
+        };
+        sim.step(&both);
+        assert_eq!(gear(&sim), 1, "{}", v.name);
+        let mut changes = 0;
+        let mut last = gear(&sim);
+        for _ in 0..240 * 3 {
+            sim.step(&both);
+            changes += usize::from(gear(&sim) != last);
+            last = gear(&sim);
+        }
+        assert_eq!(changes, 0, "{}", v.name);
+    }
+}
+
+#[test]
+fn switching_to_the_manual_in_reverse_gives_normal_pedals() {
+    for v in &vehicles() {
+        let auto = auto_controls();
+        let manual = Controls {
+            automatic: false,
+            ..auto
+        };
+        let mut sim = Sim::new(v, &Flat);
+        sim.run(REVERSE_HOLD + 0.05, |_| Controls { brake: 1.0, ..auto });
+        sim.run(1.5, |_| Controls { brake: 1.0, ..auto });
+        assert!(sim.speed() < -1.0, "{}", v.name);
+        // The manual: still R, the brake brakes and the throttle drives back.
+        sim.run(2.0, |_| Controls { brake: 1.0, ..manual });
+        assert_eq!(gear(&sim), -1, "{}", v.name);
+        assert!(sim.speed().abs() < 0.05, "{}: {}", v.name, sim.speed());
+        sim.run(1.5, |_| Controls {
+            throttle: 1.0,
+            ..manual
+        });
+        assert!(sim.speed() < -1.0, "{}: {}", v.name, sim.speed());
+        // Shifting up leaves R and ends the swap.
+        sim.run(3.0, |_| Controls { brake: 1.0, ..manual });
+        sim.step(&Controls {
+            shift_up: true,
+            ..manual
+        });
+        assert!(!sim.state.drive.brake_reverse, "{}", v.name);
+    }
+}

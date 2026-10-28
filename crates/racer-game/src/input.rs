@@ -131,11 +131,15 @@ fn read_devices(
         // `Gamepad` holds raw values (Bevy's axis settings only filter its
         // change events), so this is the one deadzone.
         let stick = pad.left_stick().x;
+        // Each trigger gets its own deadzone, rescaled: a worn trigger resting
+        // just above it must not read as a touch of throttle while the other
+        // is pressed (the automatic's reverse needs the throttle released).
+        let trigger = |b| ((pad.get(b).unwrap_or(0.0) - 0.05) / 0.95).max(0.0);
         let (rt, lt) = (
-            pad.get(GamepadButton::RightTrigger2).unwrap_or(0.0),
-            pad.get(GamepadButton::LeftTrigger2).unwrap_or(0.0),
+            trigger(GamepadButton::RightTrigger2),
+            trigger(GamepadButton::LeftTrigger2),
         );
-        if stick.abs() > 0.08 || rt > 0.05 || lt > 0.05 {
+        if stick.abs() > 0.08 || rt > 0.0 || lt > 0.0 {
             // Deadzone and a mild curve for fine control around centre. The
             // stronger steering wins, so keyboard steering works with pad pedals.
             let s = ((stick.abs() - 0.08) / 0.92).max(0.0);
@@ -554,6 +558,20 @@ mod tests {
         };
         let (light, full) = (reverse_speed(0.35), reverse_speed(1.0));
         assert!(0.3 < light && light < full - 1.0, "{light} {full}");
+    }
+
+    #[test]
+    fn a_right_trigger_resting_above_zero_does_not_block_reverse() {
+        let (mut app, car) = player_app(Box::new(NoWheel), true);
+        let pad = gamepad(&mut app);
+        run(&mut app, 1.0);
+        // A worn trigger that never quite returns.
+        pad_button(&mut app, pad, GamepadButton::RightTrigger2, 0.08);
+        pad_button(&mut app, pad, GamepadButton::LeftTrigger2, 1.0);
+        run(&mut app, 2.5);
+        let t = telemetry(&app, car);
+        assert_eq!(t.gear, -1);
+        assert!(t.speed < -1.0, "{}", t.speed);
     }
 
     #[test]

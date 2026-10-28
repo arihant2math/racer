@@ -787,7 +787,11 @@ fn reconcile(world: &mut World) {
         .velocity
         .distance(server.velocity)
         .max(predicted.angular_velocity.distance(server.angular_velocity));
+    // The automatic's reverse timer and pedal swap too: a timer off by a
+    // tick engages reverse a tick apart later.
     let state_off = predicted_state.drive.gear != own.drive.gear
+        || predicted_state.drive.brake_reverse != own.drive.brake_reverse
+        || (predicted_state.drive.reverse_hold - own.drive.reverse_hold).abs() > 1e-6
         || predicted_state
             .wheels
             .iter()

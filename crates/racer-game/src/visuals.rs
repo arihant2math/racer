@@ -117,17 +117,26 @@ fn mesh_cars(
     asset_server: Res<AssetServer>,
 ) {
     for (entity, car, paint) in &cars {
+        let spec = racer_dynamics::load_car(&car.id).ok();
+        let dims = spec.as_ref().map(|s| {
+            let c = &s.chassis;
+            (c.length_m as f32, c.width_m as f32, c.height_m as f32)
+        });
+        let ride = car.vehicle.ride_height() as f32;
         if let Some(path) = crate::car_model::model_path(&car.id) {
-            let cg = car.vehicle.ride_height() as f32;
-            crate::car_model::spawn_model(&mut commands, &asset_server, entity, path, cg);
+            crate::car_model::spawn_model(&mut commands, &asset_server, entity, path, ride);
+            if let Some((len, wid, hgt)) = dims {
+                // Just behind the model's tail, at the greybox's height.
+                let y = 0.55 * hgt - 0.08 - ride;
+                commands.entity(entity).with_children(|p| {
+                    spawn_reverse_lights(p, &mut meshes, &mut materials, wid, y, len / 2.0 + 0.01);
+                });
+            }
             continue;
         }
-        let Ok(spec) = racer_dynamics::load_car(&car.id) else {
+        let Some((len, wid, hgt)) = dims else {
             continue;
         };
-        let c = &spec.chassis;
-        let (len, wid, hgt) = (c.length_m as f32, c.width_m as f32, c.height_m as f32);
-        let ride = car.vehicle.ride_height() as f32;
         let paint = materials.add(racer_render::car_paint(paint.0));
         let glass = materials.add(StandardMaterial {
             base_color: Color::srgb(0.05, 0.06, 0.08),
@@ -137,12 +146,6 @@ fn mesh_cars(
         let tire = materials.add(StandardMaterial {
             base_color: Color::srgb(0.03, 0.03, 0.03),
             perceptual_roughness: 0.8,
-            ..default()
-        });
-        let reverse_light = materials.add(StandardMaterial {
-            base_color: Color::WHITE,
-            emissive: LinearRgba::rgb(4.0, 4.0, 4.0),
-            unlit: true,
             ..default()
         });
         // Lower body above the wheel bottoms and narrower than the wheels, so they show.
@@ -161,16 +164,14 @@ fn mesh_cars(
                     MeshMaterial3d(glass),
                     Transform::from_xyz(0.0, (belt + hgt) / 2.0 - ride, 0.08 * len),
                 ));
-                // Reverse lights in the tail (+Z is the back of the car).
-                for side in [-1.0, 1.0] {
-                    p.spawn((
-                        ReverseLight,
-                        Mesh3d(meshes.add(Cuboid::new(0.16 * wid, 0.06, 0.02))),
-                        MeshMaterial3d(reverse_light.clone()),
-                        Transform::from_xyz(side * 0.28 * wid, belt - 0.08 - ride, len / 2.0),
-                        Visibility::Hidden,
-                    ));
-                }
+                spawn_reverse_lights(
+                    p,
+                    &mut meshes,
+                    &mut materials,
+                    wid,
+                    belt - 0.08 - ride,
+                    len / 2.0,
+                );
                 for index in 0..4 {
                     let r = car.vehicle.wheel_geometry(index).radius as f32;
                     p.spawn((
@@ -181,6 +182,34 @@ fn mesh_cars(
                     ));
                 }
             });
+    }
+}
+
+/// Two reverse lights in a car's tail (+Z is the back), hidden until the car
+/// is in reverse.
+fn spawn_reverse_lights(
+    p: &mut ChildSpawnerCommands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<StandardMaterial>,
+    wid: f32,
+    y: f32,
+    z: f32,
+) {
+    let material = materials.add(StandardMaterial {
+        base_color: Color::WHITE,
+        emissive: LinearRgba::rgb(4.0, 4.0, 4.0),
+        unlit: true,
+        ..default()
+    });
+    let mesh = meshes.add(Cuboid::new(0.16 * wid, 0.06, 0.02));
+    for side in [-1.0, 1.0] {
+        p.spawn((
+            ReverseLight,
+            Mesh3d(mesh.clone()),
+            MeshMaterial3d(material.clone()),
+            Transform::from_xyz(side * 0.28 * wid, y, z),
+            Visibility::Hidden,
+        ));
     }
 }
 
