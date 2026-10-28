@@ -6569,6 +6569,7 @@ dependencies = [
  "racer-game",
  "racer-sim",
  "racer-trackc",
+ "serde",
  "serde_json",
  "ureq",
 ]

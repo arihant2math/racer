@@ -193,7 +193,7 @@ impl NetClientConfig {
 #[derive(Resource)]
 pub struct RemoteRace;
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum SessionState {
     #[default]
     Idle,
@@ -314,7 +314,7 @@ fn resimulating(r: Option<Res<Resimulating>>) -> bool {
 }
 
 /// What the prediction did, for the net check.
-#[derive(Resource, Default, Debug, Clone)]
+#[derive(Resource, Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct NetStats {
     /// Snapshots compared with the prediction.
     pub snapshots: u32,
@@ -337,7 +337,7 @@ pub struct NetStats {
     pub remote_errors: Vec<(f32, f32)>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Correction {
     pub tick: u32,
     pub position: f32,

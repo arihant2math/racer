@@ -37,7 +37,7 @@ pub struct NetCheck {
 }
 
 /// What one bot client ended with.
-#[derive(Debug)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct BotResult {
     pub slot: Option<u8>,
     pub state: SessionState,
@@ -64,12 +64,7 @@ impl Drop for Server {
 }
 
 /// Runs the race; returns the server report and every bot's result.
-pub fn run(
-    check: &NetCheck,
-    race: usize,
-    out_dir: &Path,
-    track: Arc<Track>,
-) -> Result<RaceRun, String> {
+pub fn run(check: &NetCheck, race: usize, out_dir: &Path) -> Result<RaceRun, String> {
     let addr = free_port()?;
     let report_path = out_dir.join(format!("server-{}.json", race + 1));
     std::fs::remove_file(&report_path).ok();
@@ -103,32 +98,46 @@ pub fn run(
             .map_err(|e| format!("{}: {e}", check.server.display()))?,
     );
     let deadline = Instant::now() + check.timeout;
-    let bots: Vec<_> = (0..check.bots)
+    // Each bot is its own process, as players' clients are.
+    let me = std::env::current_exe().map_err(|e| e.to_string())?;
+    let bots: Vec<(Child, PathBuf)> = (0..check.bots)
         .map(|i| {
-            let track = track.clone();
-            let join = Join {
-                name: format!("bot{i}"),
-                car: CARS[i % CARS.len()].to_string(),
-                assists: Assists::default(),
-            };
-            let mut config = NetClientConfig::direct(addr, 1000 + i as u64, join);
-            config.conditions = check.conditions;
             // Slowest first on the grid (bots join in order), so that the
-            // faster ones have to pass: traffic and contacts.
-            // Later races shift everyone up a difficulty.
+            // faster ones have to pass: traffic and contacts. Later races
+            // shift everyone up a difficulty.
             let d = i * Difficulty::ALL.len() / check.bots.max(1) + race;
-            config.autopilot = Some(Difficulty::ALL[d % Difficulty::ALL.len()]);
-            let start = Duration::from_millis(150 * i as u64);
-            std::thread::spawn(move || {
-                std::thread::sleep(start);
-                bot(config, track, deadline)
-            })
+            let difficulty = Difficulty::ALL[d % Difficulty::ALL.len()];
+            let out = out_dir.join(format!("bot-{}-{i}.json", race + 1));
+            std::fs::remove_file(&out).ok();
+            std::thread::sleep(Duration::from_millis(150));
+            let child = Command::new(&me)
+                .args([
+                    "net-bot",
+                    &addr.to_string(),
+                    &(1000 + i).to_string(),
+                    &format!("bot{i}"),
+                    CARS[i % CARS.len()],
+                    difficulty.name(),
+                ])
+                .arg(&out)
+                .args([
+                    "--conditions",
+                    &format!("{},{},{}", c.rtt_ms, c.jitter_ms, c.loss * 100.0),
+                    "--timeout",
+                    &check.timeout.as_secs().to_string(),
+                ])
+                .stdout(Stdio::null())
+                .spawn()
+                .map_err(|e| format!("{}: {e}", me.display()))?;
+            Ok((child, out))
         })
-        .collect();
-    let results: Vec<BotResult> = bots
-        .into_iter()
-        .map(|b| b.join().map_err(|_| "a bot thread panicked".to_string()))
-        .collect::<Result<_, _>>()?;
+        .collect::<Result<_, String>>()?;
+    let mut results = Vec::new();
+    for (mut child, out) in bots {
+        child.wait().map_err(|e| e.to_string())?;
+        let json = std::fs::read_to_string(&out).map_err(|e| format!("{}: {e}", out.display()))?;
+        results.push(serde_json::from_str::<BotResult>(&json).map_err(|e| e.to_string())?);
+    }
     // The server exits a few seconds after the results.
     while Instant::now() < deadline + Duration::from_secs(10) {
         if server.0.try_wait().map_err(|e| e.to_string())?.is_some() {
@@ -140,6 +149,30 @@ pub fn run(
         .map_err(|e| format!("no server report ({e}); see {}", log_path.display()))?;
     let report: ServerReport = serde_json::from_str(&json).map_err(|e| e.to_string())?;
     Ok((report, results))
+}
+
+/// One bot client (`racer-capture net-bot`): connects to `server` and lets
+/// the AI drive until the results are in, then writes its [`BotResult`].
+#[allow(clippy::too_many_arguments)]
+pub fn bot_process(
+    server: SocketAddr,
+    client_id: u64,
+    name: &str,
+    car: &str,
+    difficulty: Difficulty,
+    conditions: Conditions,
+    timeout: Duration,
+    track: Arc<Track>,
+) -> BotResult {
+    let join = Join {
+        name: name.into(),
+        car: car.into(),
+        assists: Assists::default(),
+    };
+    let mut config = NetClientConfig::direct(server, client_id, join);
+    config.conditions = conditions;
+    config.autopilot = Some(difficulty);
+    bot(config, track, Instant::now() + timeout)
 }
 
 /// One bot client at 60 frames a second until the results are in.

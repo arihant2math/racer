@@ -50,6 +50,7 @@ fn main() -> ExitCode {
         Some("net-race") => net_race(&args[1..]),
         Some("net-cost") => net_cost(),
         Some("net-lobby") => net_lobby(&args[1..]),
+        Some("net-bot") => net_bot(&args[1..]),
         _ => Err(USAGE.into()),
     };
     match result {
@@ -421,7 +422,6 @@ fn net_race(args: &[String]) -> Result<ExitCode, String> {
     let timeout = Duration::from_secs(flag(&flags, "timeout", 1200)?);
     let out_dir = Path::new(out_dir);
     std::fs::create_dir_all(out_dir).map_err(|e| format!("{}: {e}", out_dir.display()))?;
-    let track = std::sync::Arc::new(racer_trackc::load("downtown-loop")?);
     let check = net::NetCheck {
         server,
         bots,
@@ -431,7 +431,7 @@ fn net_race(args: &[String]) -> Result<ExitCode, String> {
     };
     let started = std::time::Instant::now();
     let runs = (0..races)
-        .map(|race| net::run(&check, race, out_dir, track.clone()))
+        .map(|race| net::run(&check, race, out_dir))
         .collect::<Result<Vec<_>, _>>()?;
     let mut text = String::new();
     let ok = net::analyse(&check, &runs, &mut text);
@@ -488,4 +488,30 @@ fn net_lobby(args: &[String]) -> Result<ExitCode, String> {
             Ok(ExitCode::FAILURE)
         }
     }
+}
+
+/// One bot of `net-race`, in its own process (not in the usage: internal).
+fn net_bot(args: &[String]) -> Result<ExitCode, String> {
+    let (pos, flags) = parse(args, &["conditions", "timeout"])?;
+    let [server, id, name, car, difficulty, out] = pos[..] else {
+        return Err("usage: racer-capture net-bot ADDR ID NAME CAR DIFFICULTY OUT.json".into());
+    };
+    let server = server
+        .parse()
+        .map_err(|_| format!("bad address {server}"))?;
+    let id = id.parse().map_err(|_| format!("bad client id {id}"))?;
+    let difficulty = racer_sim::ai::Difficulty::ALL
+        .into_iter()
+        .find(|d| d.name().eq_ignore_ascii_case(difficulty))
+        .ok_or_else(|| format!("unknown difficulty {difficulty}"))?;
+    let conditions =
+        racer_sim::net::protocol::Conditions::parse(&flag(&flags, "conditions", "0".to_string())?)?;
+    let timeout = Duration::from_secs(flag(&flags, "timeout", 1200)?);
+    let track = std::sync::Arc::new(racer_trackc::load("downtown-loop")?);
+    let result = net::bot_process(
+        server, id, name, car, difficulty, conditions, timeout, track,
+    );
+    let json = serde_json::to_string(&result).map_err(|e| e.to_string())?;
+    std::fs::write(out, json).map_err(|e| format!("{out}: {e}"))?;
+    Ok(ExitCode::SUCCESS)
 }
