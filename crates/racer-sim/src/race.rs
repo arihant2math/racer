@@ -14,7 +14,7 @@ use racer_trackc::Track;
 
 use crate::{
     ai::{AiDriver, CarParams, CarView, Difficulty, Other},
-    rules::{self, Goal, Progress, ResetMonitor, ResetReason, Status, Timing},
+    rules::{self, Goal, Progress, ProgressEvent, ResetMonitor, ResetReason, Status, Timing},
     track::Layer,
     vehicle::{
         Car, CarBody, CarControls, CarState, CarTelemetry, ControlSystems, VehicleSystems,
@@ -321,21 +321,31 @@ fn track_racers(
         let (from, laps) = (racer.progress.distance, racer.progress.laps);
         let events = racer.progress.update(g, pos.0, vel.0, forward, dt);
         if running && racer.status == Status::Racing {
+            // Line and goal crossings are timed inside the step (from how far
+            // past them the car got), so cars finishing in the same step are
+            // told apart and a finish time matches the lap times.
+            let to = racer.progress.distance;
+            let crossed = |d: f32| {
+                if to > from && d > from {
+                    now - dt * ((to - d) / (to - from)).clamp(0.0, 1.0)
+                } else {
+                    now
+                }
+            };
+            let line = crossed(racer.progress.laps as f32 * g.length);
             for &event in &events {
-                racer.timing.on_event(event, now, g);
+                let t = if event == ProgressEvent::Lap {
+                    line
+                } else {
+                    now
+                };
+                racer.timing.on_event(event, t, g);
             }
             // The goal is checked every step (a sprint finish lies between
-            // gates). The crossing time is interpolated inside the step, so
-            // cars finishing in the same step are told apart.
-            let to = racer.progress.distance;
-            let line = match goal {
-                Goal::Distance(d) => d,
-                Goal::Laps(_) => racer.progress.laps as f32 * g.length,
-            };
-            let at = if to > from && line > from {
-                now - dt * ((to - line) / (to - from)).clamp(0.0, 1.0)
-            } else {
-                now
+            // gates).
+            let at = match goal {
+                Goal::Distance(d) => crossed(d),
+                Goal::Laps(_) => line,
             };
             let reached = goal.reached(&racer.progress, g);
             crossings.push((entity, laps, at, reached));

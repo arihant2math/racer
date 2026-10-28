@@ -423,6 +423,8 @@ fn same_step_finishers_get_distinct_times_in_crossing_order() {
     assert!(ta - tb < 1.0 / 240.0);
     assert_eq!((b.position, a.position), (1, 2));
     assert_eq!(app.world().resource::<Race>().winner, Some(tb));
+    // The lap time is timed at the same crossing as the finish.
+    assert_eq!(b.timing.laps, [tb]);
 }
 
 /// QA-RULES-7, second case: a lapped car crossing the line in the same step
