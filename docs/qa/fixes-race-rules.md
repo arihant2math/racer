@@ -198,3 +198,90 @@ branch, the no-progress rule raises resets from 15 to 20 (see QA-AI-4). Every re
 `Stuck` reset in the same pile-ups at turn 1 (~381 m) and ~960 m, which fix/ai is working on
 (QA-AI-1/2/3). The stall column counts across resets, so it moves less than the QA-AI-4 repro,
 which counts per reset.
+
+## Review
+
+Independent review of `fix/race-rules` after merging `origin/main` (merge commit `e7cc081`,
+which includes the Porsche 911 commit `c4110b8`). The merge had no conflicts. Every check below
+ran on the merged result.
+
+### Verification
+
+| Check | Result |
+|---|---|
+| `tools/setup.sh` | complete |
+| `cargo fmt --all --check` | clean |
+| `cargo clippy --workspace --all-targets --locked -- -D warnings` | clean |
+| `cargo clippy -p racer-game --features wheel --all-targets --locked -- -D warnings` | clean |
+| `CARGO_FEATURE_PURE=1` clippy for `x86_64-pc-windows-msvc` and `aarch64-apple-darwin` | both clean |
+| `cargo test --workspace --locked`, twice | 99 passed, 0 failed, 55 ignored, both runs |
+| `#[ignore]` markers vs `origin/main` | the only ones removed are QA-RULES-1 to 8, QA-EDGE-1, 2, 9, 10, 11 and QA-AI-4. Every other group's marker is unchanged |
+| `cargo test --workspace --locked --no-fail-fast -- --ignored` | none of this group's tests is in the ignored set. 50 other-group repros fail as expected, and 5 slow checks pass |
+| `QA_EDGE_CASES=2000` and `=4000 cargo test --release -p racer-sim --test rules_properties` | 9/9 pass at both depths |
+| `racer-capture ai-races --races 4 --laps 3` | all 4 races run to the end (winners do 3 laps, the rest finish lapped or on the lead lap). 7 resets, all `Stuck`, in the turn 1 (381-388 m) and ~960 m pile-ups. That is QA-AI-2's location, and these belong to fix/ai. Expert/Alien rows FAIL the report's pass mark, which `main` already failed. Same numbers as the fixer's run |
+| `tools/capture.sh menu` vs goldens | identical (mean error 0.000) |
+| `CAPTURE_PROFILE=release tools/capture.sh race` vs goldens | all ok: grid/hud/pack mean error ≤ 0.009 (car model from `main`), results 0.149 / 0.16 % (interpolated times) |
+
+### Rules review
+
+I read `git diff origin/main...HEAD` against each point of the brief:
+
+- **Gate credit as a function of distance** (`credit_at` / `advance`). It is coherent. Credit
+  can only come from distance, and distance only moves inside the search window while the car
+  is in the corridor. So jumps, wall gaps and the hairpin shortcut still gain nothing, and an
+  unreachable rejoin now counts as off the track (reset after 3 s) instead of freezing. A
+  multi-gate step credits every gate in order. The `>=` boundaries match the old per-gate
+  checks, and the start line is excluded (negative grid distance).
+- **`move_to` crediting forward**. This is not a shortcut. `reset_pose` always places the car
+  8-38 m *behind* `last_valid`. `last_valid` is a distance the car itself held while on track,
+  upright, not wrong-way and above 1 m/s, so every gate credited on a reset is one the car
+  really reached. After the flag, a reset that re-credits a lap that was undone gives
+  `laps == flag_laps`, not more, so it cannot finish a car early.
+- **Timing history**. `laps` and `history` are pushed and popped together, so undo works to any
+  depth. Bests, best sectors and the delta reference are rebuilt from the standing laps after
+  every `Lap`/`LapUndone`. A finished car's standings use `timing.laps.len()`, so cool-down
+  laps and resets after the flag cannot reorder the finishers.
+- **Finish model**. The winner is the earliest interpolated goal crossing of its step. A car
+  crossing in the winner's step counts as before or after the flag by crossing time.
+  `flag_laps` stops rocking over the line from counting as a flag lap. Jitter on the line gives
+  Lap/LapUndone pairs that timing undoes exactly. Sprint uses the same interpolation on
+  `sprint_finish`. `laps: 0` is clamped to 1 for Circuit and Time Trial. DNF still keys off
+  `race.winner` (now the interpolated time).
+- **Standings**. Laps, then time, then distance, all `total_cmp`/`cmp`. It is a total order,
+  and the deep property run agrees.
+- **Same-step resets**. Each placed pose joins the avoid list, and `update_collisions` compares
+  `Entity`s.
+- **Wrong-way cap**. 2 s cap, cleared ≤ 0.5 s after turning round.
+- **No-progress stuck rule (QA-AI-4)**. It needs 10 m of progress per 7 s, i.e. an average of
+  about 1.4 m/s along the centreline. It does not run before the start (`racing` is false in
+  countdown/hold) or after the finish, and its anchor restarts after every reset. A car turning
+  in a hairpin or crawling in a queue gains far more than that. Only a car averaging under
+  ~1.4 m/s for 7 s straight is reset, and that is the intended backstop. A deliberate
+  wrong-way drive of over 7 s is reset too (the fixer notes this).
+
+### Issues found
+
+No code defects. I made no code changes in the review.
+
+Minor points I checked and left as they are:
+
+- A car is finished after the progress loop, so in its finish step the reset monitor still sees
+  it as racing. A reset could only fire in that exact step if a timer ran out at that moment.
+  Even then, `apply_resets` ignores a finished car's events. It is harmless.
+- A checkpoint closer to the line than one step's travel (< 0.3 m) would time its sector at
+  `now` but the lap at the interpolated crossing, so the last sector could come out a few ms
+  negative. No real layout has a checkpoint that close, and the validator's spacing rules
+  belong to the tooling group.
+
+### Left open
+
+- `docs/milestones/M2.md` (rules row: "stuck below 1 m/s ... 3 s") and `PLAN.md` §3 ("stuck for
+  3 s") don't mention the 7 s no-progress rule. Other branches share those docs, so the wording
+  is left for the integration pass.
+- The remaining pile-up resets and the ai-races pass mark belong to fix/ai (QA-AI-1/2/3).
+- HUD "/0" with `laps: 0` belongs to fix/game-ui (already noted above).
+
+### Verdict
+
+**Approve.** The group's bugs are fixed with a coherent progress and timing model. The checks
+are green on the merged head, and I found no new rules holes.
