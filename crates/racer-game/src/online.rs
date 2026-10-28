@@ -601,14 +601,14 @@ fn leave(
 #[derive(Component)]
 struct PingText;
 
-/// Round-trip time, top centre, with a warning above 250 ms.
+/// Round-trip time, bottom centre, with a warning above 250 ms.
 fn spawn_ping(mut commands: Commands) {
     commands
         .spawn((
             DespawnOnExit(AppState::Race),
             Node {
                 position_type: PositionType::Absolute,
-                top: px(12),
+                bottom: px(12),
                 width: percent(100),
                 justify_content: JustifyContent::Center,
                 ..default()

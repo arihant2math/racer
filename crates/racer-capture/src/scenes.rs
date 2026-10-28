@@ -20,7 +20,9 @@ use racer_sim::{
 use crate::harness::{Pose, PoseCamera};
 
 /// Names accepted by [`add_scene`].
-pub const SCENES: &[&str] = &["greybox", "driving", "race", "menu", "showroom", "lobby"];
+pub const SCENES: &[&str] = &[
+    "greybox", "driving", "race", "menu", "showroom", "lobby", "online",
+];
 
 /// Adds the named scene to `app` and returns its camera poses.
 pub fn add_scene(app: &mut App, name: &str) -> Option<Vec<Pose>> {
@@ -221,6 +223,39 @@ pub fn add_scene(app: &mut App, name: &str) -> Option<Vec<Pose>> {
                         w.resource_mut::<NextState<AppState>>().set(AppState::Lobby);
                     }),
                     ready: Some(|w| in_state(w, AppState::Lobby)),
+                },
+            ])
+        }
+        "online" => {
+            // An online race against a running server (manual check, no
+            // goldens): `racer-server --bind 127.0.0.1:7777`, or
+            // RACER_CAPTURE_SERVER=host:port.
+            let server =
+                std::env::var("RACER_CAPTURE_SERVER").unwrap_or_else(|_| "127.0.0.1:7777".into());
+            let mut online = Online::default();
+            if let Err(e) = online.connect_direct(&server) {
+                error!("{e}");
+                return None;
+            }
+            app.add_plugins(GamePlugin)
+                .insert_resource(online)
+                .insert_resource(RaceSetup {
+                    autopilot: true,
+                    ..default()
+                })
+                .insert_state(AppState::Lobby);
+            Some(vec![
+                Pose {
+                    name: "online-lobby".into(),
+                    camera: PoseCamera::Game,
+                    prepare: None,
+                    ready: Some(|w| in_state(w, AppState::Lobby)),
+                },
+                Pose {
+                    name: "online-race".into(),
+                    camera: PoseCamera::Game,
+                    prepare: None,
+                    ready: Some(|w| in_state(w, AppState::Race) && race_time(w) > 8.0),
                 },
             ])
         }
