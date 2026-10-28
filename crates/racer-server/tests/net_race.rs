@@ -141,3 +141,54 @@ fn two_bots_race_against_an_ai_with_latency_and_loss() {
         assert!(p95 < 2.0, "remote car p95 error {p95} m");
     }
 }
+
+/// A player whose client goes away mid-race: the AI drives the car on.
+#[test]
+fn a_player_who_leaves_is_replaced_by_the_ai() {
+    let addr = free_port();
+    let stop = Arc::new(AtomicBool::new(false));
+    let server = {
+        let stop = stop.clone();
+        std::thread::spawn(move || {
+            let mut app = build_app(&ServerConfig {
+                bind: addr,
+                players: 1,
+                grid: 1,
+                race: RaceConfig {
+                    countdown: 1.0,
+                    ..default()
+                },
+                ..default()
+            });
+            racer_sim::finish_headless(&mut app);
+            let deadline = Instant::now() + Duration::from_secs(60);
+            let taken_over = |app: &App| {
+                let world = app.world();
+                world
+                    .iter_entities()
+                    .any(|e| e.contains::<Racer>() && e.contains::<racer_sim::ai::AiDriver>())
+            };
+            run_until(&mut app, &stop, |app| {
+                Instant::now() > deadline || taken_over(app)
+            });
+            stop.store(true, Ordering::Relaxed);
+            taken_over(&app)
+        })
+    };
+    let track = Arc::new(racer_trackc::load("downtown-loop").unwrap());
+    let join = Join {
+        name: "leaver".into(),
+        car: racer_dynamics::spec::CARS[0].into(),
+        assists: Assists::default(),
+    };
+    let mut app = headless_client(NetClientConfig::direct(addr, 7, join), track);
+    // Race for two seconds, then vanish without a word.
+    let started = Instant::now();
+    run_until(&mut app, &stop, |app| {
+        let racing = app.world().resource::<NetSession>().state == SessionState::Racing;
+        racing && started.elapsed() > Duration::from_secs(4)
+            || started.elapsed() > Duration::from_secs(40)
+    });
+    drop(app);
+    assert!(server.join().unwrap(), "the AI did not take the car over");
+}

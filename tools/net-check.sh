@@ -6,7 +6,10 @@
 #
 #   tools/net-check.sh <out-dir> [races] [laps]
 #
-# Defaults: 2 races of 3 laps per condition (about 30 minutes). Writes
+# Before that, the backend path: a lobby created and joined through
+# racer-backend, a server started by its fleet, two bots racing one lap.
+#
+# Defaults: 2 races of 3 laps per condition (about 35 minutes). Writes
 # <out-dir>/<condition>/net.md and exits non-zero if any condition fails.
 set -euo pipefail
 
@@ -19,10 +22,13 @@ races="${2:-2}"
 laps="${3:-3}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 target_dir="$(cd "$ROOT" && cargo metadata --format-version 1 --no-deps | sed -n 's/.*"target_directory":"\([^"]*\)".*/\1/p')"
-(cd "$ROOT" && cargo build --release -p racer-capture -p racer-server)
+(cd "$ROOT" && cargo build --release -p racer-capture -p racer-server -p racer-backend)
 capture="$target_dir/release/racer-capture"
 
 status=0
+# The backend path: a lobby, the local fleet starting a server, two bots.
+mkdir -p "$out"
+"$capture" net-lobby --laps 1 | tee "$out/lobby.txt" || status=1
 for condition in 0,0,0 150,15,1 250,25,3; do
   dir="$out/rtt-${condition//,/-}"
   "$capture" net-race "$dir" --bots 8 --races "$races" --laps "$laps" \

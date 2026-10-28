@@ -118,7 +118,7 @@ lobby timeout, simulated network conditions, and a JSON report at the end).
 ## Net check
 
 ```sh
-tools/net-check.sh captures/net          # 8 bots, 2 races of 3 laps at 0, 150 and 250 ms RTT (~30 min)
+tools/net-check.sh captures/net          # 8 bots, 2 races of 3 laps at 0, 150 and 250 ms RTT (~35 min)
 tools/net-check.sh captures/net 1 1      # quick: 1 race of 1 lap per condition
 ```
 
@@ -126,8 +126,10 @@ Starts one `racer-server` and 8 headless bot clients (the AI drives each client'
 controls, as a player would) over UDP on localhost with lightyear's link conditioner, runs whole
 races and checks: the race completes and every client agrees with the server on finishing order,
 laps and times; prediction corrections and desyncs stay under the limits; and every car-to-car
-contact on the server was predicted by both cars' clients. It writes `net.md` per condition. The
-underlying commands are `racer-capture net-race <out> [--bots N] [--races N] [--laps N]
+contact on the server was predicted by both cars' clients. It writes `net.md` per condition. It
+first runs the backend path once: `racer-capture net-lobby` starts `racer-backend`, creates and
+joins a lobby with two device keys, starts it (the local fleet starts a server) and races two bots
+on it for a lap. The underlying commands are `racer-capture net-race <out> [--bots N] [--races N] [--laps N]
 [--conditions RTT_MS,JITTER_MS,LOSS_PERCENT]` and `racer-capture net-cost` (CPU cost of a
 simulation tick and of a rollback).
 
