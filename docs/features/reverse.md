@@ -265,3 +265,33 @@ cutoff deadzone keeps it.
   human who reverses far can still be reset by the no-progress backstop.
 - Hood look-back turns the hood camera round in place, so it looks back through the car body
   (back faces are culled, so the cabin is see-through). A camera at the tail would be nicer.
+
+### Follow-up: the 0 ms net-check failure
+
+The orchestrator's `tools/net-check.sh out 1 2` on 84339c8 failed at 0 ms RTT: bots 0 and 1 both
+corrected by about 1.4 m at the same tick (race time 150.04 s, rollback depth 12 and 13). That was
+outside every contact (the last server contact was at race tick 4364) and every reset (none). 150 and
+250 ms passed. **It is not this branch: `main` fails the same way.**
+
+| Build (both with the same print-only instrumentation) | 0 ms, 2 races × 2 laps, 8 bots | Result |
+|---|---|---|
+| feat/reverse 84339c8 | position p95 0.010 m, p99 0.010 m, max 0.010 m; 0 desyncs | PASS |
+| main c1444c5 | position p95 0.199 m, **p99 0.744 m**, max 0.744 m; 1 desync (race 1, bot 1, 118.4 s, 0.74 m, no car within 17 m, last server step over 20 ms 24 s earlier) | **FAIL** |
+
+Why the branch cannot cause it. The bots are the AI, which drives the manual gearbox. So
+`auto_reverse` never runs for them, `reverse_hold` stays 0 and `brake_reverse` stays false, and
+`ResetMonitor::backing_up` (server rules only, and only on `brake_reverse`) never fires. The
+`state_off` change can only add rollbacks. Client and server run the same `racer-dynamics`, and
+the new fields travel in `own`, so the TCS slip change applies identically on both sides. On the
+client, remote car bodies have collision filter `NONE`, so a client-only contact is impossible
+too.
+
+What it looks like (from main's instrumented desync): server and prediction agree on gear and
+wheel speeds and differ in velocity by 0.12 m/s, but sit 0.74 m apart along the direction of travel
+at 29.6 m/s. That is about 6 ticks of motion at depth 7. The orchestrator's case (1.4 m at about
+35 m/s, depth 12) fits the same pattern. A time shift like this, not different physics or inputs,
+suggests the client's tick clock (`advance_tick` follows lightyear's `LocalTimeline`) advanced
+without simulating some steps, on two bot processes at once (CPU starvation on the shared
+machine). **Unconfirmed**: I ran out of budget before a starved run with a tick-jump print. It is
+intermittent (3 races passed on M3's main for the orchestrator, my 2 branch races passed) and
+belongs to the M3 netcode, not this branch, so I did not widen the branch for it.
